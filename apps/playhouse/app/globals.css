@@ -267,12 +267,24 @@ a {
 }
 
 .panelHeader {
+  position: relative;
   display: flex;
   min-height: 118px;
   padding: 28px clamp(24px, 4vw, 42px);
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--line);
+}
+
+.panelActions,
+.statusActions,
+.formFooter {
+  display: flex;
+  align-items: center;
+}
+
+.panelActions {
+  gap: 10px;
 }
 
 .eyebrow {
@@ -354,12 +366,15 @@ h1 {
 }
 
 .playRow {
-  display: flex;
-  gap: 15px;
   min-height: 74px;
   padding: 16px clamp(24px, 4vw, 42px);
-  align-items: center;
   border-bottom: 1px solid var(--line);
+}
+
+.playRowSummary {
+  display: flex;
+  gap: 15px;
+  align-items: center;
 }
 
 .playTypeMarker {
@@ -379,6 +394,7 @@ h1 {
 .playCopy {
   display: grid;
   min-width: 0;
+  flex: 1;
   gap: 5px;
 }
 
@@ -389,6 +405,217 @@ h1 {
 .playCopy small {
   color: var(--muted);
   font-size: 0.75rem;
+}
+
+.createDisclosure,
+.editDisclosure {
+  font-size: 0.78rem;
+}
+
+.createDisclosure summary,
+.editDisclosure summary {
+  width: max-content;
+  color: var(--accent-deep);
+  border-radius: 9px;
+  font-weight: 800;
+  list-style: none;
+  cursor: pointer;
+}
+
+.createDisclosure summary::-webkit-details-marker,
+.editDisclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.createDisclosure summary {
+  padding: 9px 13px;
+  color: white;
+  background: var(--accent);
+  box-shadow: 0 8px 18px rgba(109, 63, 242, 0.2);
+}
+
+.editDisclosure {
+  margin: 8px 0 0 25px;
+}
+
+.editDisclosure summary {
+  padding: 5px 8px;
+}
+
+.createDisclosure summary:focus-visible,
+.editDisclosure summary:focus-visible,
+.primaryButton:focus-visible,
+.doneButton:focus-visible,
+.trashButton:focus-visible {
+  outline: 3px solid rgba(109, 63, 242, 0.3);
+  outline-offset: 2px;
+}
+
+.createDisclosure .playForm {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% - 10px);
+  right: clamp(16px, 4vw, 42px);
+  width: min(720px, calc(100vw - 40px));
+  max-height: calc(100vh - 130px);
+  overflow-y: auto;
+  box-shadow: 0 24px 70px rgba(48, 29, 83, 0.22);
+}
+
+.playForm {
+  display: grid;
+  margin-top: 10px;
+  padding: 22px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fffdfa;
+}
+
+.field {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.field > span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 11px;
+  color: var(--ink);
+  border: 1px solid rgba(53, 38, 72, 0.18);
+  border-radius: 10px;
+  background: white;
+  font: inherit;
+}
+
+.field textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: var(--accent);
+  outline: 3px solid rgba(109, 63, 242, 0.12);
+}
+
+.field input[aria-invalid="true"],
+.field select[aria-invalid="true"] {
+  border-color: #a5334f;
+}
+
+.field--wide {
+  grid-column: 1 / -1;
+}
+
+.fieldHint,
+.fieldError {
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.fieldHint {
+  color: var(--muted);
+}
+
+.fieldError,
+.rowError {
+  color: #81243b;
+}
+
+.playerDeferred {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--muted);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.formFooter {
+  min-height: 42px;
+  gap: 14px;
+}
+
+.primaryButton,
+.doneButton,
+.trashButton {
+  border: 0;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.primaryButton {
+  min-height: 42px;
+  padding: 9px 15px;
+  color: white;
+  border-radius: 10px;
+  background: var(--accent);
+}
+
+.primaryButton:disabled,
+.doneButton:disabled,
+.trashButton:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.formSuccess {
+  margin: 0;
+  color: var(--success);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.statusActionArea {
+  display: grid;
+  justify-items: end;
+}
+
+.statusActions {
+  gap: 6px;
+}
+
+.doneButton,
+.trashButton {
+  min-height: 34px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 0.7rem;
+}
+
+.doneButton {
+  color: #167146;
+  background: rgba(36, 154, 99, 0.09);
+}
+
+.trashButton {
+  color: #81243b;
+  background: rgba(129, 36, 59, 0.07);
+}
+
+.rowError {
+  max-width: 240px;
+  margin: 5px 0 0;
+  font-size: 0.67rem;
+  line-height: 1.35;
+  text-align: right;
 }
 
 .authPage {
@@ -580,6 +807,52 @@ h1 {
   .panelHeader {
     min-height: 100px;
     padding: 23px 20px;
+  }
+
+  .panelActions {
+    align-items: flex-end;
+    flex-direction: column-reverse;
+  }
+
+  .createDisclosure .playForm {
+    right: 14px;
+    width: calc(100vw - 28px);
+  }
+
+  .playRow {
+    padding: 16px 18px;
+  }
+
+  .playRowSummary {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .playCopy {
+    flex-basis: calc(100% - 30px);
+  }
+
+  .statusActionArea {
+    width: 100%;
+    justify-items: start;
+    margin-left: 25px;
+  }
+
+  .statusActionArea .rowError {
+    text-align: left;
+  }
+
+  .editDisclosure {
+    margin-left: 25px;
+  }
+
+  .playForm {
+    padding: 17px;
+    grid-template-columns: 1fr;
+  }
+
+  .field--wide {
+    grid-column: auto;
   }
 
   .emptyState {

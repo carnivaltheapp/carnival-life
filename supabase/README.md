@@ -13,6 +13,11 @@ The first Phase 1 migration establishes:
 - the initial workday/settings model;
 - indexed ownership columns and Row Level Security on every exposed table.
 
+The next narrow Phase 1 migration adds database-controlled lifecycle normalization and
+transactional Play history. Create, edit, move, type change, done, trash, and any later
+reopen transition append before/after context to `play_events` in the same transaction as
+the current-state write.
+
 ## Local validation
 
 Local Supabase requires a Docker-compatible container runtime. From the repository root:

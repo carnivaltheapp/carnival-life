@@ -3,6 +3,8 @@ import Link from "next/link";
 import { signOut } from "../app/auth/actions";
 import type { BasketSummary, PlayListItem } from "../domain/play";
 import type { SelectedView } from "../lib/playhouse/data";
+import { PlayForm } from "./play-form";
+import { PlayStatusActions } from "./play-status-actions";
 
 const CALENDAR_VIEWS = [
   { key: "today", label: "Today", marker: "●" },
@@ -39,6 +41,10 @@ export function PlayhouseShell({
   selectedView: SelectedView;
 }) {
   const playCountLabel = `${plays.length} ${plays.length === 1 ? "Play" : "Plays"}`;
+  const defaultPlacement =
+    selectedView.kind === "basket"
+      ? { basketId: selectedView.basket.id, kind: "basket" as const }
+      : { kind: "calendar" as const, scheduledDate: selectedView.startDate };
 
   return (
     <main className="workspace">
@@ -138,9 +144,14 @@ export function PlayhouseShell({
               </p>
               <h1 id="view-title">{selectedView.label}</h1>
             </div>
-            <span className="countBadge" aria-label={`${playCountLabel} open`}>
-              {playCountLabel}
-            </span>
+            <div className="panelActions">
+              <span className="countBadge" aria-label={`${playCountLabel} open`}>
+                {playCountLabel}
+              </span>
+              {!dataError ? (
+                <PlayForm baskets={baskets} defaultPlacement={defaultPlacement} />
+              ) : null}
+            </div>
           </div>
 
           {dataError ? (
@@ -161,8 +172,7 @@ export function PlayhouseShell({
               </span>
               <h2>No Plays here yet.</h2>
               <p>
-                This view is connected to Carnival and ready for Plays. Creating and editing
-                Plays comes in the next Phase 1 slice.
+                Create a Play here, or choose another calendar date or Basket.
               </p>
             </div>
           ) : (
@@ -171,14 +181,22 @@ export function PlayhouseShell({
                 const metadata = playMeta(play);
                 return (
                   <li className="playRow" key={play.id}>
-                    <span
-                      className={`playTypeMarker playTypeMarker--${play.playType}`}
-                      aria-label={play.playType === "reminder" ? "Reminder" : "Normal Play"}
+                    <div className="playRowSummary">
+                      <span
+                        className={`playTypeMarker playTypeMarker--${play.playType}`}
+                        aria-label={play.playType === "reminder" ? "Reminder" : "Normal Play"}
+                      />
+                      <span className="playCopy">
+                        <strong>{play.title}</strong>
+                        {metadata.length > 0 ? <small>{metadata.join(" · ")}</small> : null}
+                      </span>
+                      <PlayStatusActions playId={play.id} />
+                    </div>
+                    <PlayForm
+                      baskets={baskets}
+                      defaultPlacement={defaultPlacement}
+                      play={play}
                     />
-                    <span className="playCopy">
-                      <strong>{play.title}</strong>
-                      {metadata.length > 0 ? <small>{metadata.join(" · ")}</small> : null}
-                    </span>
                   </li>
                 );
               })}

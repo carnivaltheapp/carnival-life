@@ -140,7 +140,7 @@ export async function loadPlayhouseData({
   let playQuery = supabase
     .from("plays")
     .select(
-      "id, title, play_type, source_type, duration_minutes, branch, place, sort_order, created_at",
+      "id, title, play_type, source_type, scheduled_date, basket_id, duration_minutes, branch, note, url, push_rule, place, sort_order, created_at",
     )
     .eq("status", "open");
 
@@ -157,13 +157,18 @@ export async function loadPlayhouseData({
     .order("created_at", { ascending: true });
 
   const plays: PlayListItem[] = (playRows ?? []).map((play) => ({
+    basketId: play.basket_id,
     branch: play.branch,
     durationMinutes: play.duration_minutes,
     id: play.id,
+    note: play.note,
     place: play.place,
     playType: play.play_type,
+    pushRule: play.push_rule,
+    scheduledDate: play.scheduled_date,
     sourceType: play.source_type,
     title: play.title,
+    url: play.url,
   }));
 
   return {

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public;
 
-select plan(25);
+select plan(31);
 
 select has_table('public', 'users', 'Carnival users table exists');
 select has_table('public', 'baskets', 'Baskets table exists');
@@ -52,6 +52,13 @@ select has_constraint(
   'plays',
   'plays_exactly_one_placement',
   'Plays enforce exactly one placement'
+);
+
+select has_trigger(
+  'public',
+  'plays',
+  'plays_append_event_history',
+  'Play writes append event history through a database trigger'
 );
 
 insert into auth.users (id, email, raw_user_meta_data)
@@ -109,6 +116,83 @@ select lives_ok(
     )
   $$,
   'A Play with a real date is accepted'
+);
+
+select is(
+  (
+    select count(*)
+    from public.play_events
+    where event_type = 'create'
+      and play_id = (
+        select id from public.plays where title = 'A dated Play'
+      )
+  ),
+  1::bigint,
+  'Creating a Play appends one create event'
+);
+
+update public.plays
+set
+  title = 'A changed Play',
+  play_type = 'reminder',
+  scheduled_date = '2026-08-26'::date
+where title = 'A dated Play';
+
+select is(
+  (
+    select count(*)
+    from public.play_events
+    where play_id = (select id from public.plays where title = 'A changed Play')
+      and event_type in ('edit', 'move', 'type_change')
+  ),
+  3::bigint,
+  'A combined edit records edit, move, and type-change events'
+);
+
+select ok(
+  exists (
+    select 1
+    from public.play_events
+    where play_id = (select id from public.plays where title = 'A changed Play')
+      and event_type = 'move'
+      and payload -> 'before' ->> 'scheduled_date' = '2026-08-25'
+      and payload -> 'after' ->> 'scheduled_date' = '2026-08-26'
+      and payload -> 'changed_fields' ? 'scheduled_date'
+  ),
+  'Event payload preserves before/after state and changed fields'
+);
+
+update public.plays
+set status = 'done'
+where title = 'A changed Play';
+
+select ok(
+  exists (
+    select 1
+    from public.plays p
+    join public.play_events e on e.play_id = p.id
+    where p.title = 'A changed Play'
+      and p.completed_at is not null
+      and e.event_type = 'done'
+      and e.payload -> 'after' ->> 'completed_at' is not null
+  ),
+  'Done normalizes completion time and appends a done event'
+);
+
+update public.plays
+set status = 'trash'
+where title = 'A changed Play';
+
+select ok(
+  exists (
+    select 1
+    from public.plays p
+    join public.play_events e on e.play_id = p.id
+    where p.title = 'A changed Play'
+      and p.completed_at is null
+      and e.event_type = 'trash'
+  ),
+  'Trash clears completion time and appends a trash event'
 );
 
 select throws_ok(

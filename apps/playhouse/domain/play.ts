@@ -41,11 +41,16 @@ export interface BasketSummary {
 }
 
 export interface PlayListItem {
+  basketId: string | null;
   branch: string | null;
   durationMinutes: number | null;
   id: string;
+  note: string | null;
   place: string | null;
   playType: PlayType;
+  pushRule: PushRule;
+  scheduledDate: string | null;
   sourceType: PlaySourceType;
   title: string;
+  url: string | null;
 }
