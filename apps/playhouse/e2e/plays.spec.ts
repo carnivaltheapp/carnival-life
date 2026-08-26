@@ -74,7 +74,7 @@ test("successful Create closes, appears immediately, and updates count", async (
 test("Edit updates title and URL while preserving Duration and Place", async ({ auth }) => {
   await auth.page.goto("/");
   await createPlay(auth.page, "Before edit", { url: "example.com/original" });
-  const { disclosure, form } = await openEditPlay(auth.page, "Before edit");
+  const { form } = await openEditPlay(auth.page, "Before edit");
 
   await expect(form.getByLabel("Duration (minutes)")).toHaveValue("30");
   await expect(form.locator('select[name="place"]')).toHaveValue("office");
@@ -83,9 +83,10 @@ test("Edit updates title and URL while preserving Duration and Place", async ({ 
   await form.getByLabel("URL").fill("http://example.com/updated");
   await form.getByRole("button", { name: "Save changes" }).click();
 
-  await expect(disclosure).not.toHaveAttribute("open", "");
   await expect(playRow(auth.page, "Before edit")).toHaveCount(0);
-  await expect(playRow(auth.page, "After edit")).toBeVisible();
+  const updatedRow = playRow(auth.page, "After edit");
+  await expect(updatedRow).toBeVisible();
+  await expect(updatedRow.getByTestId("edit-play")).not.toHaveAttribute("open", "");
   const { data, error } = await auth.user
     .from("plays")
     .select("duration_minutes, place, url")
@@ -113,7 +114,9 @@ test("Play moves date to Basket and Basket back to date", async ({ auth }) => {
   await expect(playRow(auth.page, "Move both ways")).toBeVisible();
   edit = await openEditPlay(auth.page, "Move both ways");
   await edit.form.locator('select[name="placementKind"]').selectOption("calendar");
-  await edit.form.getByLabel("Date").fill(new Date().toISOString().slice(0, 10));
+  await edit.form
+    .getByLabel("Date", { exact: true })
+    .fill(new Date().toISOString().slice(0, 10));
   await edit.form.getByRole("button", { name: "Save changes" }).click();
   await expect(playRow(auth.page, "Move both ways")).toHaveCount(0);
 
