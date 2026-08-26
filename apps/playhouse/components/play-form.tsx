@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
 
 import { savePlay } from "../app/plays/actions";
@@ -13,6 +14,7 @@ import type {
 import type { PlayInputField } from "../domain/play-input";
 import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
 import { NextPlayRelationshipForm } from "./next-play-relationship-form";
+import { applySuccessfulPlaySave } from "./play-form-success";
 
 const PLACE_OPTIONS = ["office", "outside", "any"] as const;
 
@@ -35,6 +37,7 @@ export function PlayForm({
   nextPlayOptions: NextPlayOption[];
   play?: PlayListItem;
 }) {
+  const router = useRouter();
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const initialPlacement: PlayPlacement = play
     ? play.basketId
@@ -53,12 +56,11 @@ export function PlayForm({
   );
 
   useEffect(() => {
-    if (state.status !== "success") {
-      return;
-    }
-
-    detailsRef.current?.removeAttribute("open");
-  }, [state]);
+    applySuccessfulPlaySave(state.status, {
+      close: () => detailsRef.current?.removeAttribute("open"),
+      refresh: () => router.refresh(),
+    });
+  }, [router, state]);
 
   return (
     <details
