@@ -9,7 +9,7 @@
     "dev": "next dev --port 3002",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --exclude e2e/**",
+    "test": "vitest run --exclude \"e2e/**\"",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "build": "next build",
