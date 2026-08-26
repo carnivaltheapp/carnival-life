@@ -6,14 +6,15 @@
     "apps/*"
   ],
   "engines": {
-    "node": ">=20.9.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "dev": "npm run dev --workspace=@carnival/playhouse",
     "lint": "npm run lint --workspace=@carnival/playhouse",
     "typecheck": "npm run typecheck --workspace=@carnival/playhouse",
+    "test": "npm run test --workspace=@carnival/playhouse",
     "build": "npm run build --workspace=@carnival/playhouse",
-    "check": "npm run lint && npm run typecheck && npm run build",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build",
     "db:start": "supabase start",
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset",

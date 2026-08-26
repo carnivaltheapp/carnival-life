@@ -101,27 +101,76 @@ a {
   font-weight: 800;
 }
 
-.headerStatus {
-  display: inline-flex;
-  gap: 9px;
+.accountArea,
+.accountIdentity {
+  display: flex;
   align-items: center;
-  padding: 8px 12px;
-  color: var(--accent-deep);
-  border: 1px solid rgba(109, 63, 242, 0.16);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.64);
-  font-size: 0.73rem;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
 }
 
-.statusDot {
-  width: 8px;
-  height: 8px;
+.accountArea {
+  gap: 16px;
+}
+
+.accountIdentity {
+  gap: 9px;
+}
+
+.accountAvatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  color: var(--accent-deep);
+  border: 1px solid rgba(109, 63, 242, 0.14);
   border-radius: 50%;
-  background: var(--success);
-  box-shadow: 0 0 0 4px rgba(36, 154, 99, 0.12);
+  background: rgba(109, 63, 242, 0.09);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.accountText {
+  display: grid;
+  max-width: 230px;
+  line-height: 1.2;
+}
+
+.accountText strong,
+.accountText small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountText strong {
+  font-size: 0.78rem;
+}
+
+.accountText small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.signOutButton,
+.googleButton {
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.signOutButton {
+  padding: 8px 11px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.signOutButton:hover {
+  color: var(--ink);
+  background: white;
 }
 
 .workspaceBody {
@@ -198,6 +247,12 @@ a {
 .basketIcon {
   color: #b06e00;
   font-size: 1rem;
+}
+
+.navEmpty {
+  margin: 8px 12px;
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .playPanel {
@@ -286,22 +341,159 @@ h1 {
   line-height: 1.68;
 }
 
-.foundationChecklist {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
-  margin-top: 25px;
+.errorSpark {
+  color: #81243b;
+  background: #ffd9df;
+  box-shadow: 0 12px 30px rgba(129, 36, 59, 0.14);
 }
 
-.foundationChecklist span {
-  padding: 8px 11px;
-  color: var(--success);
-  border: 1px solid rgba(36, 154, 99, 0.16);
-  border-radius: 9px;
-  background: rgba(36, 154, 99, 0.07);
-  font-size: 0.74rem;
+.playList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.playRow {
+  display: flex;
+  gap: 15px;
+  min-height: 74px;
+  padding: 16px clamp(24px, 4vw, 42px);
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+
+.playTypeMarker {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(109, 63, 242, 0.1);
+}
+
+.playTypeMarker--reminder {
+  background: #d78b0a;
+  box-shadow: 0 0 0 4px rgba(215, 139, 10, 0.12);
+}
+
+.playCopy {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.playCopy strong {
+  font-size: 0.94rem;
+}
+
+.playCopy small {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.authPage {
+  display: grid;
+  width: min(1120px, calc(100% - 40px));
+  min-height: 100vh;
+  margin: 0 auto;
+  grid-template-rows: auto 1fr;
+}
+
+.authHeader {
+  display: flex;
+  min-height: 80px;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+
+.authCard {
+  display: grid;
+  width: min(520px, 100%);
+  margin: auto;
+  padding: clamp(36px, 7vw, 62px);
+  justify-items: center;
+  border: 1px solid rgba(53, 38, 72, 0.1);
+  border-radius: 28px;
+  background: rgba(255, 253, 251, 0.86);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.authCard .spark {
+  margin-bottom: 24px;
+}
+
+.authCard .eyebrow {
+  margin-bottom: 12px;
+}
+
+.authIntro {
+  max-width: 380px;
+  margin: 18px 0 28px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.signInAction {
+  display: grid;
+  justify-items: center;
+}
+
+.googleButton {
+  display: inline-flex;
+  min-width: 220px;
+  min-height: 48px;
+  padding: 10px 18px;
+  gap: 11px;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  border-radius: 12px;
+  background: var(--accent);
+  box-shadow: 0 10px 24px rgba(109, 63, 242, 0.24);
+  font-size: 0.9rem;
   font-weight: 780;
+}
+
+.googleButton:hover:not(:disabled) {
+  background: var(--accent-deep);
+}
+
+.googleButton:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.googleMark {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  color: #3067d6;
+  border-radius: 50%;
+  background: white;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.formError,
+.authNotice {
+  max-width: 390px;
+  color: #81243b;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.formError {
+  margin: 13px 0 0;
+}
+
+.authNotice {
+  margin: 18px 0 0;
+  padding: 11px 13px;
+  border: 1px solid rgba(129, 36, 59, 0.14);
+  border-radius: 10px;
+  background: rgba(129, 36, 59, 0.06);
 }
 
 @media (max-width: 820px) {
@@ -358,13 +550,21 @@ h1 {
     border-radius: 10px;
   }
 
-  .headerStatus {
-    padding: 7px 9px;
-    font-size: 0.63rem;
+  .accountArea {
+    gap: 7px;
   }
 
-  .headerStatus .statusDot {
+  .accountAvatar,
+  .accountText small {
     display: none;
+  }
+
+  .accountText {
+    max-width: 95px;
+  }
+
+  .accountText strong {
+    font-size: 0.7rem;
   }
 
   .workspaceBody {
@@ -387,8 +587,17 @@ h1 {
     padding: 42px 22px;
   }
 
-  .foundationChecklist {
-    gap: 6px;
+  .authPage {
+    width: min(100% - 28px, 1120px);
+  }
+
+  .authHeader {
+    min-height: 68px;
+  }
+
+  .authCard {
+    padding: 38px 24px;
+    border-radius: 22px;
   }
 }
 

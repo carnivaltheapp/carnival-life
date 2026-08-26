@@ -11,10 +11,8 @@ Additional Carnival applications will be added to this monorepo over time.
 
 ## Prerequisites
 
-- Node.js 20.9 or newer (the current Node.js LTS release is recommended)
+- Node.js 22 or newer
 - npm 10 or newer
-
-No Supabase project or Google OAuth credentials are required for the Phase 0 application shell.
 
 Phase 1 database work is now version-controlled under [`supabase/`](supabase/). A local database requires a Docker-compatible container runtime; see [`supabase/README.md`](supabase/README.md).
 
@@ -34,7 +32,7 @@ Start PlayHouse from the repository root:
 npm run dev
 ```
 
-Then open [http://localhost:3000](http://localhost:3000).
+Then open [http://localhost:3002](http://localhost:3002). Port 3002 is the required local PlayHouse origin and is configured by the app's `dev` script.
 
 The same application can be run from its Vercel root directory:
 
@@ -48,10 +46,11 @@ npm run dev
 ```bash
 npm run lint
 npm run typecheck
+npm run test
 npm run build
 ```
 
-Run all three checks in sequence with:
+Run all four checks in sequence with:
 
 ```bash
 npm run check
@@ -68,7 +67,28 @@ npm run db:stop
 
 ## Environment variables
 
-[`apps/playhouse/.env.example`](apps/playhouse/.env.example) reserves the environment variable names expected by later authentication and data phases. Do not add real credentials to tracked files. The Phase 0 shell does not read these variables.
+Copy the placeholder file for local hosted-Supabase development:
+
+```bash
+cd apps/playhouse
+cp .env.example .env.local
+```
+
+On PowerShell, use `Copy-Item .env.example .env.local`. Populate only these public browser-safe values from the Supabase project Connect dialog:
+
+```dotenv
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your-key
+```
+
+Do not add a service-role key or Google client secret to the PlayHouse environment. Google provider credentials remain in Supabase's hosted Auth configuration.
+
+For Google sign-in, Supabase Auth URL Configuration must allow both application callback origins:
+
+- `https://carnival-playhouse.vercel.app/**`
+- `http://localhost:3002/**`
+
+The application callback routes are `https://carnival-playhouse.vercel.app/auth/callback` and `http://localhost:3002/auth/callback`. Google Cloud's authorized redirect URI remains the hosted Supabase Auth callback shown on the Supabase Google provider page—not the PlayHouse callback route.
 
 ## Vercel deployment
 
@@ -77,9 +97,9 @@ Create or connect the `carnival-playhouse` Vercel project to `carnivaltheapp/car
 - **Framework Preset:** Next.js
 - **Root Directory:** `apps/playhouse`
 - **Install, Build, and Output settings:** use Vercel's detected defaults
-- **Node.js:** a version satisfying `>=20.9.0`
+- **Node.js:** a version satisfying `>=22.0.0`
 
-Vercel detects the repository's npm workspace lockfile and runs the PlayHouse package's `build` script from the selected Root Directory. Environment variables are not needed for the Phase 0 shell. Configure them in Vercel only when the corresponding later phase is implemented.
+Vercel detects the repository's npm workspace lockfile and runs the PlayHouse package's `build` script from the selected Root Directory. Configure `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` for Production and any Preview environment whose URL is included in the Supabase redirect allow list.
 
 ## Project documentation
 

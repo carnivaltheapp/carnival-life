@@ -1,43 +1,44 @@
 import Link from "next/link";
 
-import {
-  DEFAULT_BASKETS,
-  isDefaultBasketSlug,
-  type DefaultBasketSlug,
-} from "../domain/play";
-
-type View =
-  | { kind: "calendar"; key: "today" | "tomorrow" | "week"; label: string }
-  | { kind: "basket"; key: DefaultBasketSlug; label: string };
+import { signOut } from "../app/auth/actions";
+import type { BasketSummary, PlayListItem } from "../domain/play";
+import type { SelectedView } from "../lib/playhouse/data";
 
 const CALENDAR_VIEWS = [
-  { key: "today", label: "Today" },
-  { key: "tomorrow", label: "Tomorrow" },
-  { key: "week", label: "Next 7 days" },
+  { key: "today", label: "Today", marker: "●" },
+  { key: "tomorrow", label: "Tomorrow", marker: "○" },
+  { key: "week", label: "Next 7 days", marker: "•••" },
 ] as const;
 
-function resolveView(view: string | undefined, basket: string | undefined): View {
-  if (basket && isDefaultBasketSlug(basket)) {
-    const definition = DEFAULT_BASKETS.find((item) => item.slug === basket);
-    return { kind: "basket", key: basket, label: definition?.name ?? "Basket" };
-  }
+export type UserIdentity = {
+  displayName: string;
+  email: string | null;
+};
 
-  const calendarView = CALENDAR_VIEWS.find((item) => item.key === view);
-  return {
-    kind: "calendar",
-    key: calendarView?.key ?? "today",
-    label: calendarView?.label ?? "Today",
-  };
+function playMeta(play: PlayListItem) {
+  return [
+    play.playType === "reminder" ? "Reminder" : "Normal",
+    play.sourceType === "gmail" ? "Email" : null,
+    play.durationMinutes ? `${play.durationMinutes} min` : null,
+    play.branch,
+    play.place,
+  ].filter(Boolean);
 }
 
 export function PlayhouseShell({
-  view,
-  basket,
+  baskets,
+  dataError,
+  identity,
+  plays,
+  selectedView,
 }: {
-  view?: string;
-  basket?: string;
+  baskets: BasketSummary[];
+  dataError: boolean;
+  identity: UserIdentity;
+  plays: PlayListItem[];
+  selectedView: SelectedView;
 }) {
-  const selectedView = resolveView(view, basket);
+  const playCountLabel = `${plays.length} ${plays.length === 1 ? "Play" : "Plays"}`;
 
   return (
     <main className="workspace">
@@ -52,9 +53,21 @@ export function PlayhouseShell({
           </span>
         </Link>
 
-        <div className="headerStatus" aria-label="Application status">
-          <span className="statusDot" aria-hidden="true" />
-          Phase 1 foundation
+        <div className="accountArea">
+          <div className="accountIdentity">
+            <span className="accountAvatar" aria-hidden="true">
+              {identity.displayName.slice(0, 1).toUpperCase()}
+            </span>
+            <span className="accountText">
+              <strong>{identity.displayName}</strong>
+              {identity.email ? <small>{identity.email}</small> : null}
+            </span>
+          </div>
+          <form action={signOut}>
+            <button className="signOutButton" type="submit">
+              Sign out
+            </button>
+          </form>
         </div>
       </header>
 
@@ -70,14 +83,14 @@ export function PlayhouseShell({
 
                   return (
                     <Link
+                      aria-current={isActive ? "page" : undefined}
                       className="destinationLink"
                       data-active={isActive || undefined}
                       href={`/?view=${item.key}`}
                       key={item.key}
-                      aria-current={isActive ? "page" : undefined}
                     >
                       <span className="destinationIcon" aria-hidden="true">
-                        {item.key === "today" ? "●" : item.key === "tomorrow" ? "○" : "•••"}
+                        {item.marker}
                       </span>
                       {item.label}
                     </Link>
@@ -89,25 +102,29 @@ export function PlayhouseShell({
             <section aria-labelledby="baskets-heading">
               <h2 id="baskets-heading">Baskets</h2>
               <div className="navItems">
-                {DEFAULT_BASKETS.map((item) => {
+                {baskets.map((basket) => {
                   const isActive =
-                    selectedView.kind === "basket" && selectedView.key === item.slug;
+                    selectedView.kind === "basket" &&
+                    selectedView.basket.id === basket.id;
 
                   return (
                     <Link
+                      aria-current={isActive ? "page" : undefined}
                       className="destinationLink"
                       data-active={isActive || undefined}
-                      href={`/?basket=${item.slug}`}
-                      key={item.slug}
-                      aria-current={isActive ? "page" : undefined}
+                      href={`/?basket=${encodeURIComponent(basket.slug)}`}
+                      key={basket.id}
                     >
                       <span className="destinationIcon basketIcon" aria-hidden="true">
                         ◇
                       </span>
-                      {item.name}
+                      {basket.name}
                     </Link>
                   );
                 })}
+                {!dataError && baskets.length === 0 ? (
+                  <p className="navEmpty">No Baskets available</p>
+                ) : null}
               </div>
             </section>
           </nav>
@@ -121,27 +138,52 @@ export function PlayhouseShell({
               </p>
               <h1 id="view-title">{selectedView.label}</h1>
             </div>
-            <span className="countBadge" aria-label="Zero open Plays">
-              0 Plays
+            <span className="countBadge" aria-label={`${playCountLabel} open`}>
+              {playCountLabel}
             </span>
           </div>
 
-          <div className="emptyState">
-            <span className="spark" aria-hidden="true">
-              ✦
-            </span>
-            <h2>The stage is ready.</h2>
-            <p>
-              Play storage, ownership, Baskets, relationships, settings, and event history
-              now have a version-controlled database foundation. Authentication and live Play
-              data arrive in the next Phase 1 slice.
-            </p>
-            <div className="foundationChecklist" aria-label="Foundation status">
-              <span>Schema defined</span>
-              <span>RLS enabled</span>
-              <span>History ready</span>
+          {dataError ? (
+            <div className="emptyState" role="alert">
+              <span className="spark errorSpark" aria-hidden="true">
+                !
+              </span>
+              <h2>PlayHouse could not load.</h2>
+              <p>
+                Your session is still secure. Refresh the page in a moment, or sign out and
+                try again.
+              </p>
             </div>
-          </div>
+          ) : plays.length === 0 ? (
+            <div className="emptyState">
+              <span className="spark" aria-hidden="true">
+                ✦
+              </span>
+              <h2>No Plays here yet.</h2>
+              <p>
+                This view is connected to Carnival and ready for Plays. Creating and editing
+                Plays comes in the next Phase 1 slice.
+              </p>
+            </div>
+          ) : (
+            <ol className="playList" aria-label={`Open Plays in ${selectedView.label}`}>
+              {plays.map((play) => {
+                const metadata = playMeta(play);
+                return (
+                  <li className="playRow" key={play.id}>
+                    <span
+                      className={`playTypeMarker playTypeMarker--${play.playType}`}
+                      aria-label={play.playType === "reminder" ? "Reminder" : "Normal Play"}
+                    />
+                    <span className="playCopy">
+                      <strong>{play.title}</strong>
+                      {metadata.length > 0 ? <small>{metadata.join(" · ")}</small> : null}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
         </section>
       </div>
     </main>

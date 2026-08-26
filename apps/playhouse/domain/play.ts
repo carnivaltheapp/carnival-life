@@ -33,18 +33,19 @@ export interface Play {
   completedAt: string | null;
 }
 
-export const DEFAULT_BASKETS = [
-  { slug: "backlog", name: "Backlog" },
-  { slug: "soon", name: "Soon" },
-  { slug: "later", name: "Later" },
-  { slug: "in-touch", name: "In Touch" },
-  { slug: "to-watch", name: "To Watch" },
-  { slug: "to-go", name: "To Go" },
-  { slug: "on-the-way", name: "On The Way" },
-] as const;
+export interface BasketSummary {
+  id: string;
+  name: string;
+  slug: string;
+  sortOrder: number;
+}
 
-export type DefaultBasketSlug = (typeof DEFAULT_BASKETS)[number]["slug"];
-
-export function isDefaultBasketSlug(value: string): value is DefaultBasketSlug {
-  return DEFAULT_BASKETS.some((basket) => basket.slug === value);
+export interface PlayListItem {
+  branch: string | null;
+  durationMinutes: number | null;
+  id: string;
+  place: string | null;
+  playType: PlayType;
+  sourceType: PlaySourceType;
+  title: string;
 }
