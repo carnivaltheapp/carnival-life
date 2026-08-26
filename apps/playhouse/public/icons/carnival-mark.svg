@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Carnival PlayHouse">
+  <rect width="512" height="512" rx="144" fill="#6d3ff2"/>
+  <path fill="#ffbd3e" d="m256 74 31 95 100-19-74 69 67 76-98-29-39 93-21-99-101 10 80-62-60-82 95 38z"/>
+  <circle cx="256" cy="256" r="76" fill="#fffdfb"/>
+  <path fill="#4e25c9" d="M298 217c-13-15-29-22-49-22-36 0-61 26-61 62 0 37 25 62 62 62 21 0 38-8 51-24l-28-25c-6 8-13 12-22 12-14 0-24-10-24-25 0-14 10-25 24-25 8 0 15 4 21 11z"/>
+</svg>

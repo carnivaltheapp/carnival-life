@@ -1,0 +1,18 @@
+{
+  "name": "carnival-life",
+  "version": "0.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace=@carnival/playhouse",
+    "lint": "npm run lint --workspace=@carnival/playhouse",
+    "typecheck": "npm run typecheck --workspace=@carnival/playhouse",
+    "build": "npm run build --workspace=@carnival/playhouse",
+    "check": "npm run lint && npm run typecheck && npm run build"
+  }
+}
