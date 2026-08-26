@@ -8,7 +8,7 @@ async function choosePlayer(
   query: string,
   displayName: string,
 ) {
-  const input = form.getByLabel("Player");
+  const input = form.getByRole("combobox", { name: "Player", exact: true });
   await input.fill(query);
   const option = form.getByRole("option", { name: new RegExp(displayName) });
   await expect(option).toBeVisible();
@@ -72,7 +72,9 @@ test("invalid Create stays open and preserves every entered value", async ({ aut
   await expect(form.getByLabel("Branch")).toHaveValue("Regression");
   await expect(form.getByLabel("Note")).toHaveValue("Keep this note");
   await expect(form.getByLabel("Duration (minutes)")).toHaveValue("45");
-  await expect(form.getByLabel("Player")).toHaveValue(auth.contacts[0].displayName);
+  await expect(
+    form.getByRole("combobox", { name: "Player", exact: true }),
+  ).toHaveValue(auth.contacts[0].displayName);
   await expect(form.getByLabel("Push")).toHaveValue("weekdays");
   await expect(form.locator('select[name="place"]')).toHaveValue("outside");
 });
@@ -170,9 +172,9 @@ test("Player can be created, displayed, changed, and cleared", async ({ auth }) 
   });
 
   let edit = await openEditPlay(auth.page, "Player lifecycle");
-  await expect(edit.form.getByLabel("Player")).toHaveValue(
-    auth.contacts[0].displayName,
-  );
+  await expect(
+    edit.form.getByRole("combobox", { name: "Player", exact: true }),
+  ).toHaveValue(auth.contacts[0].displayName);
   await choosePlayer(edit.form, "Bla", auth.contacts[1].displayName);
   await edit.form.getByRole("button", { name: "Save changes" }).click();
 
