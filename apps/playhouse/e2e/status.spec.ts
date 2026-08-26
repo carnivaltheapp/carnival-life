@@ -14,7 +14,7 @@ test("Done and Trash remove Plays from open view without deleting rows", async (
   await expect(playRow(auth.page, "Trash me")).toHaveCount(0);
   await expect(auth.page.getByTestId("play-count")).toHaveText("0 Plays");
 
-  const { data, error } = await auth.admin
+  const { data, error } = await auth.user
     .from("plays")
     .select("status, title")
     .eq("owner_user_id", auth.userId)
