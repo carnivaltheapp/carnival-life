@@ -19,6 +19,10 @@ dist/
 # Vercel
 .vercel/
 
+# Supabase local state
+supabase/.branches/
+supabase/.temp/
+
 # Test and tooling output
 coverage/
 *.tsbuildinfo
@@ -32,4 +36,3 @@ npm-debug.log*
 Thumbs.db
 .idea/
 .vscode/
-

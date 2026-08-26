@@ -16,6 +16,8 @@ Additional Carnival applications will be added to this monorepo over time.
 
 No Supabase project or Google OAuth credentials are required for the Phase 0 application shell.
 
+Phase 1 database work is now version-controlled under [`supabase/`](supabase/). A local database requires a Docker-compatible container runtime; see [`supabase/README.md`](supabase/README.md).
+
 ## Installation
 
 From the repository root:
@@ -53,6 +55,15 @@ Run all three checks in sequence with:
 
 ```bash
 npm run check
+```
+
+Database commands are available from the repository root after installing dependencies:
+
+```bash
+npm run db:start
+npm run db:reset
+npm run db:lint
+npm run db:stop
 ```
 
 ## Environment variables

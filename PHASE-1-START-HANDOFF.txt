@@ -1,0 +1,65 @@
+Phase 1 is now started with its first vertical slice complete.
+
+Implemented:
+
+- Version-controlled Supabase configuration and core migration
+- Multi-user ownership and explicit per-operation RLS
+- Profiles, Baskets, Google account metadata, contact references, Plays, relationships, event history, and Roller settings
+- Seven automatically seeded default Baskets
+- Real date-or-Basket placement constraint
+- Composite foreign keys preventing cross-user references
+- Append-only Play events
+- Client-side lifecycle protection: Plays use Done/Trash instead of physical deletion
+- Typed PlayHouse domain model
+- Responsive Calendar/Basket navigation shell
+- pgTAP database acceptance tests
+- Pinned Supabase CLI and root database commands
+
+Key files:
+
+- Core migration: supabase/migrations/202608250001_phase1_core.sql
+- Database tests: supabase/tests/database/phase1_core.test.sql
+- Supabase setup: supabase/README.md
+- Play domain model: apps/playhouse/domain/play.ts
+- PlayHouse shell: apps/playhouse/components/playhouse-shell.tsx
+- Application page: apps/playhouse/app/page.tsx
+
+Validation:
+
+- npm run lint — passed
+- npm run typecheck — passed
+- npm run build — passed
+- npm audit --audit-level=high — 0 vulnerabilities
+- Desktop browser QA — passed
+- 390px mobile QA — passed with no body overflow
+- Basket routing and accessible selected state — passed
+- Browser console errors — none
+- git diff --check — passed
+- Supabase CLI 2.115.0 and configuration parsing — verified
+- Architecture/specification documents — unchanged
+
+The database migration and pgTAP tests could not execute locally because this machine has neither Docker nor Podman and the repository is not linked to the hosted Supabase project. To validate or apply it manually:
+
+With Docker/Podman:
+
+  npm run db:start
+  npm run db:reset
+  npm run db:lint
+  npm run db:test
+
+Or against the hosted development project:
+
+  npx supabase login
+  npx supabase link --project-ref YOUR_PROJECT_REF
+  npx supabase db push --dry-run
+  npx supabase db push
+
+RLS follows Supabase’s current guidance: explicit operation policies, named authenticated roles, indexed ownership columns, and cached auth.uid() evaluation. The Auth trigger uses a pinned empty search path as recommended for security-definer functions.
+
+References:
+
+- Supabase RLS documentation: https://supabase.com/docs/guides/database/postgres/row-level-security
+- Supabase user-management documentation: https://supabase.com/docs/guides/auth/managing-user-data
+- Supabase database testing documentation: https://supabase.com/docs/guides/database/testing
+
+Phase 1 is not complete. The next vertical slice is Supabase SSR connectivity and Google sign-in using the real local/Vercel callback URLs, followed by authenticated live Basket/Play reads.
