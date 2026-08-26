@@ -14,6 +14,7 @@ describe("Play mutation values", () => {
       placementKind: "calendar",
       playType: "normal",
       playerContactId: "33333333-3333-4333-8333-333333333333",
+      playerDisplayName: "David Example",
       pushRule: "weekdays",
       scheduledDate: "2026-08-26",
       title: "Keep this title",

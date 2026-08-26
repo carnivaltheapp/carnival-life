@@ -3,7 +3,6 @@ import Link from "next/link";
 import { signOut } from "../app/auth/actions";
 import type {
   BasketSummary,
-  ContactReferenceOption,
   NextPlayOption,
   PlayListItem,
 } from "../domain/play";
@@ -35,7 +34,6 @@ function playMeta(play: PlayListItem) {
 
 export function PlayhouseShell({
   baskets,
-  contacts,
   dataError,
   identity,
   nextPlayOptions,
@@ -43,7 +41,6 @@ export function PlayhouseShell({
   selectedView,
 }: {
   baskets: BasketSummary[];
-  contacts: ContactReferenceOption[];
   dataError: boolean;
   identity: UserIdentity;
   nextPlayOptions: NextPlayOption[];
@@ -165,7 +162,6 @@ export function PlayhouseShell({
               {!dataError ? (
                 <PlayForm
                   baskets={baskets}
-                  contacts={contacts}
                   defaultPlacement={defaultPlacement}
                   nextPlayOptions={nextPlayOptions}
                 />
@@ -231,7 +227,6 @@ export function PlayhouseShell({
                     </div>
                     <PlayForm
                       baskets={baskets}
-                      contacts={contacts}
                       defaultPlacement={defaultPlacement}
                       nextPlayOptions={nextPlayOptions}
                       play={play}

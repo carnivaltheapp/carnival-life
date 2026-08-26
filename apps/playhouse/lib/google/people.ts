@@ -1,9 +1,5 @@
-import type { Session, SupabaseClient } from "@supabase/supabase-js";
-
-import type { Database } from "../supabase/database.types";
-
-const CONTACTS_READONLY_SCOPE = "https://www.googleapis.com/auth/contacts.readonly";
-const PEOPLE_API_URL = "https://people.googleapis.com/v1/people/me/connections";
+const PEOPLE_API_ORIGIN = "https://people.googleapis.com";
+export const MIN_PLAYER_SEARCH_LENGTH = 2;
 
 type PersonField = {
   metadata?: { primary?: boolean };
@@ -16,12 +12,11 @@ type GooglePerson = {
   resourceName?: string;
 };
 
-type PeopleResponse = {
-  connections?: GooglePerson[];
-  nextPageToken?: string;
+type SearchContactsResponse = {
+  results?: Array<{ person?: GooglePerson }>;
 };
 
-export type ImportedGoogleContact = {
+export type GoogleContactSummary = {
   displayName: string;
   email: string | null;
   resourceName: string;
@@ -31,7 +26,9 @@ function primaryField<T extends PersonField>(fields: T[] | undefined) {
   return fields?.find((field) => field.metadata?.primary) ?? fields?.[0];
 }
 
-function mapPerson(person: GooglePerson): ImportedGoogleContact | null {
+export function mapGooglePerson(
+  person: GooglePerson,
+): GoogleContactSummary | null {
   const resourceName = person.resourceName?.trim();
   const email = primaryField(person.emailAddresses)?.value?.trim() || null;
   const displayName = primaryField(person.names)?.displayName?.trim() || email;
@@ -40,128 +37,81 @@ function mapPerson(person: GooglePerson): ImportedGoogleContact | null {
     return null;
   }
 
-  return {
-    displayName,
-    email,
-    resourceName,
-  };
+  return { displayName, email, resourceName };
 }
 
-export async function listGoogleContacts(
-  providerToken: string,
+export function normalizePlayerSearchQuery(query: string) {
+  return query.trim().replace(/\s+/g, " ");
+}
+
+export function canSearchGooglePeople(query: string) {
+  return normalizePlayerSearchQuery(query).length >= MIN_PLAYER_SEARCH_LENGTH;
+}
+
+async function googlePeopleRequest(
+  url: URL,
+  accessToken: string,
+  request: typeof fetch,
+) {
+  const response = await request(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) {
+    throw new Error("Google People lookup failed.");
+  }
+  return response;
+}
+
+export async function searchGoogleContacts(
+  accessToken: string,
+  query: string,
   request: typeof fetch = fetch,
-): Promise<ImportedGoogleContact[]> {
-  const contacts: ImportedGoogleContact[] = [];
-  let pageToken: string | undefined;
+): Promise<GoogleContactSummary[]> {
+  const normalizedQuery = normalizePlayerSearchQuery(query);
+  if (!canSearchGooglePeople(normalizedQuery)) {
+    return [];
+  }
 
-  do {
-    const url = new URL(PEOPLE_API_URL);
-    url.searchParams.set("pageSize", "1000");
-    url.searchParams.set("personFields", "names,emailAddresses");
-    url.searchParams.set("sortOrder", "FIRST_NAME_ASCENDING");
-    if (pageToken) {
-      url.searchParams.set("pageToken", pageToken);
-    }
+  const url = new URL("/v1/people:searchContacts", PEOPLE_API_ORIGIN);
+  url.searchParams.set("query", normalizedQuery);
+  url.searchParams.set("readMask", "names,emailAddresses");
+  url.searchParams.set("pageSize", "10");
 
-    const response = await request(url, {
-      headers: { Authorization: `Bearer ${providerToken}` },
-    });
-    if (!response.ok) {
-      throw new Error("Google contacts could not be imported.");
-    }
-
-    const page = (await response.json()) as PeopleResponse;
-    contacts.push(
-      ...(page.connections ?? []).flatMap((person) => {
-        const contact = mapPerson(person);
-        return contact ? [contact] : [];
-      }),
-    );
-    pageToken = page.nextPageToken;
-  } while (pageToken);
-
-  return contacts;
+  const response = await googlePeopleRequest(url, accessToken, request);
+  const page = (await response.json()) as SearchContactsResponse;
+  return (page.results ?? []).flatMap(({ person }) => {
+    const contact = person ? mapGooglePerson(person) : null;
+    return contact ? [contact] : [];
+  });
 }
 
-function identityText(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+export async function warmGoogleContactSearch(
+  accessToken: string,
+  request: typeof fetch = fetch,
+) {
+  const url = new URL("/v1/people:searchContacts", PEOPLE_API_ORIGIN);
+  url.searchParams.set("query", "");
+  url.searchParams.set("readMask", "names,emailAddresses");
+  url.searchParams.set("pageSize", "1");
+  await googlePeopleRequest(url, accessToken, request);
 }
 
-export async function importGoogleContactsAfterSignIn({
-  providerToken,
-  session,
-  supabase,
-}: {
-  providerToken: string;
-  session: Session;
-  supabase: SupabaseClient<Database>;
-}) {
-  const identity = session.user.identities?.find((item) => item.provider === "google");
-  const identityData = identity?.identity_data ?? {};
-  const providerSubject = identityText(identityData.sub) ?? identity?.id ?? null;
-
-  if (!providerSubject) {
-    return null;
+export async function getGoogleContact(
+  accessToken: string,
+  resourceName: string,
+  request: typeof fetch = fetch,
+): Promise<GoogleContactSummary> {
+  if (!/^people\/[A-Za-z0-9_-]+$/.test(resourceName)) {
+    throw new Error("Google contact identifier is invalid.");
   }
 
-  const { data: account, error: accountError } = await supabase
-    .from("google_accounts")
-    .upsert(
-      {
-        avatar_url: identityText(identityData.avatar_url),
-        connection_status: "connected",
-        display_name:
-          identityText(identityData.full_name) ?? identityText(identityData.name),
-        email: identityText(identityData.email) ?? session.user.email ?? null,
-        granted_scopes: [CONTACTS_READONLY_SCOPE],
-        owner_user_id: session.user.id,
-        provider_subject: providerSubject,
-        sync_error: null,
-      },
-      { onConflict: "owner_user_id,provider_subject" },
-    )
-    .select("id")
-    .single();
+  const url = new URL(`/v1/${resourceName}`, PEOPLE_API_ORIGIN);
+  url.searchParams.set("personFields", "names,emailAddresses");
+  const response = await googlePeopleRequest(url, accessToken, request);
+  const contact = mapGooglePerson((await response.json()) as GooglePerson);
 
-  if (accountError || !account) {
-    return null;
+  if (!contact || contact.resourceName !== resourceName) {
+    throw new Error("Google contact could not be verified.");
   }
-
-  try {
-    const contacts = await listGoogleContacts(providerToken);
-    if (contacts.length > 0) {
-      const { error } = await supabase.from("contact_references").upsert(
-        contacts.map((contact) => ({
-          display_name: contact.displayName,
-          email: contact.email,
-          google_account_id: account.id,
-          owner_user_id: session.user.id,
-          provider_resource_name: contact.resourceName,
-        })),
-        { onConflict: "google_account_id,provider_resource_name" },
-      );
-      if (error) {
-        throw new Error("Google contacts could not be cached.");
-      }
-    }
-
-    await supabase
-      .from("google_accounts")
-      .update({
-        connection_status: "connected",
-        last_synced_at: new Date().toISOString(),
-        sync_error: null,
-      })
-      .eq("id", account.id);
-  } catch {
-    await supabase
-      .from("google_accounts")
-      .update({
-        connection_status: "error",
-        sync_error: "Google contact import failed. Sign out and sign in to retry.",
-      })
-      .eq("id", account.id);
-  }
-
-  return account.id;
+  return contact;
 }

@@ -1,5 +1,12 @@
 const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 
+export class GoogleAccountReconnectRequiredError extends Error {
+  constructor(message = "Google authorization must be reconnected.") {
+    super(message);
+    this.name = "GoogleAccountReconnectRequiredError";
+  }
+}
+
 export type GoogleTokenRefreshResult =
   | { accessToken: string; needsReconnect: false; success: true }
   | { needsReconnect: boolean; success: false };

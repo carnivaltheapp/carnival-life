@@ -90,8 +90,11 @@ environment and will not reuse an existing server that might point elsewhere.
 The Playwright configuration reads the local URL and keys from
 `supabase status -o env`, starts PlayHouse on port 3002, creates a unique
 confirmed email/password Auth user for each authenticated test, obtains a normal
-Supabase session, seeds two owned contact references through RLS, and deletes
-that user after the test. Product mutations still
+Supabase session, seeds an owned Google-account metadata row through RLS, and
+uses a server-only deterministic People-search adapter instead of real Google
+OAuth. The selected deterministic contact is cached through the same product
+boundary as production, and the disposable user is deleted after the test.
+Product mutations still
 run through the browser, authenticated Server Actions, and RLS. The local
 service-role key is confined to the Playwright process for disposable-user
 provisioning, cleanup, and non-destructive persistence assertions; it is never
@@ -177,17 +180,18 @@ For Google sign-in, Supabase Auth URL Configuration must allow both application 
 
 The application callback routes are `https://carnival-playhouse.vercel.app/auth/callback` and `http://localhost:3002/auth/callback`. Google Cloud's authorized redirect URI remains the hosted Supabase Auth callback shown on the Supabase Google provider page—not the PlayHouse callback route.
 
-Player choices are cached from Google People during Google sign-in. Enable the
-Google People API and add the non-sensitive
+Player uses a live, debounced Google People search; signing in does not import
+the user's address book. Enable the Google People API and add the non-sensitive
 `https://www.googleapis.com/auth/contacts.readonly` scope to the Google Auth
 Platform consent configuration. Existing users must sign out and sign in once
-to grant the new scope and import their contacts. PlayHouse uses the resulting
-short-lived provider token only inside the server callback, then rewrites the
-Supabase session without provider-token fields. Google sign-in requests offline
-consent. The returned refresh token is AES-256-GCM encrypted by server-only code
-and stored in the non-API-exposed `private` schema; only service-role RPCs can
-read or update the ciphertext. If Google does not return a new refresh token,
-the existing encrypted credential is left intact.
+to grant the scope and establish an offline credential. Player lookup calls
+Google People `people.searchContacts` from server code after two typed
+characters. Selecting a result verifies that resource through Google and caches
+only its stable resource name, display name, and available email. Google sign-in
+requests offline consent. The returned refresh token is AES-256-GCM encrypted by
+server-only code and stored in the non-API-exposed `private` schema; only
+service-role RPCs can read or update the ciphertext. If Google does not return a
+new refresh token, the existing encrypted credential is left intact.
 
 ## Vercel deployment
 

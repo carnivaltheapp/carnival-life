@@ -6,7 +6,6 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { savePlay } from "../app/plays/actions";
 import type {
   BasketSummary,
-  ContactReferenceOption,
   NextPlayOption,
   PlayListItem,
   PlayPlacement,
@@ -16,6 +15,7 @@ import type { PlayInputField } from "../domain/play-input";
 import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
 import { NextPlayRelationshipForm } from "./next-play-relationship-form";
 import { applySuccessfulPlaySave } from "./play-form-success";
+import { PlayerCombobox } from "./player-combobox";
 
 const PLACE_OPTIONS = ["office", "outside", "any"] as const;
 
@@ -29,13 +29,11 @@ function FieldError({ field, errors }: {
 
 export function PlayForm({
   baskets,
-  contacts,
   defaultPlacement,
   nextPlayOptions,
   play,
 }: {
   baskets: BasketSummary[];
-  contacts: ContactReferenceOption[];
   defaultPlacement: PlayPlacement;
   nextPlayOptions: NextPlayOption[];
   play?: PlayListItem;
@@ -58,6 +56,18 @@ export function PlayForm({
     play?.place && !PLACE_OPTIONS.some((place) => place === play.place),
   );
   const submittedValues = state.values;
+  const submittedPlayerId = submittedValues?.playerContactId ?? null;
+  const submittedPlayerName = submittedValues?.playerDisplayName ?? null;
+  const initialPlayer = submittedValues
+    ? submittedPlayerId && submittedPlayerName
+      ? { displayName: submittedPlayerName, id: submittedPlayerId }
+      : null
+    : play?.playerContactId
+      ? {
+          displayName: play.playerDisplayName ?? "Selected Player",
+          id: play.playerContactId,
+        }
+      : null;
 
   useEffect(() => {
     applySuccessfulPlaySave(state.status, {
@@ -118,23 +128,11 @@ export function PlayForm({
           </label>
         </div>
 
-        <label className="field compactField field--wide">
-          <span className="controlLabel">Player</span>
-          <select
-            aria-invalid={Boolean(state.fieldErrors?.playerContactId)}
-            defaultValue={submittedValues?.playerContactId ?? play?.playerContactId ?? ""}
-            key={submittedValues?.playerContactId ?? "initial"}
-            name="playerContactId"
-          >
-            <option value="">No Player</option>
-            {contacts.map((contact) => (
-              <option key={contact.id} value={contact.id}>
-                {contact.displayName}
-              </option>
-            ))}
-          </select>
-          <FieldError errors={state.fieldErrors} field="playerContactId" />
-        </label>
+        <PlayerCombobox
+          error={state.fieldErrors?.playerContactId}
+          initialSelection={initialPlayer}
+          key={`${submittedPlayerId ?? play?.playerContactId ?? "none"}:${submittedPlayerName ?? play?.playerDisplayName ?? ""}`}
+        />
 
         <div className="formRow dateUrlRow field--wide">
           {placementKind === "calendar" ? (

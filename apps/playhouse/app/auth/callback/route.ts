@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { getSafeNextPath } from "../../../lib/auth/redirect";
-import { importGoogleContactsAfterSignIn } from "../../../lib/google/people";
+import { upsertGoogleAccountAfterSignIn } from "../../../lib/google/account";
 import { retainGoogleRefreshToken } from "../../../lib/google/token-broker.server";
 import { createClient } from "../../../lib/supabase/server";
 
@@ -45,14 +45,10 @@ export async function GET(request: NextRequest) {
       return authErrorRedirect(request);
     }
 
-    let googleAccountId: string | null = null;
-    if (data.session.provider_token) {
-      googleAccountId = await importGoogleContactsAfterSignIn({
-        providerToken: data.session.provider_token,
-        session: data.session,
-        supabase,
-      });
-    }
+    const googleAccountId = await upsertGoogleAccountAfterSignIn({
+      session: data.session,
+      supabase,
+    });
 
     if (googleAccountId) {
       try {
@@ -65,7 +61,10 @@ export async function GET(request: NextRequest) {
         await supabase.auth.signOut();
         return authErrorRedirect(request);
       }
-    } else if (data.session.provider_refresh_token) {
+    } else if (
+      data.session.provider_token ||
+      data.session.provider_refresh_token
+    ) {
       await supabase.auth.signOut();
       return authErrorRedirect(request);
     }

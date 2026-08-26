@@ -5,6 +5,7 @@ import {
   encryptGoogleRefreshToken,
 } from "./credential-crypto";
 import {
+  GoogleAccountReconnectRequiredError,
   refreshGoogleAccessToken,
   retainRefreshTokenIfPresent,
 } from "./token-broker";
@@ -19,13 +20,6 @@ function requiredEnvironmentVariable(name: string) {
     throw new Error("Google server credentials are not configured.");
   }
   return value;
-}
-
-export class GoogleAccountReconnectRequiredError extends Error {
-  constructor() {
-    super(RECONNECT_MESSAGE);
-    this.name = "GoogleAccountReconnectRequiredError";
-  }
 }
 
 export async function retainGoogleRefreshToken({
@@ -72,7 +66,7 @@ export async function getGoogleAccessToken({
   const stored = data?.[0];
 
   if (error || !stored) {
-    throw new GoogleAccountReconnectRequiredError();
+    throw new GoogleAccountReconnectRequiredError(RECONNECT_MESSAGE);
   }
 
   const refreshToken = decryptGoogleRefreshToken(
@@ -96,7 +90,7 @@ export async function getGoogleAccessToken({
         .update({ connection_status: "error", sync_error: RECONNECT_MESSAGE })
         .eq("id", googleAccountId)
         .eq("owner_user_id", ownerUserId);
-      throw new GoogleAccountReconnectRequiredError();
+      throw new GoogleAccountReconnectRequiredError(RECONNECT_MESSAGE);
     }
     throw new Error("Google authorization is temporarily unavailable.");
   }

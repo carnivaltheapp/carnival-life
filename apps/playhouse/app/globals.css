@@ -544,6 +544,102 @@ h1 {
   pointer-events: none;
 }
 
+.playerInputLabel {
+  position: relative;
+  display: block;
+}
+
+.playerInputLabel > .controlLabel {
+  position: absolute;
+  z-index: 1;
+  top: 5px;
+  left: 11px;
+  color: var(--muted);
+  font-size: 0.58rem;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.playerField {
+  z-index: 3;
+}
+
+.playerField input[role="combobox"] {
+  padding-right: 38px;
+}
+
+.clearPlayerButton {
+  position: absolute;
+  z-index: 2;
+  top: 7px;
+  right: 7px;
+  display: grid;
+  width: 29px;
+  height: 29px;
+  padding: 0;
+  place-items: center;
+  color: var(--muted);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.clearPlayerButton:hover {
+  color: var(--ink);
+  background: var(--surface-soft);
+}
+
+.playerSearchMenu {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  overflow-y: auto;
+  max-height: 220px;
+  padding: 5px;
+  border: 1px solid rgba(53, 38, 72, 0.18);
+  border-radius: 11px;
+  background: white;
+  box-shadow: 0 14px 34px rgba(48, 29, 83, 0.2);
+}
+
+.playerSearchMenu > p {
+  margin: 0;
+  padding: 10px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.playerSearchOption {
+  display: grid;
+  width: 100%;
+  min-height: 42px;
+  padding: 7px 9px;
+  gap: 2px;
+  color: var(--ink);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.playerSearchOption:hover,
+.playerSearchOption[aria-selected="true"] {
+  background: rgba(109, 63, 242, 0.09);
+}
+
+.playerSearchOption small {
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
 .field input,
 .field select,
 .field textarea {

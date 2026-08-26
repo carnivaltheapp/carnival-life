@@ -2,7 +2,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type {
   BasketSummary,
-  ContactReferenceOption,
   NextPlayOption,
   PlayListItem,
 } from "../../domain/play";
@@ -27,7 +26,6 @@ export type SelectedView =
 
 export type PlayhouseData = {
   baskets: BasketSummary[];
-  contacts: ContactReferenceOption[];
   error: boolean;
   nextPlayOptions: NextPlayOption[];
   plays: PlayListItem[];
@@ -161,7 +159,6 @@ export async function loadPlayhouseData({
   if (basketError) {
     return {
       baskets: [],
-      contacts: [],
       error: true,
       nextPlayOptions: [],
       plays: [],
@@ -187,7 +184,6 @@ export async function loadPlayhouseData({
   const [
     { data: playRows, error: playError },
     { data: optionRows, error: optionError },
-    { data: contactRows, error: contactError },
   ] = await Promise.all([
       playQuery
         .order("sort_order", { ascending: true })
@@ -197,19 +193,24 @@ export async function loadPlayhouseData({
         .select("id, title, status, play_type, scheduled_date, basket_id")
         .order("title", { ascending: true })
         .limit(1000),
-      supabase
-        .from("contact_references")
-        .select("id, display_name")
-        .order("display_name", { ascending: true })
-        .limit(1000),
     ]);
 
-  const contacts: ContactReferenceOption[] = (contactRows ?? []).map((contact) => ({
-    displayName: contact.display_name,
-    id: contact.id,
-  }));
+  const playerContactIds = Array.from(
+    new Set(
+      (playRows ?? []).flatMap((play) =>
+        play.player_contact_id ? [play.player_contact_id] : [],
+      ),
+    ),
+  );
+  const contactResult =
+    playerContactIds.length > 0
+      ? await supabase
+          .from("contact_references")
+          .select("id, display_name")
+          .in("id", playerContactIds)
+      : { data: [], error: null };
   const contactNameById = new Map(
-    contacts.map((contact) => [contact.id, contact.displayName]),
+    (contactResult.data ?? []).map((contact) => [contact.id, contact.display_name]),
   );
 
   const playIds = (playRows ?? []).map((play) => play.id);
@@ -259,9 +260,8 @@ export async function loadPlayhouseData({
 
   return {
     baskets,
-    contacts,
     error: Boolean(
-      playError || optionError || contactError || relationshipResult.error,
+      playError || optionError || contactResult.error || relationshipResult.error,
     ),
     nextPlayOptions,
     plays,

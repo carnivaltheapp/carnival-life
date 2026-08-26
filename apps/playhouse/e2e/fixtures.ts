@@ -8,7 +8,11 @@ import { resolvedE2eEnvironment } from "./support/environment";
 
 export type AuthenticatedTestContext = {
   admin: SupabaseClient<Database>;
-  contacts: Array<{ displayName: string; id: string }>;
+  contacts: Array<{
+    displayName: string;
+    email: string;
+    resourceName: string;
+  }>;
   context: BrowserContext;
   page: Page;
   user: SupabaseClient<Database>;
@@ -51,22 +55,30 @@ export const test = base.extend<{ auth: AuthenticatedTestContext }>({
       throw new Error(`Could not sign in disposable E2E user: ${signInError?.message}`);
     }
 
-    const { data: contactRows, error: contactError } = await userClient
-      .from("contact_references")
-      .insert([
-        { display_name: "Alex Example", owner_user_id: created.user.id },
-        { display_name: "Blair Example", owner_user_id: created.user.id },
-      ])
-      .select("id, display_name")
-      .order("display_name", { ascending: true });
-    if (contactError || contactRows?.length !== 2) {
+    const { error: accountError } = await userClient.from("google_accounts").insert({
+      connection_status: "connected",
+      display_name: "PlayHouse E2E Google",
+      email,
+      granted_scopes: ["https://www.googleapis.com/auth/contacts.readonly"],
+      owner_user_id: created.user.id,
+      provider_subject: `e2e-${created.user.id}`,
+    });
+    if (accountError) {
       await admin.auth.admin.deleteUser(created.user.id);
-      throw new Error(`Could not seed disposable E2E contacts: ${contactError?.message}`);
+      throw new Error(`Could not seed disposable E2E Google account: ${accountError.message}`);
     }
-    const contacts = contactRows.map((contact) => ({
-      displayName: contact.display_name,
-      id: contact.id,
-    }));
+    const contacts = [
+      {
+        displayName: "David Example",
+        email: "david@example.test",
+        resourceName: "people/e2e-david",
+      },
+      {
+        displayName: "Blair Example",
+        email: "blair@example.test",
+        resourceName: "people/e2e-blair",
+      },
+    ];
 
     const cookieJar = new Map<string, string>();
     const cookieClient = createServerClient<Database>(
