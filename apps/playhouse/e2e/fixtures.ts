@@ -10,6 +10,7 @@ export type AuthenticatedTestContext = {
   admin: SupabaseClient<Database>;
   context: BrowserContext;
   page: Page;
+  user: SupabaseClient<Database>;
   userId: string;
 };
 
@@ -79,7 +80,7 @@ export const test = base.extend<{ auth: AuthenticatedTestContext }>({
     const page = await context.newPage();
 
     try {
-      await provide({ admin, context, page, userId: created.user.id });
+      await provide({ admin, context, page, user: userClient, userId: created.user.id });
     } finally {
       await context.close();
       await admin.auth.admin.deleteUser(created.user.id);
