@@ -136,15 +136,25 @@ export function parsePlayInput(formData: FormData): PlayInputResult {
   const branch = optionalText(formData, "branch", 200, errors);
   const note = optionalText(formData, "note", 10000, errors);
   const place = optionalText(formData, "place", 200, errors);
-  const url = optionalText(formData, "url", 2048, errors);
-  if (url) {
+  const enteredUrl = optionalText(formData, "url", 2048, errors);
+  let url = enteredUrl;
+  if (enteredUrl) {
+    const hasScheme = /^[a-z][a-z\d+.-]*:/i.test(enteredUrl);
+    if (!hasScheme && !enteredUrl.startsWith("/")) {
+      url = `https://${enteredUrl}`;
+    }
+
     try {
-      const parsedUrl = new URL(url);
-      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-        errors.url = "Use a complete http:// or https:// URL.";
+      const parsedUrl = new URL(url ?? "");
+      if (
+        (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") ||
+        !parsedUrl.hostname ||
+        (url?.length ?? 0) > 2048
+      ) {
+        errors.url = "Enter a valid web address.";
       }
     } catch {
-      errors.url = "Use a complete http:// or https:// URL.";
+      errors.url = "Enter a valid web address.";
     }
   }
 

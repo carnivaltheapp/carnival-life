@@ -25,6 +25,8 @@ supabase/.temp/
 
 # Test and tooling output
 coverage/
+playwright-report/
+test-results/
 *.tsbuildinfo
 
 # Logs

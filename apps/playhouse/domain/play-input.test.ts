@@ -107,13 +107,25 @@ describe("Play input validation", () => {
     });
   });
 
-  it("allows a blank URL and preserves complete HTTP URLs", () => {
+  it("allows a blank URL and normalizes web addresses without a scheme", () => {
     expect(parsePlayInput(form({ url: "" }))).toMatchObject({
       data: { url: null },
       success: true,
     });
+    expect(parsePlayInput(form({ url: "google.com" }))).toMatchObject({
+      data: { url: "https://google.com" },
+      success: true,
+    });
+    expect(parsePlayInput(form({ url: "www.google.com/search" }))).toMatchObject({
+      data: { url: "https://www.google.com/search" },
+      success: true,
+    });
     expect(parsePlayInput(form({ url: "http://example.com/path" }))).toMatchObject({
       data: { url: "http://example.com/path" },
+      success: true,
+    });
+    expect(parsePlayInput(form({ url: "https://example.com/path" }))).toMatchObject({
+      data: { url: "https://example.com/path" },
       success: true,
     });
   });

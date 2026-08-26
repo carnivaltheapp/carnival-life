@@ -147,7 +147,11 @@ export function PlayhouseShell({
               <h1 id="view-title">{selectedView.label}</h1>
             </div>
             <div className="panelActions">
-              <span className="countBadge" aria-label={`${playCountLabel} open`}>
+              <span
+                className="countBadge"
+                data-testid="play-count"
+                aria-label={`${playCountLabel} open`}
+              >
                 {playCountLabel}
               </span>
               {!dataError ? (
@@ -186,7 +190,7 @@ export function PlayhouseShell({
               {plays.map((play) => {
                 const metadata = playMeta(play);
                 return (
-                  <li className="playRow" key={play.id}>
+                  <li className="playRow" data-testid="play-row" key={play.id}>
                     <div className="playRowSummary">
                       <span
                         className={`playTypeMarker playTypeMarker--${play.playType}`}

@@ -56,6 +56,77 @@ Run all four checks in sequence with:
 npm run check
 ```
 
+## PlayHouse browser regression tests
+
+The Playwright suite runs the real PlayHouse app at
+[http://localhost:3002](http://localhost:3002) against the repository's local
+Supabase stack. It refuses non-local Supabase URLs, so the suite cannot mutate
+the hosted production project.
+
+One-time setup:
+
+1. Install a Docker-compatible container runtime and start it.
+2. Install repository dependencies with `npm install`.
+3. Install Playwright's Chromium browser:
+
+   ```bash
+   npx playwright install chromium
+   ```
+
+Start the isolated local database and run the full suite from the repository root:
+
+```bash
+npm run db:start
+npm run test:e2e
+```
+
+Run `npm run db:reset` after migration changes when a clean local schema is
+needed. CI always performs this reset against its disposable local stack.
+
+Stop any separately running PlayHouse development server first. Playwright
+always starts its own port-3002 process with the guarded local Supabase
+environment and will not reuse an existing server that might point elsewhere.
+
+The Playwright configuration reads the local URL and keys from
+`supabase status -o env`, starts PlayHouse on port 3002, creates a unique
+confirmed email/password Auth user for each authenticated test, obtains a normal
+Supabase session, and deletes that user after the test. Product mutations still
+run through the browser, authenticated Server Actions, and RLS. The local
+service-role key is confined to the Playwright process for disposable-user
+provisioning, cleanup, and non-destructive persistence assertions; it is never
+provided to the PlayHouse app.
+
+No E2E environment variables are normally required when `npm run db:start` is
+used. A custom local Supabase instance can be selected explicitly with all three
+of these test-process variables:
+
+```dotenv
+PLAYHOUSE_E2E_SUPABASE_URL=http://127.0.0.1:54321
+PLAYHOUSE_E2E_SUPABASE_ANON_KEY=local-anon-key
+PLAYHOUSE_E2E_SUPABASE_SERVICE_ROLE_KEY=local-service-role-key
+```
+
+Non-local URLs are rejected even when supplied explicitly. Never place these
+test values in `apps/playhouse/.env.local` or Vercel.
+
+Run one test by title:
+
+```bash
+npm run test:e2e --workspace=@carnival/playhouse -- --grep "new Play defaults"
+```
+
+Open Playwright's interactive runner:
+
+```bash
+npm run test:e2e:ui
+```
+
+Failure traces, screenshots, and videos are written under ignored
+`test-results/` and `playwright-report/` folders. GitHub Actions installs
+Chromium, starts a fresh local Supabase stack, then runs lint, type checking,
+unit tests, the complete browser suite, and the production build without using
+repository secrets or a personal Google account.
+
 Database commands are available from the repository root after installing dependencies:
 
 ```bash

@@ -66,6 +66,7 @@ export function PlayForm({
   return (
     <details
       className={isEditing ? "editDisclosure" : "createDisclosure"}
+      data-testid={isEditing ? "edit-play" : "create-play"}
       ref={detailsRef}
     >
       <summary>{isEditing ? "Edit" : "+ New Play"}</summary>
@@ -179,7 +180,12 @@ export function PlayForm({
           </label>
           <label className="field compactField">
             <span className="controlLabel">Place</span>
-            <select defaultValue={submittedValues?.place ?? play?.place ?? ""} name="place">
+            <select
+              defaultValue={
+                submittedValues?.place ?? (play ? (play.place ?? "") : "office")
+              }
+              name="place"
+            >
               <option value="">Unspecified</option>
               {hasNonstandardPlace ? (
                 <option value={play?.place ?? ""}>{play?.place}</option>
