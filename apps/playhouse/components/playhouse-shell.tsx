@@ -205,7 +205,11 @@ export function PlayhouseShell({
                     <span className="playDataCell">
                       {play.durationMinutes ? `${play.durationMinutes}m` : "—"}
                     </span>
-                    <span className="playDataCell" title={play.playerDisplayName ?? undefined}>
+                    <span
+                      className="playDataCell"
+                      data-testid="play-player"
+                      title={play.playerDisplayName ?? undefined}
+                    >
                       {play.playerDisplayName ?? "—"}
                     </span>
                     <span className="playDataCell" title={play.branch ?? undefined}>

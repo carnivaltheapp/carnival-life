@@ -159,7 +159,7 @@ test("Player can be created, displayed, changed, and cleared", async ({ auth }) 
   await createForm.getByRole("button", { name: "Create Play" }).click();
 
   let row = playRow(auth.page, "Player lifecycle");
-  await expect(row).toContainText(`Player: ${auth.contacts[0].displayName}`);
+  await expect(row.getByTestId("play-player")).toHaveText(auth.contacts[0].displayName);
   let persistence = await auth.user
     .from("plays")
     .select("player_contact_id")
@@ -187,7 +187,7 @@ test("Player can be created, displayed, changed, and cleared", async ({ auth }) 
   await edit.form.getByRole("button", { name: "Save changes" }).click();
 
   row = playRow(auth.page, "Player lifecycle");
-  await expect(row).toContainText(`Player: ${auth.contacts[1].displayName}`);
+  await expect(row.getByTestId("play-player")).toHaveText(auth.contacts[1].displayName);
   persistence = await auth.user
     .from("plays")
     .select("player_contact_id")
@@ -212,7 +212,7 @@ test("Player can be created, displayed, changed, and cleared", async ({ auth }) 
   await edit.form.getByRole("button", { name: "Save changes" }).click();
 
   row = playRow(auth.page, "Player lifecycle");
-  await expect(row).not.toContainText("Player:");
+  await expect(row.getByTestId("play-player")).toHaveText("—");
   persistence = await auth.user
     .from("plays")
     .select("player_contact_id")
