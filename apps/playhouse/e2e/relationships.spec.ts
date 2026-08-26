@@ -45,13 +45,13 @@ test("Done / Create next creates and links a new Play", async ({ auth }) => {
 
   await expect(playRow(auth.page, "Create a next Play")).toHaveCount(0);
   await expect(playRow(auth.page, "Created next Play")).toBeVisible();
-  const { data: plays } = await auth.admin
+  const { data: plays } = await auth.user
     .from("plays")
     .select("id, title")
     .eq("owner_user_id", auth.userId)
     .in("title", ["Create a next Play", "Created next Play"]);
   const ids = Object.fromEntries((plays ?? []).map((play) => [play.title, play.id]));
-  const { data: relationship, error } = await auth.admin
+  const { data: relationship, error } = await auth.user
     .from("play_relationships")
     .select("from_play_id, to_play_id")
     .eq("owner_user_id", auth.userId)
