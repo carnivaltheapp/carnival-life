@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public;
 
-select plan(52);
+select plan(58);
 
 select has_table('public', 'users', 'Carnival users table exists');
 select has_table('public', 'baskets', 'Baskets table exists');
@@ -13,6 +13,40 @@ select has_table('public', 'plays', 'Plays table exists');
 select has_table('public', 'play_relationships', 'Play relationships table exists');
 select has_table('public', 'play_events', 'Play event history table exists');
 select has_table('public', 'roller_settings', 'Roller settings table exists');
+select has_table('private', 'google_account_credentials', 'Private Google credential table exists');
+
+select ok(
+  not has_schema_privilege('authenticated', 'private', 'USAGE'),
+  'Authenticated product clients cannot access the private schema'
+);
+select ok(
+  not has_table_privilege('authenticated', 'private.google_account_credentials', 'SELECT'),
+  'Authenticated product clients cannot select Google credentials'
+);
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'public.get_google_account_credential(uuid,uuid)',
+    'EXECUTE'
+  ),
+  'Authenticated product clients cannot call the credential read boundary'
+);
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'public.store_google_account_credential(uuid,uuid,text,text,smallint)',
+    'EXECUTE'
+  ),
+  'Authenticated product clients cannot call the credential write boundary'
+);
+select ok(
+  has_function_privilege(
+    'service_role',
+    'public.get_google_account_credential(uuid,uuid)',
+    'EXECUTE'
+  ),
+  'Only server service-role code can call the credential read boundary'
+);
 
 select ok(
   (select relrowsecurity from pg_catalog.pg_class where oid = 'public.users'::regclass),

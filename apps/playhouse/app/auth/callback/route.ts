@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { getSafeNextPath } from "../../../lib/auth/redirect";
 import { importGoogleContactsAfterSignIn } from "../../../lib/google/people";
+import { retainGoogleRefreshToken } from "../../../lib/google/token-broker.server";
 import { createClient } from "../../../lib/supabase/server";
 
 const PRODUCTION_ORIGIN = "https://carnival-playhouse.vercel.app";
@@ -44,13 +45,32 @@ export async function GET(request: NextRequest) {
       return authErrorRedirect(request);
     }
 
+    let googleAccountId: string | null = null;
     if (data.session.provider_token) {
-      await importGoogleContactsAfterSignIn({
+      googleAccountId = await importGoogleContactsAfterSignIn({
         providerToken: data.session.provider_token,
         session: data.session,
         supabase,
       });
+    }
 
+    if (googleAccountId) {
+      try {
+        await retainGoogleRefreshToken({
+          googleAccountId,
+          ownerUserId: data.session.user.id,
+          providerRefreshToken: data.session.provider_refresh_token,
+        });
+      } catch {
+        await supabase.auth.signOut();
+        return authErrorRedirect(request);
+      }
+    } else if (data.session.provider_refresh_token) {
+      await supabase.auth.signOut();
+      return authErrorRedirect(request);
+    }
+
+    if (data.session.provider_token || data.session.provider_refresh_token) {
       const { error: sessionError } = await supabase.auth.setSession({
         access_token: data.session.access_token,
         refresh_token: data.session.refresh_token,

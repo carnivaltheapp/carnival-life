@@ -258,6 +258,14 @@ export type Database = {
     };
     Views: { [_ in never]: never };
     Functions: {
+      get_google_account_credential: {
+        Args: { p_google_account_id: string; p_owner_user_id: string };
+        Returns: {
+          encrypted_refresh_token: string;
+          encryption_iv: string;
+          encryption_version: 1;
+        }[];
+      };
       done_create_existing: {
         Args: { p_play_id: string };
         Returns: {
@@ -282,6 +290,16 @@ export type Database = {
       };
       set_next_play: {
         Args: { p_from_play_id: string; p_to_play_id: string | null };
+        Returns: undefined;
+      };
+      store_google_account_credential: {
+        Args: {
+          p_encrypted_refresh_token: string;
+          p_encryption_iv: string;
+          p_encryption_version?: 1;
+          p_google_account_id: string;
+          p_owner_user_id: string;
+        };
         Returns: undefined;
       };
     };

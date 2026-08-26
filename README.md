@@ -146,14 +146,29 @@ cd apps/playhouse
 cp .env.example .env.local
 ```
 
-On PowerShell, use `Copy-Item .env.example .env.local`. Populate only these public browser-safe values from the Supabase project Connect dialog:
+On PowerShell, use `Copy-Item .env.example .env.local`. Populate the public browser-safe values from the Supabase project Connect dialog:
 
 ```dotenv
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your-key
 ```
 
-Do not add a service-role key or Google client secret to the PlayHouse environment. Google provider credentials remain in Supabase's hosted Auth configuration.
+The Google connected-account credential broker also requires these server-only
+values in `.env.local` and in Vercel. Never prefix them with `NEXT_PUBLIC_`, put
+them in browser code, or commit their real values:
+
+```dotenv
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+GOOGLE_OAUTH_CLIENT_ID=your-google-oauth-client-id
+GOOGLE_OAUTH_CLIENT_SECRET=your-google-oauth-client-secret
+GOOGLE_TOKEN_ENCRYPTION_KEY=base64-encoded-32-byte-key
+```
+
+`GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` must identify the same
+Google web OAuth client configured in Supabase Auth. Generate the encryption key
+once per environment with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
+and retain it in the environment's secret store; changing it makes existing
+stored refresh tokens unreadable and requires users to reconnect.
 
 For Google sign-in, Supabase Auth URL Configuration must allow both application callback origins:
 
@@ -168,8 +183,11 @@ Google People API and add the non-sensitive
 Platform consent configuration. Existing users must sign out and sign in once
 to grant the new scope and import their contacts. PlayHouse uses the resulting
 short-lived provider token only inside the server callback, then rewrites the
-Supabase session without provider-token fields. No Google access or refresh
-token is stored in Carnival tables or application environment variables.
+Supabase session without provider-token fields. Google sign-in requests offline
+consent. The returned refresh token is AES-256-GCM encrypted by server-only code
+and stored in the non-API-exposed `private` schema; only service-role RPCs can
+read or update the ciphertext. If Google does not return a new refresh token,
+the existing encrypted credential is left intact.
 
 ## Vercel deployment
 
@@ -180,7 +198,7 @@ Create or connect the `carnival-playhouse` Vercel project to `carnivaltheapp/car
 - **Install, Build, and Output settings:** use Vercel's detected defaults
 - **Node.js:** a version satisfying `>=22.0.0`
 
-Vercel detects the repository's npm workspace lockfile and runs the PlayHouse package's `build` script from the selected Root Directory. Configure `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` for Production and any Preview environment whose URL is included in the Supabase redirect allow list.
+Vercel detects the repository's npm workspace lockfile and runs the PlayHouse package's `build` script from the selected Root Directory. Configure the two public Supabase values plus all four server-only credential-broker values listed above for Production and any Preview environment whose URL is included in the Supabase redirect allow list.
 
 ## Project documentation
 

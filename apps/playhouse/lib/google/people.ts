@@ -101,7 +101,7 @@ export async function importGoogleContactsAfterSignIn({
   const providerSubject = identityText(identityData.sub) ?? identity?.id ?? null;
 
   if (!providerSubject) {
-    return;
+    return null;
   }
 
   const { data: account, error: accountError } = await supabase
@@ -124,7 +124,7 @@ export async function importGoogleContactsAfterSignIn({
     .single();
 
   if (accountError || !account) {
-    return;
+    return null;
   }
 
   try {
@@ -162,4 +162,6 @@ export async function importGoogleContactsAfterSignIn({
       })
       .eq("id", account.id);
   }
+
+  return account.id;
 }

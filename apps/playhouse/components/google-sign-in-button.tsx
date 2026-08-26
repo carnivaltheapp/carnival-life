@@ -18,7 +18,11 @@ export function GoogleSignInButton() {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          queryParams: { include_granted_scopes: "true" },
+          queryParams: {
+            access_type: "offline",
+            include_granted_scopes: "true",
+            prompt: "consent",
+          },
           redirectTo,
           scopes: "https://www.googleapis.com/auth/contacts.readonly",
         },
