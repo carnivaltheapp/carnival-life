@@ -54,6 +54,7 @@ export function PlayForm({
   const hasNonstandardPlace = Boolean(
     play?.place && !PLACE_OPTIONS.some((place) => place === play.place),
   );
+  const submittedValues = state.values;
 
   useEffect(() => {
     applySuccessfulPlaySave(state.status, {
@@ -75,7 +76,7 @@ export function PlayForm({
           <span className="controlLabel">Title</span>
           <input
             aria-invalid={Boolean(state.fieldErrors?.title)}
-            defaultValue={play?.title}
+            defaultValue={submittedValues?.title ?? play?.title}
             maxLength={500}
             name="title"
             placeholder="What would you like to do?"
@@ -113,14 +114,15 @@ export function PlayForm({
           </label>
         </div>
 
-        <div className="formRow field--wide">
+        <div className="formRow dateUrlRow field--wide">
           {placementKind === "calendar" ? (
             <label className="field compactField">
               <span className="controlLabel">Date</span>
               <input
                 aria-invalid={Boolean(state.fieldErrors?.scheduledDate)}
                 defaultValue={
-                  initialPlacement.kind === "calendar" ? initialPlacement.scheduledDate : ""
+                  submittedValues?.scheduledDate ??
+                  (initialPlacement.kind === "calendar" ? initialPlacement.scheduledDate : "")
                 }
                 name="scheduledDate"
                 required
@@ -134,9 +136,10 @@ export function PlayForm({
               <select
                 aria-invalid={Boolean(state.fieldErrors?.basketId)}
                 defaultValue={
-                  initialPlacement.kind === "basket"
+                  submittedValues?.basketId ??
+                  (initialPlacement.kind === "basket"
                     ? initialPlacement.basketId
-                    : baskets[0]?.id
+                    : baskets[0]?.id)
                 }
                 name="basketId"
                 required
@@ -153,7 +156,7 @@ export function PlayForm({
           <label className="field compactField">
             <span className="controlLabel">URL</span>
             <input
-              defaultValue={play?.url ?? ""}
+              defaultValue={submittedValues?.url ?? play?.url ?? ""}
               maxLength={2048}
               name="url"
               placeholder="https://…"
@@ -167,7 +170,7 @@ export function PlayForm({
           <label className="field compactField">
             <span className="controlLabel">Branch</span>
             <input
-              defaultValue={play?.branch ?? ""}
+              defaultValue={submittedValues?.branch ?? play?.branch ?? ""}
               maxLength={200}
               name="branch"
               placeholder="Optional"
@@ -176,7 +179,7 @@ export function PlayForm({
           </label>
           <label className="field compactField">
             <span className="controlLabel">Place</span>
-            <select defaultValue={play?.place ?? ""} name="place">
+            <select defaultValue={submittedValues?.place ?? play?.place ?? ""} name="place">
               <option value="">Unspecified</option>
               {hasNonstandardPlace ? (
                 <option value={play?.place ?? ""}>{play?.place}</option>
@@ -193,7 +196,10 @@ export function PlayForm({
           <label className="field compactField">
             <span className="controlLabel">Duration (minutes)</span>
             <input
-              defaultValue={play ? (play.durationMinutes ?? "") : 30}
+              defaultValue={
+                submittedValues?.durationMinutes ??
+                (play ? (play.durationMinutes ?? "") : 30)
+              }
               disabled={playType === "reminder"}
               max={1440}
               min={1}
@@ -205,7 +211,10 @@ export function PlayForm({
           </label>
           <label className="field compactField">
             <span className="controlLabel">Push</span>
-            <select defaultValue={play?.pushRule ?? "everyday"} name="pushRule">
+            <select
+              defaultValue={submittedValues?.pushRule ?? play?.pushRule ?? "everyday"}
+              name="pushRule"
+            >
               <option value="everyday">Everyday</option>
               <option value="weekdays">Weekdays</option>
               <option value="weekends">Weekends</option>
@@ -217,7 +226,7 @@ export function PlayForm({
         <label className="field compactField field--wide">
           <span className="controlLabel">Note</span>
           <textarea
-            defaultValue={play?.note ?? ""}
+            defaultValue={submittedValues?.note ?? play?.note ?? ""}
             maxLength={10000}
             name="note"
             placeholder="Add a note…"

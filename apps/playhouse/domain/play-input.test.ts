@@ -101,6 +101,21 @@ describe("Play input validation", () => {
       errors: { url: expect.any(String) },
       success: false,
     });
+    expect(parsePlayInput(form({ url: "/relative/path" }))).toMatchObject({
+      errors: { url: expect.any(String) },
+      success: false,
+    });
+  });
+
+  it("allows a blank URL and preserves complete HTTP URLs", () => {
+    expect(parsePlayInput(form({ url: "" }))).toMatchObject({
+      data: { url: null },
+      success: true,
+    });
+    expect(parsePlayInput(form({ url: "http://example.com/path" }))).toMatchObject({
+      data: { url: "http://example.com/path" },
+      success: true,
+    });
   });
 
   it("recognizes only real ISO calendar dates", () => {

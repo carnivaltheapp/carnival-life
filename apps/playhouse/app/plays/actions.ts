@@ -11,7 +11,10 @@ import {
   parseNewNextPlayInput,
   validateNextRelationship,
 } from "../../domain/next-play";
-import type { PlayMutationState } from "../../domain/play-mutation";
+import {
+  capturePlayMutationValues,
+  type PlayMutationState,
+} from "../../domain/play-mutation";
 import { createClient } from "../../lib/supabase/server";
 import type { Database } from "../../lib/supabase/database.types";
 
@@ -124,10 +127,16 @@ export async function savePlay(
   previousState: PlayMutationState,
   formData: FormData,
 ): Promise<PlayMutationState> {
+  const values = capturePlayMutationValues(formData);
+
   try {
-    return await savePlayInternal(previousState, formData);
+    const result = await savePlayInternal(previousState, formData);
+    return result.status === "error" ? { ...result, values } : result;
   } catch {
-    return errorState("PlayHouse could not save this Play. Please try again.");
+    return {
+      ...errorState("PlayHouse could not save this Play. Please try again."),
+      values,
+    };
   }
 }
 

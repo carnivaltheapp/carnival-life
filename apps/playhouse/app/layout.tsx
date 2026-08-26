@@ -22,9 +22,16 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const buildVersion = process.env.NEXT_PUBLIC_CARNIVAL_BUILD_VERSION;
+
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        {buildVersion ? (
+          <small className="versionStamp">Version {buildVersion}</small>
+        ) : null}
+      </body>
     </html>
   );
 }
