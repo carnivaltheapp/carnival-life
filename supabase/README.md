@@ -18,6 +18,11 @@ transactional Play history. Create, edit, move, type change, done, trash, and an
 reopen transition append before/after context to `play_events` in the same transaction as
 the current-state write.
 
+The Done/Create migration adds one explicit outgoing `next` relationship per Play,
+cycle protection, relationship history triggers, and authenticated transaction functions
+that either activate an existing next Play or create and link a new one while completing
+the current Play.
+
 ## Local validation
 
 Local Supabase requires a Docker-compatible container runtime. From the repository root:

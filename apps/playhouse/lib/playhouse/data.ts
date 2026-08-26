@@ -1,9 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { BasketSummary, PlayListItem } from "../../domain/play";
+import type { BasketSummary, NextPlayOption, PlayListItem } from "../../domain/play";
+import { isIsoCalendarDate } from "../../domain/play-input";
 import type { Database } from "../supabase/database.types";
 
-export type CalendarViewKey = "today" | "tomorrow" | "week";
+export type CalendarViewKey = "date" | "today" | "tomorrow" | "week";
 
 export type SelectedView =
   | {
@@ -22,6 +23,7 @@ export type SelectedView =
 export type PlayhouseData = {
   baskets: BasketSummary[];
   error: boolean;
+  nextPlayOptions: NextPlayOption[];
   plays: PlayListItem[];
   selectedView: SelectedView;
 };
@@ -58,12 +60,14 @@ export function addDays(isoDate: string, days: number) {
 export function resolveSelectedView({
   basketSlug,
   baskets,
+  date,
   now = new Date(),
   timeZone,
   view,
 }: {
   basketSlug?: string;
   baskets: BasketSummary[];
+  date?: string;
   now?: Date;
   timeZone: string;
   view?: string;
@@ -73,6 +77,19 @@ export function resolveSelectedView({
     if (basket) {
       return { basket, kind: "basket", label: basket.name };
     }
+  }
+
+  if (date && isIsoCalendarDate(date)) {
+    return {
+      endDate: date,
+      key: "date",
+      kind: "calendar",
+      label: new Intl.DateTimeFormat("en-US", {
+        dateStyle: "long",
+        timeZone: "UTC",
+      }).format(new Date(`${date}T00:00:00Z`)),
+      startDate: date,
+    };
   }
 
   const today = dateInTimeZone(now, timeZone);
@@ -111,11 +128,13 @@ export function resolveSelectedView({
 
 export async function loadPlayhouseData({
   basketSlug,
+  date,
   supabase,
   timeZone,
   view,
 }: {
   basketSlug?: string;
+  date?: string;
   supabase: SupabaseClient<Database>;
   timeZone: string;
   view?: string;
@@ -131,10 +150,10 @@ export async function loadPlayhouseData({
     slug: basket.slug,
     sortOrder: basket.sort_order,
   }));
-  const selectedView = resolveSelectedView({ basketSlug, baskets, timeZone, view });
+  const selectedView = resolveSelectedView({ basketSlug, baskets, date, timeZone, view });
 
   if (basketError) {
-    return { baskets: [], error: true, plays: [], selectedView };
+    return { baskets: [], error: true, nextPlayOptions: [], plays: [], selectedView };
   }
 
   let playQuery = supabase
@@ -152,9 +171,33 @@ export async function loadPlayhouseData({
       .lte("scheduled_date", selectedView.endDate);
   }
 
-  const { data: playRows, error: playError } = await playQuery
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: true });
+  const [{ data: playRows, error: playError }, { data: optionRows, error: optionError }] =
+    await Promise.all([
+      playQuery
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("plays")
+        .select("id, title, status, play_type, scheduled_date, basket_id")
+        .order("title", { ascending: true })
+        .limit(1000),
+    ]);
+
+  const playIds = (playRows ?? []).map((play) => play.id);
+  const relationshipResult =
+    playIds.length > 0
+      ? await supabase
+          .from("play_relationships")
+          .select("from_play_id, to_play_id")
+          .in("from_play_id", playIds)
+          .eq("relationship_type", "next")
+      : { data: [], error: null };
+  const nextByPlayId = new Map(
+    (relationshipResult.data ?? []).map((relationship) => [
+      relationship.from_play_id,
+      relationship.to_play_id,
+    ]),
+  );
 
   const plays: PlayListItem[] = (playRows ?? []).map((play) => ({
     basketId: play.basket_id,
@@ -162,6 +205,7 @@ export async function loadPlayhouseData({
     durationMinutes: play.duration_minutes,
     id: play.id,
     note: play.note,
+    nextPlayId: nextByPlayId.get(play.id) ?? null,
     place: play.place,
     playType: play.play_type,
     pushRule: play.push_rule,
@@ -171,9 +215,19 @@ export async function loadPlayhouseData({
     url: play.url,
   }));
 
+  const nextPlayOptions: NextPlayOption[] = (optionRows ?? []).map((play) => ({
+    basketId: play.basket_id,
+    id: play.id,
+    playType: play.play_type,
+    scheduledDate: play.scheduled_date,
+    status: play.status,
+    title: play.title,
+  }));
+
   return {
     baskets,
-    error: Boolean(playError),
+    error: Boolean(playError || optionError || relationshipResult.error),
+    nextPlayOptions,
     plays,
     selectedView,
   };

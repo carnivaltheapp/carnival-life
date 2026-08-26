@@ -114,6 +114,33 @@ export type Database = {
         };
         Relationships: [];
       };
+      play_relationships: {
+        Row: {
+          created_at: string;
+          from_play_id: string;
+          id: string;
+          owner_user_id: string;
+          relationship_type: Database["public"]["Enums"]["play_relationship_type"];
+          to_play_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          from_play_id: string;
+          id?: string;
+          owner_user_id: string;
+          relationship_type?: Database["public"]["Enums"]["play_relationship_type"];
+          to_play_id: string;
+        };
+        Update: {
+          created_at?: string;
+          from_play_id?: string;
+          id?: string;
+          owner_user_id?: string;
+          relationship_type?: Database["public"]["Enums"]["play_relationship_type"];
+          to_play_id?: string;
+        };
+        Relationships: [];
+      };
       users: {
         Row: {
           avatar_url: string | null;
@@ -146,8 +173,36 @@ export type Database = {
       };
     };
     Views: { [_ in never]: never };
-    Functions: { [_ in never]: never };
+    Functions: {
+      done_create_existing: {
+        Args: { p_play_id: string };
+        Returns: {
+          next_basket_id: string | null;
+          next_play_id: string;
+          next_scheduled_date: string | null;
+        }[];
+      };
+      done_create_new: {
+        Args: {
+          p_basket_id: string | null;
+          p_play_id: string;
+          p_play_type: Database["public"]["Enums"]["play_type"];
+          p_scheduled_date: string | null;
+          p_title: string;
+        };
+        Returns: {
+          next_basket_id: string | null;
+          next_play_id: string;
+          next_scheduled_date: string | null;
+        }[];
+      };
+      set_next_play: {
+        Args: { p_from_play_id: string; p_to_play_id: string | null };
+        Returns: undefined;
+      };
+    };
     Enums: {
+      play_relationship_type: "next";
       play_source_type: "user" | "gmail";
       play_status: "open" | "done" | "trash";
       play_type: "normal" | "reminder";

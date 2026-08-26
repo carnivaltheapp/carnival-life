@@ -3,6 +3,7 @@ import type { PlayInputField } from "./play-input";
 export type PlayMutationState = {
   fieldErrors?: Partial<Record<PlayInputField, string>>;
   message: string;
+  redirectTo?: string;
   status: "idle" | "error" | "success";
 };
 

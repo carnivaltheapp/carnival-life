@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { signOut } from "../app/auth/actions";
-import type { BasketSummary, PlayListItem } from "../domain/play";
+import type { BasketSummary, NextPlayOption, PlayListItem } from "../domain/play";
 import type { SelectedView } from "../lib/playhouse/data";
 import { PlayForm } from "./play-form";
 import { PlayStatusActions } from "./play-status-actions";
@@ -19,7 +19,7 @@ export type UserIdentity = {
 
 function playMeta(play: PlayListItem) {
   return [
-    play.playType === "reminder" ? "Reminder" : "Normal",
+    play.playType === "reminder" ? "Reminder · Waiting" : "Normal",
     play.sourceType === "gmail" ? "Email" : null,
     play.durationMinutes ? `${play.durationMinutes} min` : null,
     play.branch,
@@ -31,12 +31,14 @@ export function PlayhouseShell({
   baskets,
   dataError,
   identity,
+  nextPlayOptions,
   plays,
   selectedView,
 }: {
   baskets: BasketSummary[];
   dataError: boolean;
   identity: UserIdentity;
+  nextPlayOptions: NextPlayOption[];
   plays: PlayListItem[];
   selectedView: SelectedView;
 }) {
@@ -149,7 +151,11 @@ export function PlayhouseShell({
                 {playCountLabel}
               </span>
               {!dataError ? (
-                <PlayForm baskets={baskets} defaultPlacement={defaultPlacement} />
+                <PlayForm
+                  baskets={baskets}
+                  defaultPlacement={defaultPlacement}
+                  nextPlayOptions={nextPlayOptions}
+                />
               ) : null}
             </div>
           </div>
@@ -190,11 +196,30 @@ export function PlayhouseShell({
                         <strong>{play.title}</strong>
                         {metadata.length > 0 ? <small>{metadata.join(" · ")}</small> : null}
                       </span>
-                      <PlayStatusActions playId={play.id} />
+                      <PlayStatusActions
+                        baskets={baskets}
+                        defaultPlacement={
+                          play.basketId
+                            ? { basketId: play.basketId, kind: "basket" }
+                            : {
+                                kind: "calendar",
+                                scheduledDate:
+                                  play.scheduledDate ??
+                                  (defaultPlacement.kind === "calendar"
+                                    ? defaultPlacement.scheduledDate
+                                    : ""),
+                              }
+                        }
+                        nextPlay={nextPlayOptions.find(
+                          (option) => option.id === play.nextPlayId,
+                        )}
+                        play={play}
+                      />
                     </div>
                     <PlayForm
                       baskets={baskets}
                       defaultPlacement={defaultPlacement}
+                      nextPlayOptions={nextPlayOptions}
                       play={play}
                     />
                   </li>

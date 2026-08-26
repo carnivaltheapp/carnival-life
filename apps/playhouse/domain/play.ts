@@ -46,6 +46,7 @@ export interface PlayListItem {
   durationMinutes: number | null;
   id: string;
   note: string | null;
+  nextPlayId: string | null;
   place: string | null;
   playType: PlayType;
   pushRule: PushRule;
@@ -53,4 +54,13 @@ export interface PlayListItem {
   sourceType: PlaySourceType;
   title: string;
   url: string | null;
+}
+
+export interface NextPlayOption {
+  basketId: string | null;
+  id: string;
+  playType: PlayType;
+  scheduledDate: string | null;
+  status: PlayStatus;
+  title: string;
 }

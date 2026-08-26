@@ -46,6 +46,21 @@ describe("PlayHouse destination resolution", () => {
       }),
     ).toMatchObject({ endDate: "2026-08-31", startDate: "2026-08-25" });
   });
+
+  it("resolves an explicit date used after Done/Create navigation", () => {
+    expect(
+      resolveSelectedView({
+        baskets,
+        date: "2026-09-14",
+        timeZone: "America/Los_Angeles",
+      }),
+    ).toMatchObject({
+      endDate: "2026-09-14",
+      key: "date",
+      label: "September 14, 2026",
+      startDate: "2026-09-14",
+    });
+  });
 });
 
 describe("calendar date helpers", () => {

@@ -40,6 +40,7 @@ export default async function Home({
         dataError: boolean;
         displayName: string;
         email: string | null;
+        nextPlayOptions: Awaited<ReturnType<typeof loadPlayhouseData>>["nextPlayOptions"];
         plays: Awaited<ReturnType<typeof loadPlayhouseData>>["plays"];
         selectedView: Awaited<ReturnType<typeof loadPlayhouseData>>["selectedView"];
       };
@@ -68,6 +69,7 @@ export default async function Home({
       const timeZone = profile?.timezone || "UTC";
       const playhouseData = await loadPlayhouseData({
         basketSlug: firstValue(params.basket),
+        date: firstValue(params.date),
         supabase,
         timeZone,
         view: firstValue(params.view),
@@ -79,6 +81,7 @@ export default async function Home({
         displayName: profile?.display_name || fallbackName,
         email,
         kind: "signed-in",
+        nextPlayOptions: playhouseData.nextPlayOptions,
         plays: playhouseData.plays,
         selectedView: playhouseData.selectedView,
       };
@@ -104,6 +107,7 @@ export default async function Home({
         displayName: pageState.displayName,
         email: pageState.email,
       }}
+      nextPlayOptions={pageState.nextPlayOptions}
       plays={pageState.plays}
       selectedView={pageState.selectedView}
     />

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public;
 
-select plan(31);
+select plan(48);
 
 select has_table('public', 'users', 'Carnival users table exists');
 select has_table('public', 'baskets', 'Baskets table exists');
@@ -59,6 +59,13 @@ select has_trigger(
   'plays',
   'plays_append_event_history',
   'Play writes append event history through a database trigger'
+);
+
+select has_index(
+  'public',
+  'play_relationships',
+  'play_relationships_one_next_per_source',
+  'Each Play has at most one outgoing next relationship'
 );
 
 insert into auth.users (id, email, raw_user_meta_data)
@@ -222,6 +229,241 @@ select policies_are(
   'plays',
   array['plays_insert_own', 'plays_select_own', 'plays_update_own'],
   'Plays expose only select, insert, and update ownership policies'
+);
+
+insert into auth.users (id, email, raw_user_meta_data)
+values (
+  '00000000-0000-4000-8000-000000000002'::uuid,
+  'phase1-two@example.test',
+  '{"full_name":"Phase Two"}'::jsonb
+);
+
+insert into public.plays (id, owner_user_id, title, scheduled_date)
+values
+  (
+    '00000000-0000-4000-8000-000000000101'::uuid,
+    '00000000-0000-4000-8000-000000000001'::uuid,
+    'Relationship A',
+    '2026-08-26'::date
+  ),
+  (
+    '00000000-0000-4000-8000-000000000102'::uuid,
+    '00000000-0000-4000-8000-000000000001'::uuid,
+    'Relationship B',
+    '2026-08-27'::date
+  ),
+  (
+    '00000000-0000-4000-8000-000000000103'::uuid,
+    '00000000-0000-4000-8000-000000000001'::uuid,
+    'Relationship C',
+    '2026-08-28'::date
+  ),
+  (
+    '00000000-0000-4000-8000-000000000201'::uuid,
+    '00000000-0000-4000-8000-000000000002'::uuid,
+    'Other owner Play',
+    '2026-08-26'::date
+  );
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claim.sub',
+  '00000000-0000-4000-8000-000000000001',
+  true
+);
+
+select lives_ok(
+  $$
+    select public.set_next_play(
+      '00000000-0000-4000-8000-000000000101'::uuid,
+      '00000000-0000-4000-8000-000000000102'::uuid
+    )
+  $$,
+  'An authenticated owner can set a next Play'
+);
+
+select ok(
+  exists (
+    select 1 from public.play_events
+    where play_id = '00000000-0000-4000-8000-000000000101'::uuid
+      and event_type = 'next_relationship_created'
+      and payload -> 'after' ->> 'next_play_id' =
+        '00000000-0000-4000-8000-000000000102'
+  ),
+  'Creating a next relationship appends structured history'
+);
+
+select throws_ok(
+  $$
+    insert into public.play_relationships (
+      owner_user_id, from_play_id, to_play_id, relationship_type
+    ) values (
+      '00000000-0000-4000-8000-000000000001'::uuid,
+      '00000000-0000-4000-8000-000000000101'::uuid,
+      '00000000-0000-4000-8000-000000000103'::uuid,
+      'next'
+    )
+  $$,
+  '23505',
+  null,
+  'A source Play cannot have duplicate next relationships'
+);
+
+select throws_ok(
+  $$
+    select public.set_next_play(
+      '00000000-0000-4000-8000-000000000102'::uuid,
+      '00000000-0000-4000-8000-000000000101'::uuid
+    )
+  $$,
+  '23514',
+  null,
+  'An obvious next-Play cycle is rejected'
+);
+
+select throws_ok(
+  $$
+    insert into public.play_relationships (
+      owner_user_id, from_play_id, to_play_id, relationship_type
+    ) values (
+      '00000000-0000-4000-8000-000000000001'::uuid,
+      '00000000-0000-4000-8000-000000000103'::uuid,
+      '00000000-0000-4000-8000-000000000201'::uuid,
+      'next'
+    )
+  $$,
+  '23503',
+  null,
+  'A cross-owner relationship is rejected'
+);
+
+select is(
+  (
+    select count(*) from public.plays
+    where id = '00000000-0000-4000-8000-000000000201'::uuid
+  ),
+  0::bigint,
+  'RLS hides another owner''s Play'
+);
+
+select lives_ok(
+  $$
+    select public.set_next_play(
+      '00000000-0000-4000-8000-000000000101'::uuid,
+      '00000000-0000-4000-8000-000000000103'::uuid
+    )
+  $$,
+  'A next relationship can be changed'
+);
+
+select ok(
+  exists (
+    select 1 from public.play_events
+    where play_id = '00000000-0000-4000-8000-000000000101'::uuid
+      and event_type = 'next_relationship_changed'
+      and payload -> 'before' ->> 'next_play_id' =
+        '00000000-0000-4000-8000-000000000102'
+      and payload -> 'after' ->> 'next_play_id' =
+        '00000000-0000-4000-8000-000000000103'
+  ),
+  'Changing a next relationship preserves before/after history'
+);
+
+select lives_ok(
+  $$
+    select public.set_next_play(
+      '00000000-0000-4000-8000-000000000101'::uuid,
+      null
+    )
+  $$,
+  'A next relationship can be removed'
+);
+
+select ok(
+  exists (
+    select 1 from public.play_events
+    where play_id = '00000000-0000-4000-8000-000000000101'::uuid
+      and event_type = 'next_relationship_removed'
+  ),
+  'Removing a next relationship appends history'
+);
+
+select public.set_next_play(
+  '00000000-0000-4000-8000-000000000101'::uuid,
+  '00000000-0000-4000-8000-000000000102'::uuid
+);
+
+select lives_ok(
+  $$
+    select * from public.done_create_existing(
+      '00000000-0000-4000-8000-000000000101'::uuid
+    )
+  $$,
+  'Done/Create completes a Play and activates its existing next Play atomically'
+);
+
+select ok(
+  (select status = 'done' and completed_at is not null from public.plays
+   where id = '00000000-0000-4000-8000-000000000101'::uuid)
+  and
+  (select status = 'open' from public.plays
+   where id = '00000000-0000-4000-8000-000000000102'::uuid),
+  'Existing Done/Create leaves the current Play done and next Play open'
+);
+
+select ok(
+  exists (
+    select 1
+    from public.play_events completed
+    join public.play_events activated
+      on activated.correlation_id = completed.correlation_id
+    where completed.play_id = '00000000-0000-4000-8000-000000000101'::uuid
+      and completed.event_type = 'done_create'
+      and activated.play_id = '00000000-0000-4000-8000-000000000102'::uuid
+      and activated.event_type = 'next_play_activated'
+  ),
+  'Existing Done/Create records correlated completion and activation history'
+);
+
+select lives_ok(
+  $$
+    select * from public.done_create_new(
+      '00000000-0000-4000-8000-000000000103'::uuid,
+      'Created next Play',
+      'normal',
+      '2026-08-29'::date,
+      null
+    )
+  $$,
+  'Done/Create can atomically create and link a new next Play'
+);
+
+select ok(
+  exists (
+    select 1
+    from public.play_relationships relationship
+    join public.plays next_play on next_play.id = relationship.to_play_id
+    where relationship.from_play_id =
+      '00000000-0000-4000-8000-000000000103'::uuid
+      and next_play.title = 'Created next Play'
+      and next_play.status = 'open'
+  ),
+  'New Done/Create creates one open next Play and relationship'
+);
+
+select ok(
+  exists (
+    select 1
+    from public.play_events completed
+    join public.play_events created
+      on created.correlation_id = completed.correlation_id
+    where completed.play_id = '00000000-0000-4000-8000-000000000103'::uuid
+      and completed.event_type = 'done_create'
+      and created.event_type = 'next_play_created'
+      and created.payload ->> 'previous_play_id' =
+        '00000000-0000-4000-8000-000000000103'
+  ),
+  'New Done/Create records correlated completion and creation history'
 );
 
 select policies_are(
