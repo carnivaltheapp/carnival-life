@@ -37,6 +37,7 @@ export default async function Home({
     | {
         kind: "signed-in";
         baskets: Awaited<ReturnType<typeof loadPlayhouseData>>["baskets"];
+        contacts: Awaited<ReturnType<typeof loadPlayhouseData>>["contacts"];
         dataError: boolean;
         displayName: string;
         email: string | null;
@@ -77,6 +78,7 @@ export default async function Home({
 
       pageState = {
         baskets: playhouseData.baskets,
+        contacts: playhouseData.contacts,
         dataError: Boolean(profileError) || playhouseData.error,
         displayName: profile?.display_name || fallbackName,
         email,
@@ -102,6 +104,7 @@ export default async function Home({
   return (
     <PlayhouseShell
       baskets={pageState.baskets}
+      contacts={pageState.contacts}
       dataError={pageState.dataError}
       identity={{
         displayName: pageState.displayName,

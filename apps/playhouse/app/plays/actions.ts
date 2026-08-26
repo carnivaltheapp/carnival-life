@@ -54,6 +54,7 @@ function playValues(data: PlayInput) {
     note: data.note,
     place: data.place,
     play_type: data.playType,
+    player_contact_id: data.playerContactId,
     push_rule: data.pushRule,
     scheduled_date:
       data.placement.kind === "calendar" ? data.placement.scheduledDate : null,
@@ -83,6 +84,21 @@ async function savePlayInternal(
     return errorState("That Basket is no longer available.", {
       basketId: "Choose one of your current Baskets.",
     });
+  }
+
+  if (parsed.data.playerContactId) {
+    const { data: contact, error: contactError } = await auth.supabase
+      .from("contact_references")
+      .select("id")
+      .eq("id", parsed.data.playerContactId)
+      .eq("owner_user_id", auth.userId)
+      .maybeSingle();
+
+    if (contactError || !contact) {
+      return errorState("That Player is no longer available.", {
+        playerContactId: "Choose one of your current Players.",
+      });
+    }
   }
 
   const values = playValues(parsed.data);

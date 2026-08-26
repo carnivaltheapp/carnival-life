@@ -42,6 +42,90 @@ export type Database = {
         };
         Relationships: [];
       };
+      contact_references: {
+        Row: {
+          avatar_url: string | null;
+          created_at: string;
+          display_name: string;
+          email: string | null;
+          google_account_id: string | null;
+          id: string;
+          is_self: boolean;
+          owner_user_id: string;
+          provider_resource_name: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          avatar_url?: string | null;
+          created_at?: string;
+          display_name: string;
+          email?: string | null;
+          google_account_id?: string | null;
+          id?: string;
+          is_self?: boolean;
+          owner_user_id: string;
+          provider_resource_name?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          avatar_url?: string | null;
+          created_at?: string;
+          display_name?: string;
+          email?: string | null;
+          google_account_id?: string | null;
+          id?: string;
+          is_self?: boolean;
+          owner_user_id?: string;
+          provider_resource_name?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      google_accounts: {
+        Row: {
+          avatar_url: string | null;
+          connection_status: Database["public"]["Enums"]["google_connection_status"];
+          created_at: string;
+          display_name: string | null;
+          email: string | null;
+          granted_scopes: string[];
+          id: string;
+          last_synced_at: string | null;
+          owner_user_id: string;
+          provider_subject: string;
+          sync_error: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          avatar_url?: string | null;
+          connection_status?: Database["public"]["Enums"]["google_connection_status"];
+          created_at?: string;
+          display_name?: string | null;
+          email?: string | null;
+          granted_scopes?: string[];
+          id?: string;
+          last_synced_at?: string | null;
+          owner_user_id: string;
+          provider_subject: string;
+          sync_error?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          avatar_url?: string | null;
+          connection_status?: Database["public"]["Enums"]["google_connection_status"];
+          created_at?: string;
+          display_name?: string | null;
+          email?: string | null;
+          granted_scopes?: string[];
+          id?: string;
+          last_synced_at?: string | null;
+          owner_user_id?: string;
+          provider_subject?: string;
+          sync_error?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       plays: {
         Row: {
           basket_id: string | null;
@@ -202,6 +286,7 @@ export type Database = {
       };
     };
     Enums: {
+      google_connection_status: "connected" | "disconnected" | "error";
       play_relationship_type: "next";
       play_source_type: "user" | "gmail";
       play_status: "open" | "done" | "trash";

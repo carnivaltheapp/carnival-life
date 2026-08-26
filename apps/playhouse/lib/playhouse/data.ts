@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { BasketSummary, NextPlayOption, PlayListItem } from "../../domain/play";
+import type {
+  BasketSummary,
+  ContactReferenceOption,
+  NextPlayOption,
+  PlayListItem,
+} from "../../domain/play";
 import { isIsoCalendarDate } from "../../domain/play-input";
 import type { Database } from "../supabase/database.types";
 
@@ -22,6 +27,7 @@ export type SelectedView =
 
 export type PlayhouseData = {
   baskets: BasketSummary[];
+  contacts: ContactReferenceOption[];
   error: boolean;
   nextPlayOptions: NextPlayOption[];
   plays: PlayListItem[];
@@ -153,13 +159,20 @@ export async function loadPlayhouseData({
   const selectedView = resolveSelectedView({ basketSlug, baskets, date, timeZone, view });
 
   if (basketError) {
-    return { baskets: [], error: true, nextPlayOptions: [], plays: [], selectedView };
+    return {
+      baskets: [],
+      contacts: [],
+      error: true,
+      nextPlayOptions: [],
+      plays: [],
+      selectedView,
+    };
   }
 
   let playQuery = supabase
     .from("plays")
     .select(
-      "id, title, play_type, source_type, scheduled_date, basket_id, duration_minutes, branch, note, url, push_rule, place, sort_order, created_at",
+      "id, title, play_type, source_type, scheduled_date, basket_id, duration_minutes, player_contact_id, branch, note, url, push_rule, place, sort_order, created_at",
     )
     .eq("status", "open");
 
@@ -171,8 +184,11 @@ export async function loadPlayhouseData({
       .lte("scheduled_date", selectedView.endDate);
   }
 
-  const [{ data: playRows, error: playError }, { data: optionRows, error: optionError }] =
-    await Promise.all([
+  const [
+    { data: playRows, error: playError },
+    { data: optionRows, error: optionError },
+    { data: contactRows, error: contactError },
+  ] = await Promise.all([
       playQuery
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true }),
@@ -181,7 +197,20 @@ export async function loadPlayhouseData({
         .select("id, title, status, play_type, scheduled_date, basket_id")
         .order("title", { ascending: true })
         .limit(1000),
+      supabase
+        .from("contact_references")
+        .select("id, display_name")
+        .order("display_name", { ascending: true })
+        .limit(1000),
     ]);
+
+  const contacts: ContactReferenceOption[] = (contactRows ?? []).map((contact) => ({
+    displayName: contact.display_name,
+    id: contact.id,
+  }));
+  const contactNameById = new Map(
+    contacts.map((contact) => [contact.id, contact.displayName]),
+  );
 
   const playIds = (playRows ?? []).map((play) => play.id);
   const relationshipResult =
@@ -207,6 +236,10 @@ export async function loadPlayhouseData({
     note: play.note,
     nextPlayId: nextByPlayId.get(play.id) ?? null,
     place: play.place,
+    playerContactId: play.player_contact_id,
+    playerDisplayName: play.player_contact_id
+      ? (contactNameById.get(play.player_contact_id) ?? null)
+      : null,
     playType: play.play_type,
     pushRule: play.push_rule,
     scheduledDate: play.scheduled_date,
@@ -226,7 +259,10 @@ export async function loadPlayhouseData({
 
   return {
     baskets,
-    error: Boolean(playError || optionError || relationshipResult.error),
+    contacts,
+    error: Boolean(
+      playError || optionError || contactError || relationshipResult.error,
+    ),
     nextPlayOptions,
     plays,
     selectedView,

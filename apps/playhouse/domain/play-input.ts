@@ -10,6 +10,7 @@ export type PlayInput = {
   place: string | null;
   placement: PlayPlacement;
   playType: PlayType;
+  playerContactId: string | null;
   pushRule: PushRule;
   title: string;
   url: string | null;
@@ -23,6 +24,7 @@ export type PlayInputField =
   | "place"
   | "placement"
   | "playType"
+  | "playerContactId"
   | "pushRule"
   | "scheduledDate"
   | "title"
@@ -75,6 +77,7 @@ export function parsePlayInput(formData: FormData): PlayInputResult {
   const scheduledDate = value(formData, "scheduledDate");
   const basketId = value(formData, "basketId");
   const rawPlayType = value(formData, "playType");
+  const playerContactId = value(formData, "playerContactId") || null;
   const rawPushRule = value(formData, "pushRule");
 
   if (!title) {
@@ -113,6 +116,10 @@ export function parsePlayInput(formData: FormData): PlayInputResult {
     : null;
   if (!playType) {
     errors.playType = "Choose Normal or Reminder.";
+  }
+
+  if (playerContactId && !isUuid(playerContactId)) {
+    errors.playerContactId = "Choose a valid Player.";
   }
 
   const pushRule = PUSH_RULES.includes(rawPushRule as PushRule)
@@ -170,6 +177,7 @@ export function parsePlayInput(formData: FormData): PlayInputResult {
       place,
       placement,
       playType,
+      playerContactId,
       pushRule,
       title,
       url,

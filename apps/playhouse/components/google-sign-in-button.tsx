@@ -17,7 +17,11 @@ export function GoogleSignInButton() {
       const redirectTo = `${window.location.origin}/auth/callback?next=/`;
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo },
+        options: {
+          queryParams: { include_granted_scopes: "true" },
+          redirectTo,
+          scopes: "https://www.googleapis.com/auth/contacts.readonly",
+        },
       });
 
       if (error) {

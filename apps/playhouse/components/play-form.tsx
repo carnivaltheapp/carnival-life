@@ -6,6 +6,7 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { savePlay } from "../app/plays/actions";
 import type {
   BasketSummary,
+  ContactReferenceOption,
   NextPlayOption,
   PlayListItem,
   PlayPlacement,
@@ -28,11 +29,13 @@ function FieldError({ field, errors }: {
 
 export function PlayForm({
   baskets,
+  contacts,
   defaultPlacement,
   nextPlayOptions,
   play,
 }: {
   baskets: BasketSummary[];
+  contacts: ContactReferenceOption[];
   defaultPlacement: PlayPlacement;
   nextPlayOptions: NextPlayOption[];
   play?: PlayListItem;
@@ -114,6 +117,24 @@ export function PlayForm({
             <FieldError errors={state.fieldErrors} field="placement" />
           </label>
         </div>
+
+        <label className="field compactField field--wide">
+          <span className="controlLabel">Player</span>
+          <select
+            aria-invalid={Boolean(state.fieldErrors?.playerContactId)}
+            defaultValue={submittedValues?.playerContactId ?? play?.playerContactId ?? ""}
+            key={submittedValues?.playerContactId ?? "initial"}
+            name="playerContactId"
+          >
+            <option value="">No Player</option>
+            {contacts.map((contact) => (
+              <option key={contact.id} value={contact.id}>
+                {contact.displayName}
+              </option>
+            ))}
+          </select>
+          <FieldError errors={state.fieldErrors} field="playerContactId" />
+        </label>
 
         <div className="formRow dateUrlRow field--wide">
           {placementKind === "calendar" ? (
@@ -247,7 +268,6 @@ export function PlayForm({
           <button className="primaryButton" disabled={isPending} type="submit">
             {isPending ? "Saving…" : isEditing ? "Save changes" : "Create Play"}
           </button>
-          <small className="playerDeferred">Player available after Contacts sync.</small>
           {state.status === "error" && state.message ? (
             <p className="formError" role="alert">
               {state.message}

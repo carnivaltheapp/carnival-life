@@ -8,6 +8,7 @@ const PLAY_FORM_VALUE_FIELDS = [
   "place",
   "placementKind",
   "playType",
+  "playerContactId",
   "pushRule",
   "scheduledDate",
   "title",

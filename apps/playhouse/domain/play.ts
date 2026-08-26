@@ -40,6 +40,11 @@ export interface BasketSummary {
   sortOrder: number;
 }
 
+export interface ContactReferenceOption {
+  displayName: string;
+  id: string;
+}
+
 export interface PlayListItem {
   basketId: string | null;
   branch: string | null;
@@ -48,6 +53,8 @@ export interface PlayListItem {
   note: string | null;
   nextPlayId: string | null;
   place: string | null;
+  playerContactId: string | null;
+  playerDisplayName: string | null;
   playType: PlayType;
   pushRule: PushRule;
   scheduledDate: string | null;

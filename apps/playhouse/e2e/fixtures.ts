@@ -8,6 +8,7 @@ import { resolvedE2eEnvironment } from "./support/environment";
 
 export type AuthenticatedTestContext = {
   admin: SupabaseClient<Database>;
+  contacts: Array<{ displayName: string; id: string }>;
   context: BrowserContext;
   page: Page;
   user: SupabaseClient<Database>;
@@ -50,6 +51,23 @@ export const test = base.extend<{ auth: AuthenticatedTestContext }>({
       throw new Error(`Could not sign in disposable E2E user: ${signInError?.message}`);
     }
 
+    const { data: contactRows, error: contactError } = await userClient
+      .from("contact_references")
+      .insert([
+        { display_name: "Alex Example", owner_user_id: created.user.id },
+        { display_name: "Blair Example", owner_user_id: created.user.id },
+      ])
+      .select("id, display_name")
+      .order("display_name", { ascending: true });
+    if (contactError || contactRows?.length !== 2) {
+      await admin.auth.admin.deleteUser(created.user.id);
+      throw new Error(`Could not seed disposable E2E contacts: ${contactError?.message}`);
+    }
+    const contacts = contactRows.map((contact) => ({
+      displayName: contact.display_name,
+      id: contact.id,
+    }));
+
     const cookieJar = new Map<string, string>();
     const cookieClient = createServerClient<Database>(
       environment.supabaseUrl,
@@ -80,7 +98,14 @@ export const test = base.extend<{ auth: AuthenticatedTestContext }>({
     const page = await context.newPage();
 
     try {
-      await provide({ admin, context, page, user: userClient, userId: created.user.id });
+      await provide({
+        admin,
+        contacts,
+        context,
+        page,
+        user: userClient,
+        userId: created.user.id,
+      });
     } finally {
       await context.close();
       await admin.auth.admin.deleteUser(created.user.id);

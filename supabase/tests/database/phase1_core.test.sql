@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public;
 
-select plan(48);
+select plan(52);
 
 select has_table('public', 'users', 'Carnival users table exists');
 select has_table('public', 'baskets', 'Baskets table exists');
@@ -238,6 +238,19 @@ values (
   '{"full_name":"Phase Two"}'::jsonb
 );
 
+insert into public.contact_references (id, owner_user_id, display_name)
+values
+  (
+    '00000000-0000-4000-8000-000000000301'::uuid,
+    '00000000-0000-4000-8000-000000000001'::uuid,
+    'First Owner Contact'
+  ),
+  (
+    '00000000-0000-4000-8000-000000000302'::uuid,
+    '00000000-0000-4000-8000-000000000002'::uuid,
+    'Other Owner Contact'
+  );
+
 insert into public.plays (id, owner_user_id, title, scheduled_date)
 values
   (
@@ -270,6 +283,45 @@ select set_config(
   'request.jwt.claim.sub',
   '00000000-0000-4000-8000-000000000001',
   true
+);
+
+select is(
+  (
+    select count(*) from public.contact_references
+    where id = '00000000-0000-4000-8000-000000000302'::uuid
+  ),
+  0::bigint,
+  'RLS hides another owner''s contact reference'
+);
+
+select lives_ok(
+  $$
+    update public.plays
+    set player_contact_id = '00000000-0000-4000-8000-000000000301'::uuid
+    where id = '00000000-0000-4000-8000-000000000103'::uuid
+  $$,
+  'A Play can reference its owner''s contact'
+);
+
+select ok(
+  exists (
+    select 1 from public.play_events
+    where play_id = '00000000-0000-4000-8000-000000000103'::uuid
+      and event_type = 'edit'
+      and payload -> 'changed_fields' ? 'player_contact_id'
+  ),
+  'Changing Player appends structured Play history'
+);
+
+select throws_ok(
+  $$
+    update public.plays
+    set player_contact_id = '00000000-0000-4000-8000-000000000302'::uuid
+    where id = '00000000-0000-4000-8000-000000000103'::uuid
+  $$,
+  '23503',
+  null,
+  'A Play cannot reference another owner''s contact'
 );
 
 select lives_ok(

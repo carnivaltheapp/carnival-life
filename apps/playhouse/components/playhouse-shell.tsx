@@ -1,7 +1,12 @@
 import Link from "next/link";
 
 import { signOut } from "../app/auth/actions";
-import type { BasketSummary, NextPlayOption, PlayListItem } from "../domain/play";
+import type {
+  BasketSummary,
+  ContactReferenceOption,
+  NextPlayOption,
+  PlayListItem,
+} from "../domain/play";
 import type { SelectedView } from "../lib/playhouse/data";
 import { PlayForm } from "./play-form";
 import { PlayStatusActions } from "./play-status-actions";
@@ -22,6 +27,7 @@ function playMeta(play: PlayListItem) {
     play.playType === "reminder" ? "Reminder · Waiting" : "Normal",
     play.sourceType === "gmail" ? "Email" : null,
     play.durationMinutes ? `${play.durationMinutes} min` : null,
+    play.playerDisplayName ? `Player: ${play.playerDisplayName}` : null,
     play.branch,
     play.place,
   ].filter(Boolean);
@@ -29,6 +35,7 @@ function playMeta(play: PlayListItem) {
 
 export function PlayhouseShell({
   baskets,
+  contacts,
   dataError,
   identity,
   nextPlayOptions,
@@ -36,6 +43,7 @@ export function PlayhouseShell({
   selectedView,
 }: {
   baskets: BasketSummary[];
+  contacts: ContactReferenceOption[];
   dataError: boolean;
   identity: UserIdentity;
   nextPlayOptions: NextPlayOption[];
@@ -157,6 +165,7 @@ export function PlayhouseShell({
               {!dataError ? (
                 <PlayForm
                   baskets={baskets}
+                  contacts={contacts}
                   defaultPlacement={defaultPlacement}
                   nextPlayOptions={nextPlayOptions}
                 />
@@ -222,6 +231,7 @@ export function PlayhouseShell({
                     </div>
                     <PlayForm
                       baskets={baskets}
+                      contacts={contacts}
                       defaultPlacement={defaultPlacement}
                       nextPlayOptions={nextPlayOptions}
                       play={play}

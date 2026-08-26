@@ -45,6 +45,7 @@ test("invalid Create stays open and preserves every entered value", async ({ aut
   await form.getByLabel("Branch").fill("Regression");
   await form.getByLabel("Note").fill("Keep this note");
   await form.getByLabel("Duration (minutes)").fill("45");
+  await form.getByLabel("Player").selectOption(auth.contacts[0].id);
   await form.getByLabel("Push").selectOption("weekdays");
   await form.locator('select[name="place"]').selectOption("outside");
   await form.getByRole("button", { name: "Create Play" }).click();
@@ -56,6 +57,7 @@ test("invalid Create stays open and preserves every entered value", async ({ aut
   await expect(form.getByLabel("Branch")).toHaveValue("Regression");
   await expect(form.getByLabel("Note")).toHaveValue("Keep this note");
   await expect(form.getByLabel("Duration (minutes)")).toHaveValue("45");
+  await expect(form.getByLabel("Player")).toHaveValue(auth.contacts[0].id);
   await expect(form.getByLabel("Push")).toHaveValue("weekdays");
   await expect(form.locator('select[name="place"]')).toHaveValue("outside");
 });
@@ -122,4 +124,54 @@ test("Play moves date to Basket and Basket back to date", async ({ auth }) => {
 
   await auth.page.getByRole("link", { name: "Today" }).click();
   await expect(playRow(auth.page, "Move both ways")).toBeVisible();
+});
+
+test("Player can be created, displayed, changed, and cleared", async ({ auth }) => {
+  await auth.page.goto("/");
+  const createForm = await openCreatePlay(auth.page);
+  await createForm.getByLabel("Title").fill("Player lifecycle");
+  await createForm.getByLabel("Player").selectOption(auth.contacts[0].id);
+  await createForm.getByRole("button", { name: "Create Play" }).click();
+
+  let row = playRow(auth.page, "Player lifecycle");
+  await expect(row).toContainText(`Player: ${auth.contacts[0].displayName}`);
+  let persistence = await auth.user
+    .from("plays")
+    .select("player_contact_id")
+    .eq("owner_user_id", auth.userId)
+    .eq("title", "Player lifecycle")
+    .single();
+  expect(persistence.error).toBeNull();
+  expect(persistence.data?.player_contact_id).toBe(auth.contacts[0].id);
+
+  let edit = await openEditPlay(auth.page, "Player lifecycle");
+  await expect(edit.form.getByLabel("Player")).toHaveValue(auth.contacts[0].id);
+  await edit.form.getByLabel("Player").selectOption(auth.contacts[1].id);
+  await edit.form.getByRole("button", { name: "Save changes" }).click();
+
+  row = playRow(auth.page, "Player lifecycle");
+  await expect(row).toContainText(`Player: ${auth.contacts[1].displayName}`);
+  persistence = await auth.user
+    .from("plays")
+    .select("player_contact_id")
+    .eq("owner_user_id", auth.userId)
+    .eq("title", "Player lifecycle")
+    .single();
+  expect(persistence.error).toBeNull();
+  expect(persistence.data?.player_contact_id).toBe(auth.contacts[1].id);
+
+  edit = await openEditPlay(auth.page, "Player lifecycle");
+  await edit.form.getByLabel("Player").selectOption("");
+  await edit.form.getByRole("button", { name: "Save changes" }).click();
+
+  row = playRow(auth.page, "Player lifecycle");
+  await expect(row).not.toContainText("Player:");
+  persistence = await auth.user
+    .from("plays")
+    .select("player_contact_id")
+    .eq("owner_user_id", auth.userId)
+    .eq("title", "Player lifecycle")
+    .single();
+  expect(persistence.error).toBeNull();
+  expect(persistence.data?.player_contact_id).toBeNull();
 });

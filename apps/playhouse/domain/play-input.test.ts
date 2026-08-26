@@ -12,6 +12,7 @@ function form(overrides: Record<string, string> = {}) {
     place: "Office",
     placementKind: "calendar",
     playType: "normal",
+    playerContactId: "",
     pushRule: "weekdays",
     scheduledDate: "2026-08-26",
     title: "Plan the weekend",
@@ -33,6 +34,7 @@ describe("Play input validation", () => {
         place: "Office",
         placement: { kind: "calendar", scheduledDate: "2026-08-26" },
         playType: "normal",
+        playerContactId: null,
         pushRule: "weekdays",
         title: "Plan the weekend",
         url: "https://example.com/plan",
@@ -58,6 +60,25 @@ describe("Play input validation", () => {
         },
       },
       success: true,
+    });
+  });
+
+  it("accepts a blank or owned-reference-shaped Player identifier", () => {
+    expect(parsePlayInput(form({ playerContactId: "" }))).toMatchObject({
+      data: { playerContactId: null },
+      success: true,
+    });
+    expect(
+      parsePlayInput(
+        form({ playerContactId: "33333333-3333-4333-8333-333333333333" }),
+      ),
+    ).toMatchObject({
+      data: { playerContactId: "33333333-3333-4333-8333-333333333333" },
+      success: true,
+    });
+    expect(parsePlayInput(form({ playerContactId: "another-user-contact" }))).toMatchObject({
+      errors: { playerContactId: expect.any(String) },
+      success: false,
     });
   });
 
