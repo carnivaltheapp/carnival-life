@@ -184,6 +184,7 @@ export function PlayForm({
               defaultValue={
                 submittedValues?.place ?? (play ? (play.place ?? "") : "office")
               }
+              key={submittedValues?.place ?? "initial"}
               name="place"
             >
               <option value="">Unspecified</option>
