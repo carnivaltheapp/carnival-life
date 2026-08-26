@@ -360,7 +360,6 @@ export async function doneCreate(
       workflowResult = data[0];
     }
 
-    revalidatePath("/");
     return {
       message: mode === "new" ? "Next Play created." : "Next Play activated.",
       redirectTo: await destinationForNextPlay(auth.supabase, workflowResult),

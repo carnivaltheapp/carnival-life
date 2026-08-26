@@ -10,7 +10,6 @@ import type {
   PlayListItem,
   PlayPlacement,
   PlayType,
-  PushRule,
 } from "../domain/play";
 import type { PlayInputField } from "../domain/play-input";
 import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
@@ -47,7 +46,6 @@ export function PlayForm({
     : defaultPlacement;
   const [placementKind, setPlacementKind] = useState(initialPlacement.kind);
   const [playType, setPlayType] = useState<PlayType>(play?.playType ?? "normal");
-  const [pushRule, setPushRule] = useState<PushRule>(play?.pushRule ?? "everyday");
   const [state, formAction, isPending] = useActionState(
     savePlay,
     INITIAL_PLAY_MUTATION_STATE,
@@ -220,9 +218,9 @@ export function PlayForm({
           <label className="field compactField">
             <span className="controlLabel">Push</span>
             <select
+              defaultValue={submittedValues?.pushRule ?? play?.pushRule ?? "everyday"}
+              key={submittedValues?.pushRule ?? "initial"}
               name="pushRule"
-              onChange={(event) => setPushRule(event.target.value as PushRule)}
-              value={pushRule}
             >
               <option value="everyday">Everyday</option>
               <option value="weekdays">Weekdays</option>
