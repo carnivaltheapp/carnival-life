@@ -6,7 +6,7 @@ test("new Play defaults Duration to 30 and Place to Office", async ({ auth }) =>
   const form = await openCreatePlay(auth.page);
 
   await expect(form.getByLabel("Duration (minutes)")).toHaveValue("30");
-  await expect(form.getByLabel("Place")).toHaveValue("office");
+  await expect(form.locator('select[name="place"]')).toHaveValue("office");
 });
 
 test("blank and HTTP(S) URL variants persist correctly", async ({ auth }) => {
@@ -26,7 +26,7 @@ test("blank and HTTP(S) URL variants persist correctly", async ({ auth }) => {
     await createPlay(auth.page, item.title, { url: item.entered });
   }
 
-  const { data, error } = await auth.admin
+  const { data, error } = await auth.user
     .from("plays")
     .select("title, url")
     .eq("owner_user_id", auth.userId)
@@ -46,7 +46,7 @@ test("invalid Create stays open and preserves every entered value", async ({ aut
   await form.getByLabel("Note").fill("Keep this note");
   await form.getByLabel("Duration (minutes)").fill("45");
   await form.getByLabel("Push").selectOption("weekdays");
-  await form.getByLabel("Place").selectOption("outside");
+  await form.locator('select[name="place"]').selectOption("outside");
   await form.getByRole("button", { name: "Create Play" }).click();
 
   await expect(auth.page.getByTestId("create-play")).toHaveAttribute("open", "");
@@ -57,7 +57,7 @@ test("invalid Create stays open and preserves every entered value", async ({ aut
   await expect(form.getByLabel("Note")).toHaveValue("Keep this note");
   await expect(form.getByLabel("Duration (minutes)")).toHaveValue("45");
   await expect(form.getByLabel("Push")).toHaveValue("weekdays");
-  await expect(form.getByLabel("Place")).toHaveValue("outside");
+  await expect(form.locator('select[name="place"]')).toHaveValue("outside");
 });
 
 test("successful Create closes, appears immediately, and updates count", async ({ auth }) => {
@@ -77,7 +77,7 @@ test("Edit updates title and URL while preserving Duration and Place", async ({ 
   const { disclosure, form } = await openEditPlay(auth.page, "Before edit");
 
   await expect(form.getByLabel("Duration (minutes)")).toHaveValue("30");
-  await expect(form.getByLabel("Place")).toHaveValue("office");
+  await expect(form.locator('select[name="place"]')).toHaveValue("office");
   await expect(form.getByLabel("URL")).toHaveValue("https://example.com/original");
   await form.getByLabel("Title").fill("After edit");
   await form.getByLabel("URL").fill("http://example.com/updated");
@@ -86,7 +86,7 @@ test("Edit updates title and URL while preserving Duration and Place", async ({ 
   await expect(disclosure).not.toHaveAttribute("open", "");
   await expect(playRow(auth.page, "Before edit")).toHaveCount(0);
   await expect(playRow(auth.page, "After edit")).toBeVisible();
-  const { data, error } = await auth.admin
+  const { data, error } = await auth.user
     .from("plays")
     .select("duration_minutes, place, url")
     .eq("owner_user_id", auth.userId)
@@ -104,15 +104,15 @@ test("Play moves date to Basket and Basket back to date", async ({ auth }) => {
   await auth.page.goto("/");
   await createPlay(auth.page, "Move both ways");
   let edit = await openEditPlay(auth.page, "Move both ways");
-  await edit.form.getByLabel("Placement").selectOption("basket");
-  await edit.form.getByLabel("Basket").selectOption({ label: "Backlog" });
+  await edit.form.locator('select[name="placementKind"]').selectOption("basket");
+  await edit.form.locator('select[name="basketId"]').selectOption({ label: "Backlog" });
   await edit.form.getByRole("button", { name: "Save changes" }).click();
   await expect(playRow(auth.page, "Move both ways")).toHaveCount(0);
 
   await auth.page.getByRole("link", { name: "Backlog" }).click();
   await expect(playRow(auth.page, "Move both ways")).toBeVisible();
   edit = await openEditPlay(auth.page, "Move both ways");
-  await edit.form.getByLabel("Placement").selectOption("calendar");
+  await edit.form.locator('select[name="placementKind"]').selectOption("calendar");
   await edit.form.getByLabel("Date").fill(new Date().toISOString().slice(0, 10));
   await edit.form.getByRole("button", { name: "Save changes" }).click();
   await expect(playRow(auth.page, "Move both ways")).toHaveCount(0);
