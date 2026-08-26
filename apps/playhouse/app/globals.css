@@ -14,6 +14,17 @@
   box-sizing: border-box;
 }
 
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 html {
   min-width: 320px;
   min-height: 100%;
@@ -360,21 +371,42 @@ h1 {
 }
 
 .playList {
+  overflow-x: auto;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .playRow {
-  min-height: 74px;
-  padding: 16px clamp(24px, 4vw, 42px);
+  min-width: 820px;
   border-bottom: 1px solid var(--line);
+  transition: background 120ms ease;
 }
 
-.playRowSummary {
-  display: flex;
-  gap: 15px;
+.playRow:hover {
+  background: rgba(109, 63, 242, 0.035);
+}
+
+.playRowLine {
+  display: grid;
+  min-height: 42px;
+  padding: 4px clamp(14px, 2.2vw, 24px);
+  grid-template-columns:
+    78px minmax(190px, 2fr) 54px 54px minmax(110px, 1fr)
+    minmax(80px, 0.75fr) 66px 62px;
+  gap: 10px;
   align-items: center;
+}
+
+.playTypeCell {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .playTypeMarker {
@@ -391,20 +423,17 @@ h1 {
   box-shadow: 0 0 0 4px rgba(215, 139, 10, 0.12);
 }
 
-.playCopy {
-  display: grid;
+.playDataCell {
+  overflow: hidden;
   min-width: 0;
-  flex: 1;
-  gap: 5px;
-}
-
-.playCopy strong {
-  font-size: 0.94rem;
-}
-
-.playCopy small {
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playPlaceCell {
+  text-transform: capitalize;
 }
 
 .createDisclosure,
@@ -414,7 +443,6 @@ h1 {
 
 .createDisclosure summary,
 .editDisclosure summary {
-  width: max-content;
   color: var(--accent-deep);
   border-radius: 9px;
   font-weight: 800;
@@ -428,6 +456,7 @@ h1 {
 }
 
 .createDisclosure summary {
+  width: max-content;
   padding: 9px 13px;
   color: white;
   background: var(--accent);
@@ -435,11 +464,26 @@ h1 {
 }
 
 .editDisclosure {
-  margin: 8px 0 0 25px;
+  overflow: hidden;
+  min-width: 0;
+  margin: 0;
 }
 
-.editDisclosure summary {
-  padding: 5px 8px;
+.editDisclosure .playTitleLink {
+  display: block;
+  overflow: hidden;
+  width: 100%;
+  padding: 5px 3px;
+  font-size: 0.78rem;
+  text-decoration: underline;
+  text-decoration-color: rgba(109, 63, 242, 0.25);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editDisclosure .playTitleLink:hover {
+  color: var(--accent);
+  text-decoration-color: currentColor;
 }
 
 .createDisclosure summary:focus-visible,
@@ -449,7 +493,8 @@ h1 {
 .doneButton:focus-visible,
 .workflowButton:focus-visible,
 .doneCreateDisclosure > summary:focus-visible,
-.trashButton:focus-visible {
+.trashButton:focus-visible,
+.rowIconButton:focus-visible {
   outline: 3px solid rgba(109, 63, 242, 0.3);
   outline-offset: 2px;
 }
@@ -459,7 +504,7 @@ h1 {
   z-index: 5;
   top: calc(100% - 10px);
   right: clamp(16px, 4vw, 42px);
-  width: min(640px, calc(100vw - 40px));
+  width: min(620px, calc(100vw - 40px));
   max-height: calc(100vh - 130px);
   overflow-y: auto;
   box-shadow: 0 24px 70px rgba(48, 29, 83, 0.22);
@@ -470,7 +515,7 @@ h1 {
   z-index: 7;
   top: 50%;
   left: 50%;
-  width: min(640px, calc(100vw - 40px));
+  width: min(620px, calc(100vw - 40px));
   max-height: calc(100vh - 32px);
   margin: 0;
   overflow-y: auto;
@@ -482,7 +527,20 @@ h1 {
 }
 
 .editDisclosure[open] > summary {
-  margin: 10px 15px 0;
+  width: calc(100% - 24px);
+  margin: 9px 12px 0;
+  padding: 4px 26px 4px 3px;
+  font-size: 0.82rem;
+  text-decoration: none;
+}
+
+.editDisclosure[open] > summary::after {
+  position: absolute;
+  top: 8px;
+  right: 13px;
+  content: "×";
+  color: var(--muted);
+  font-size: 1rem;
 }
 
 .editDisclosure .playForm {
@@ -492,15 +550,15 @@ h1 {
 }
 
 .editDisclosure .relationshipForm {
-  margin: 0 15px 15px;
+  margin: 0 12px 8px;
 }
 
 .playForm {
   display: grid;
   margin-top: 10px;
-  padding: 15px;
+  padding: 12px;
   grid-template-columns: 1fr;
-  gap: 9px;
+  gap: 6px;
   border: 1px solid var(--line);
   border-radius: 18px;
   background: #fffdfa;
@@ -509,14 +567,14 @@ h1 {
 .field {
   display: grid;
   min-width: 0;
-  gap: 6px;
+  gap: 4px;
 }
 
 .formRow {
   display: grid;
   min-width: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 7px;
 }
 
 .dateUrlRow {
@@ -524,41 +582,16 @@ h1 {
 }
 
 .dateUrlRow input {
-  height: 43px;
+  height: 37px;
 }
 
 .compactField {
   position: relative;
 }
 
-.compactField > .controlLabel {
-  position: absolute;
-  z-index: 1;
-  top: 5px;
-  left: 11px;
-  color: var(--muted);
-  font-size: 0.58rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  line-height: 1;
-  pointer-events: none;
-}
-
 .playerInputLabel {
   position: relative;
   display: block;
-}
-
-.playerInputLabel > .controlLabel {
-  position: absolute;
-  z-index: 1;
-  top: 5px;
-  left: 11px;
-  color: var(--muted);
-  font-size: 0.58rem;
-  font-weight: 700;
-  line-height: 1;
-  pointer-events: none;
 }
 
 .playerField {
@@ -572,8 +605,8 @@ h1 {
 .clearPlayerButton {
   position: absolute;
   z-index: 2;
-  top: 7px;
-  right: 7px;
+  top: 4px;
+  right: 4px;
   display: grid;
   width: 29px;
   height: 29px;
@@ -644,8 +677,8 @@ h1 {
 .field select,
 .field textarea {
   width: 100%;
-  min-height: 43px;
-  padding: 17px 11px 5px;
+  min-height: 37px;
+  padding: 7px 10px;
   color: var(--ink);
   border: 1px solid rgba(53, 38, 72, 0.18);
   border-radius: 10px;
@@ -654,7 +687,7 @@ h1 {
 }
 
 .field textarea {
-  min-height: 58px;
+  min-height: 40px;
   resize: vertical;
 }
 
@@ -697,8 +730,8 @@ h1 {
 }
 
 .formFooter {
-  min-height: 38px;
-  gap: 10px;
+  min-height: 34px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -714,16 +747,16 @@ h1 {
 }
 
 .primaryButton {
-  min-height: 42px;
-  padding: 9px 15px;
+  min-height: 36px;
+  padding: 7px 13px;
   color: white;
   border-radius: 10px;
   background: var(--accent);
 }
 
 .secondaryButton {
-  min-height: 40px;
-  padding: 8px 13px;
+  min-height: 36px;
+  padding: 7px 12px;
   color: var(--accent-deep);
   border: 1px solid rgba(109, 63, 242, 0.2);
   border-radius: 10px;
@@ -747,27 +780,43 @@ h1 {
 }
 
 .statusActionArea {
+  position: relative;
   display: grid;
   justify-items: end;
 }
 
 .statusActions {
-  gap: 6px;
+  gap: 3px;
 }
 
-.doneButton,
-.workflowButton,
-.trashButton {
-  min-height: 34px;
-  padding: 6px 10px;
-  border-radius: 8px;
+.rowIconButton {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  min-height: 0;
+  padding: 0;
+  place-items: center;
+  border-radius: 7px;
   background: transparent;
-  font-size: 0.7rem;
+  font-size: 0.82rem;
+}
+
+.rowIconButton svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
 }
 
 .doneButton {
   color: #167146;
-  background: rgba(36, 154, 99, 0.09);
+}
+
+.doneButton:hover {
+  background: rgba(36, 154, 99, 0.1);
 }
 
 .workflowButton,
@@ -784,12 +833,25 @@ h1 {
 
 .trashButton {
   color: #81243b;
-  background: rgba(129, 36, 59, 0.07);
+}
+
+.trashButton:hover {
+  background: rgba(129, 36, 59, 0.08);
 }
 
 .rowError {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 4px);
+  right: 0;
+  width: max-content;
   max-width: 240px;
-  margin: 5px 0 0;
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid rgba(129, 36, 59, 0.14);
+  border-radius: 8px;
+  background: #fff7f8;
+  box-shadow: 0 8px 20px rgba(48, 29, 83, 0.12);
   font-size: 0.67rem;
   line-height: 1.35;
   text-align: right;
@@ -805,12 +867,39 @@ h1 {
   white-space: nowrap;
 }
 
+.editWorkflowArea {
+  display: grid;
+}
+
+.workflowActions {
+  position: relative;
+  min-height: 34px;
+  margin: 0 12px 10px;
+}
+
+.workflowActions > form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.workflowActions .nextPlayHint {
+  margin: 0;
+}
+
+.workflowActions .doneCreateForm {
+  position: static;
+  width: 100%;
+  margin-top: 7px;
+  box-shadow: none;
+}
+
 .relationshipForm {
   display: grid;
   margin-top: 12px;
-  padding: 16px;
+  padding: 9px;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px 12px;
+  gap: 7px 8px;
   align-items: end;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -848,9 +937,9 @@ h1 {
   right: 0;
   display: grid;
   width: min(420px, calc(100vw - 36px));
-  padding: 20px;
+  padding: 13px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 8px;
   border: 1px solid var(--line);
   border-radius: 17px;
   background: #fffdfa;
@@ -1066,35 +1155,8 @@ h1 {
     width: calc(100vw - 28px);
   }
 
-  .playRow {
-    padding: 16px 18px;
-  }
-
-  .playRowSummary {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-
-  .playCopy {
-    flex-basis: calc(100% - 30px);
-  }
-
-  .statusActionArea {
-    width: 100%;
-    justify-items: start;
-    margin-left: 25px;
-  }
-
-  .statusActions {
-    flex-wrap: wrap;
-  }
-
   .statusActionArea .rowError {
     text-align: left;
-  }
-
-  .editDisclosure {
-    margin-left: 25px;
   }
 
   .playForm {

@@ -94,8 +94,8 @@ export function PlayerCombobox({
   return (
     <div className="field compactField field--wide playerField">
       <label className="playerInputLabel">
-        <span className="controlLabel">Player</span>
         <input
+          aria-label="Player"
           aria-autocomplete="list"
           aria-controls={listboxId}
           aria-expanded={showMenu}
@@ -127,7 +127,7 @@ export function PlayerCombobox({
               setIsFocused(false);
             }
           }}
-          placeholder={`No Player · type ${MIN_PLAYER_SEARCH_LENGTH}+ characters`}
+          placeholder={`Player · type ${MIN_PLAYER_SEARCH_LENGTH}+ characters`}
           role="combobox"
           value={query}
         />

@@ -24,8 +24,12 @@ export function NextPlayRelationshipForm({
     <form action={formAction} className="relationshipForm">
       <input name="fromPlayId" type="hidden" value={playId} />
       <label className="field">
-        <span>Next Play</span>
-        <select defaultValue={currentNextPlayId ?? ""} name="nextPlayId">
+        <span className="srOnly">Next Play</span>
+        <select
+          aria-label="Next Play"
+          defaultValue={currentNextPlayId ?? ""}
+          name="nextPlayId"
+        >
           <option value="">No next Play</option>
           {options
             .filter((option) => option.id !== playId)

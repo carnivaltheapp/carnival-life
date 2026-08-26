@@ -2,7 +2,7 @@ import { expect, type Locator, type Page } from "@playwright/test";
 
 export function playRow(page: Page, title: string): Locator {
   return page.getByTestId("play-row").filter({
-    has: page.locator(".playCopy strong", { hasText: title }),
+    has: page.getByTestId("play-title").filter({ hasText: title }),
   });
 }
 
@@ -16,7 +16,7 @@ export async function openCreatePlay(page: Page) {
 export async function openEditPlay(page: Page, title: string) {
   const row = playRow(page, title);
   const disclosure = row.getByTestId("edit-play");
-  await disclosure.getByText("Edit", { exact: true }).click();
+  await disclosure.getByTestId("play-title").click();
   await expect(disclosure).toHaveAttribute("open", "");
   return { disclosure, form: disclosure.locator("form.playForm"), row };
 }

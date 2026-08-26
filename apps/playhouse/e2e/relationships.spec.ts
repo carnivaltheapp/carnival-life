@@ -25,9 +25,11 @@ test("A to B relationship supports Done / Continue navigation", async ({ auth })
   await expect(relationship.getByRole("status")).toContainText("Next Play saved");
   await auth.page.reload();
 
-  const rowA = playRow(auth.page, "Relationship A");
-  await expect(rowA.getByRole("button", { name: "Done / Continue" })).toBeVisible();
-  await rowA.getByRole("button", { name: "Done / Continue" }).click();
+  const editA = await openEditPlay(auth.page, "Relationship A");
+  await expect(
+    editA.disclosure.getByRole("button", { name: "Done / Continue" }),
+  ).toBeVisible();
+  await editA.disclosure.getByRole("button", { name: "Done / Continue" }).click();
   await expect(auth.page).toHaveURL(/\?date=\d{4}-\d{2}-\d{2}/);
   await expect(playRow(auth.page, "Relationship A")).toHaveCount(0);
   await expect(playRow(auth.page, "Relationship B")).toBeVisible();
@@ -36,8 +38,8 @@ test("A to B relationship supports Done / Continue navigation", async ({ auth })
 test("Done / Create next creates and links a new Play", async ({ auth }) => {
   await auth.page.goto("/");
   await createPlay(auth.page, "Create a next Play");
-  const row = playRow(auth.page, "Create a next Play");
-  const disclosure = row.locator("details.doneCreateDisclosure");
+  const edit = await openEditPlay(auth.page, "Create a next Play");
+  const disclosure = edit.disclosure.locator("details.doneCreateDisclosure");
   await disclosure.getByText("Done / Create next", { exact: true }).click();
   const form = disclosure.locator("form.doneCreateForm");
   await form.getByLabel("Next Play title").fill("Created next Play");

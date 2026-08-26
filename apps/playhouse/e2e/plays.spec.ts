@@ -93,6 +93,14 @@ test("successful Create closes, appears immediately, and updates count", async (
 test("Edit updates title and URL while preserving Duration and Place", async ({ auth }) => {
   await auth.page.goto("/");
   await createPlay(auth.page, "Before edit", { url: "example.com/original" });
+  const compactRow = playRow(auth.page, "Before edit");
+  await expect(compactRow.locator(".playRowLine")).toContainText("Normal");
+  await expect(compactRow.locator(".playRowLine")).toContainText("30m");
+  await expect(compactRow.locator(".playRowLine")).toContainText("office");
+  await expect(
+    compactRow.getByRole("button", { exact: true, name: "Done" }),
+  ).toBeVisible();
+  await expect(compactRow.getByRole("button", { name: "Trash" })).toBeVisible();
   const { form } = await openEditPlay(auth.page, "Before edit");
 
   await expect(form.getByLabel("Duration (minutes)")).toHaveValue("30");

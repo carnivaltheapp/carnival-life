@@ -16,6 +16,7 @@ import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
 import { NextPlayRelationshipForm } from "./next-play-relationship-form";
 import { applySuccessfulPlaySave } from "./play-form-success";
 import { PlayerCombobox } from "./player-combobox";
+import { PlayWorkflowActions } from "./play-status-actions";
 
 const PLACE_OPTIONS = ["office", "outside", "any"] as const;
 
@@ -82,18 +83,23 @@ export function PlayForm({
       data-testid={isEditing ? "edit-play" : "create-play"}
       ref={detailsRef}
     >
-      <summary>{isEditing ? "Edit" : "+ New Play"}</summary>
+      <summary
+        className={isEditing ? "playTitleLink" : undefined}
+        data-testid={isEditing ? "play-title" : undefined}
+      >
+        {isEditing ? play?.title : "+ New Play"}
+      </summary>
       <form action={formAction} className="playForm" noValidate>
         {play ? <input name="playId" type="hidden" value={play.id} /> : null}
 
         <label className="field compactField field--wide">
-          <span className="controlLabel">Title</span>
+          <span className="srOnly">Title</span>
           <input
             aria-invalid={Boolean(state.fieldErrors?.title)}
             defaultValue={submittedValues?.title ?? play?.title}
             maxLength={500}
             name="title"
-            placeholder="What would you like to do?"
+            placeholder="Title"
             required
           />
           <FieldError errors={state.fieldErrors} field="title" />
@@ -101,28 +107,30 @@ export function PlayForm({
 
         <div className="formRow field--wide">
           <label className="field compactField">
-            <span className="controlLabel">Type</span>
+            <span className="srOnly">Type</span>
             <select
+              aria-label="Type"
               name="playType"
               onChange={(event) => setPlayType(event.target.value as PlayType)}
               value={playType}
             >
-              <option value="normal">Normal</option>
-              <option value="reminder">Reminder</option>
+              <option value="normal">Type: Normal</option>
+              <option value="reminder">Type: Reminder</option>
             </select>
             <FieldError errors={state.fieldErrors} field="playType" />
           </label>
           <label className="field compactField">
-            <span className="controlLabel">Placement</span>
+            <span className="srOnly">Placement</span>
             <select
+              aria-label="Placement"
               name="placementKind"
               onChange={(event) =>
                 setPlacementKind(event.target.value as "calendar" | "basket")
               }
               value={placementKind}
             >
-              <option value="calendar">Calendar date</option>
-              <option value="basket">Basket</option>
+              <option value="calendar">Placement: Calendar date</option>
+              <option value="basket">Placement: Basket</option>
             </select>
             <FieldError errors={state.fieldErrors} field="placement" />
           </label>
@@ -137,8 +145,9 @@ export function PlayForm({
         <div className="formRow dateUrlRow field--wide">
           {placementKind === "calendar" ? (
             <label className="field compactField">
-              <span className="controlLabel">Date</span>
+              <span className="srOnly">Date</span>
               <input
+                aria-label="Date"
                 aria-invalid={Boolean(state.fieldErrors?.scheduledDate)}
                 defaultValue={
                   submittedValues?.scheduledDate ??
@@ -152,8 +161,9 @@ export function PlayForm({
             </label>
           ) : (
             <label className="field compactField">
-              <span className="controlLabel">Basket</span>
+              <span className="srOnly">Basket</span>
               <select
+                aria-label="Basket"
                 aria-invalid={Boolean(state.fieldErrors?.basketId)}
                 defaultValue={
                   submittedValues?.basketId ??
@@ -174,12 +184,13 @@ export function PlayForm({
             </label>
           )}
           <label className="field compactField">
-            <span className="controlLabel">URL</span>
+            <span className="srOnly">URL</span>
             <input
+              aria-label="URL"
               defaultValue={submittedValues?.url ?? play?.url ?? ""}
               maxLength={2048}
               name="url"
-              placeholder="https://…"
+              placeholder="URL"
               type="url"
             />
             <FieldError errors={state.fieldErrors} field="url" />
@@ -188,31 +199,33 @@ export function PlayForm({
 
         <div className="formRow field--wide">
           <label className="field compactField">
-            <span className="controlLabel">Branch</span>
+            <span className="srOnly">Branch</span>
             <input
+              aria-label="Branch"
               defaultValue={submittedValues?.branch ?? play?.branch ?? ""}
               maxLength={200}
               name="branch"
-              placeholder="Optional"
+              placeholder="Branch"
             />
             <FieldError errors={state.fieldErrors} field="branch" />
           </label>
           <label className="field compactField">
-            <span className="controlLabel">Place</span>
+            <span className="srOnly">Place</span>
             <select
+              aria-label="Place"
               defaultValue={
                 submittedValues?.place ?? (play ? (play.place ?? "") : "office")
               }
               key={submittedValues?.place ?? "initial"}
               name="place"
             >
-              <option value="">Unspecified</option>
+              <option value="">Place: Unspecified</option>
               {hasNonstandardPlace ? (
                 <option value={play?.place ?? ""}>{play?.place}</option>
               ) : null}
-              <option value="office">Office</option>
-              <option value="outside">Outside</option>
-              <option value="any">Any</option>
+              <option value="office">Place: Office</option>
+              <option value="outside">Place: Outside</option>
+              <option value="any">Place: Any</option>
             </select>
             <FieldError errors={state.fieldErrors} field="place" />
           </label>
@@ -220,8 +233,9 @@ export function PlayForm({
 
         <div className="formRow field--wide">
           <label className="field compactField">
-            <span className="controlLabel">Duration (minutes)</span>
+            <span className="srOnly">Duration (minutes)</span>
             <input
+              aria-label="Duration (minutes)"
               defaultValue={
                 submittedValues?.durationMinutes ??
                 (play ? (play.durationMinutes ?? "") : 30)
@@ -230,34 +244,37 @@ export function PlayForm({
               max={1440}
               min={1}
               name="durationMinutes"
+              placeholder="Duration (minutes)"
               step={1}
               type="number"
             />
             <FieldError errors={state.fieldErrors} field="durationMinutes" />
           </label>
           <label className="field compactField">
-            <span className="controlLabel">Push</span>
+            <span className="srOnly">Push</span>
             <select
+              aria-label="Push"
               defaultValue={submittedValues?.pushRule ?? play?.pushRule ?? "everyday"}
               key={submittedValues?.pushRule ?? "initial"}
               name="pushRule"
             >
-              <option value="everyday">Everyday</option>
-              <option value="weekdays">Weekdays</option>
-              <option value="weekends">Weekends</option>
+              <option value="everyday">Push: Everyday</option>
+              <option value="weekdays">Push: Weekdays</option>
+              <option value="weekends">Push: Weekends</option>
             </select>
             <FieldError errors={state.fieldErrors} field="pushRule" />
           </label>
         </div>
 
         <label className="field compactField field--wide">
-          <span className="controlLabel">Note</span>
+          <span className="srOnly">Note</span>
           <textarea
+            aria-label="Note"
             defaultValue={submittedValues?.note ?? play?.note ?? ""}
             maxLength={10000}
             name="note"
-            placeholder="Add a note…"
-            rows={2}
+            placeholder="Note"
+            rows={1}
           />
           <FieldError errors={state.fieldErrors} field="note" />
         </label>
@@ -274,11 +291,19 @@ export function PlayForm({
         </div>
       </form>
       {play ? (
-        <NextPlayRelationshipForm
-          currentNextPlayId={play.nextPlayId}
-          options={nextPlayOptions}
-          playId={play.id}
-        />
+        <div className="editWorkflowArea">
+          <NextPlayRelationshipForm
+            currentNextPlayId={play.nextPlayId}
+            options={nextPlayOptions}
+            playId={play.id}
+          />
+          <PlayWorkflowActions
+            baskets={baskets}
+            defaultPlacement={initialPlacement}
+            nextPlay={nextPlayOptions.find((option) => option.id === play.nextPlayId)}
+            play={play}
+          />
+        </div>
       ) : null}
     </details>
   );

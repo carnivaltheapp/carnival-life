@@ -21,17 +21,6 @@ export type UserIdentity = {
   email: string | null;
 };
 
-function playMeta(play: PlayListItem) {
-  return [
-    play.playType === "reminder" ? "Reminder · Waiting" : "Normal",
-    play.sourceType === "gmail" ? "Email" : null,
-    play.durationMinutes ? `${play.durationMinutes} min` : null,
-    play.playerDisplayName ? `Player: ${play.playerDisplayName}` : null,
-    play.branch,
-    play.place,
-  ].filter(Boolean);
-}
-
 export function PlayhouseShell({
   baskets,
   dataError,
@@ -192,48 +181,43 @@ export function PlayhouseShell({
             </div>
           ) : (
             <ol className="playList" aria-label={`Open Plays in ${selectedView.label}`}>
-              {plays.map((play) => {
-                const metadata = playMeta(play);
-                return (
-                  <li className="playRow" data-testid="play-row" key={play.id}>
-                    <div className="playRowSummary">
+              {plays.map((play) => (
+                <li className="playRow" data-testid="play-row" key={play.id}>
+                  <div className="playRowLine">
+                    <span className="playTypeCell">
                       <span
                         className={`playTypeMarker playTypeMarker--${play.playType}`}
                         aria-label={play.playType === "reminder" ? "Reminder" : "Normal Play"}
                       />
-                      <span className="playCopy">
-                        <strong>{play.title}</strong>
-                        {metadata.length > 0 ? <small>{metadata.join(" · ")}</small> : null}
+                      <span>
+                        {play.playType === "reminder" ? "Waiting" : "Normal"}
                       </span>
-                      <PlayStatusActions
-                        baskets={baskets}
-                        defaultPlacement={
-                          play.basketId
-                            ? { basketId: play.basketId, kind: "basket" }
-                            : {
-                                kind: "calendar",
-                                scheduledDate:
-                                  play.scheduledDate ??
-                                  (defaultPlacement.kind === "calendar"
-                                    ? defaultPlacement.scheduledDate
-                                    : ""),
-                              }
-                        }
-                        nextPlay={nextPlayOptions.find(
-                          (option) => option.id === play.nextPlayId,
-                        )}
-                        play={play}
-                      />
-                    </div>
+                    </span>
                     <PlayForm
                       baskets={baskets}
                       defaultPlacement={defaultPlacement}
                       nextPlayOptions={nextPlayOptions}
                       play={play}
                     />
-                  </li>
-                );
-              })}
+                    <span className="playDataCell" title={play.sourceType === "gmail" ? "Email" : "User Play"}>
+                      {play.sourceType === "gmail" ? "Email" : "—"}
+                    </span>
+                    <span className="playDataCell">
+                      {play.durationMinutes ? `${play.durationMinutes}m` : "—"}
+                    </span>
+                    <span className="playDataCell" title={play.playerDisplayName ?? undefined}>
+                      {play.playerDisplayName ?? "—"}
+                    </span>
+                    <span className="playDataCell" title={play.branch ?? undefined}>
+                      {play.branch ?? "—"}
+                    </span>
+                    <span className="playDataCell playPlaceCell">
+                      {play.place ?? "—"}
+                    </span>
+                    <PlayStatusActions play={play} />
+                  </div>
+                </li>
+              ))}
             </ol>
           )}
         </section>
