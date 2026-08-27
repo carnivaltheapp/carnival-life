@@ -12,6 +12,7 @@ import {
   contactSeed,
   fullPlayInsert,
   parseFullArguments,
+  partitionFullRecords,
   requireFullWriteConfirmation,
   validateFullSource,
 } from "./full";
@@ -85,21 +86,13 @@ async function main() {
   if (sourceValidation.duplicateIds.length > 0) {
     throw new Error(`Duplicate legacy IDs: ${sourceValidation.duplicateIds.join(", ")}`);
   }
-  if (sourceValidation.unsupportedBaskets.length > 0) {
-    throw new Error(
-      `Unsupported Basket records: ${sourceValidation.unsupportedBaskets
-        .map((item) => `${item.id} (${item.reason})`)
-        .join(", ")}`,
-    );
-  }
   if (sourceValidation.preservationFailures.length > 0) {
     throw new Error(
       `Complete source_metadata preservation failed for: ${sourceValidation.preservationFailures.join(", ")}`,
     );
   }
 
-  const importable = records.filter((record) => record.wouldImport);
-  const skipped = records.filter((record) => !record.wouldImport);
+  const { importable, skipped } = partitionFullRecords(records);
   const [{ data: basketRows, error: basketError }, { data: accountRows, error: accountError }] =
     await Promise.all([
       supabase.from("baskets").select("id, slug").eq("owner_user_id", ownerUserId),

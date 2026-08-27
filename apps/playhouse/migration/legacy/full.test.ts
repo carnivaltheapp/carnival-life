@@ -6,6 +6,7 @@ import {
   contactSeed,
   fullPlayInsert,
   parseFullArguments,
+  partitionFullRecords,
   requireFullWriteConfirmation,
   validateFullSource,
 } from "./full";
@@ -47,9 +48,10 @@ describe("legacy full import guards", () => {
     ).not.toThrow();
   });
 
-  it("rejects undocumented Baskets and non-H/S source leakage", () => {
+  it("skips undocumented Baskets and rejects non-H/S source leakage", () => {
     const unsupported = mapLegacyRecord(source({ task_date: new Date("2200-01-06T00:00:00Z") }));
     expect(validateFullSource([unsupported]).unsupportedBaskets).toHaveLength(1);
+    expect(partitionFullRecords([unsupported])).toEqual({ importable: [], skipped: [unsupported] });
     expect(() => validateFullSource([mapLegacyRecord(source({ task_type: "U" }))])).toThrow(
       "non-H/S",
     );

@@ -66,6 +66,13 @@ export function validateFullSource(records: MappedRecord[]) {
   };
 }
 
+export function partitionFullRecords(records: MappedRecord[]) {
+  return {
+    importable: records.filter((record) => record.wouldImport),
+    skipped: records.filter((record) => !record.wouldImport),
+  };
+}
+
 export function fullSourceMetadata(record: MappedRecord): Json {
   return migrationSourceMetadata(record, FULL_BATCH_ID, FULL_MIGRATION_KIND);
 }
