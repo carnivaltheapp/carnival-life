@@ -228,7 +228,12 @@ export function mapLegacyRecord(record: LegacyRecord): MappedRecord {
     errors.push({ code: "invalid_task_date", message: "task_date is missing or invalid." });
   }
 
-  const playType = taskType === "H" ? "normal" : taskType === "S" ? "reminder" : null;
+  const playType =
+    taskType === "H" || taskType === "U" || taskType === "P"
+      ? "normal"
+      : taskType === "S"
+        ? "reminder"
+        : null;
   if (!playType) {
     errors.push({
       code: "unsupported_task_type",

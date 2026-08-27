@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   FULL_BATCH_ID,
   FULL_MIGRATION_KIND,
+  UP_BATCH_ID,
+  UP_MIGRATION_KIND,
   contactSeed,
   fullPlayInsert,
   parseFullArguments,
@@ -48,13 +50,37 @@ describe("legacy full import guards", () => {
     ).not.toThrow();
   });
 
-  it("skips undocumented Baskets and rejects non-H/S source leakage", () => {
+  it("skips undocumented Baskets and rejects task types outside the selected run", () => {
     const unsupported = mapLegacyRecord(source({ task_date: new Date("2200-01-06T00:00:00Z") }));
     expect(validateFullSource([unsupported]).unsupportedBaskets).toHaveLength(1);
     expect(partitionFullRecords([unsupported])).toEqual({ importable: [], skipped: [unsupported] });
     expect(() => validateFullSource([mapLegacyRecord(source({ task_type: "U" }))])).toThrow(
-      "non-H/S",
+      "disallowed task_type",
     );
+  });
+
+  it("maps U and P to Normal while preserving the Headline semantic and original type", () => {
+    for (const taskType of ["U", "P"] as const) {
+      const record = mapLegacyRecord(source({ task_type: taskType }));
+      expect(record.mapped.playType).toBe("normal");
+      expect(validateFullSource([record], ["U", "P"]).preservationFailures).toEqual([]);
+      const insert = fullPlayInsert(
+        record,
+        "00000000-0000-4000-8000-000000000001",
+        null,
+        "00000000-0000-4000-8000-000000000003",
+        UP_BATCH_ID,
+        UP_MIGRATION_KIND,
+      );
+      expect(insert.source_metadata).toMatchObject({
+        legacy_source: { task_type: taskType },
+        migration: {
+          batch_id: UP_BATCH_ID,
+          kind: UP_MIGRATION_KIND,
+          legacy_headline: true,
+        },
+      });
+    }
   });
 
   it("preserves complete source metadata and resolves authoritative Player IDs", () => {

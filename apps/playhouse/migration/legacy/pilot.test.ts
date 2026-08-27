@@ -78,7 +78,7 @@ describe("legacy pilot selection", () => {
 
   it("rejects undocumented or malformed mappings", () => {
     const records = cleanPilotRecords();
-    records[0] = mapLegacyRecord(legacyRecord(PILOT_LEGACY_IDS[0], { task_type: "U" }));
+    records[0] = mapLegacyRecord(legacyRecord(PILOT_LEGACY_IDS[0], { task_type: "A" }));
     records[1] = mapLegacyRecord(
       legacyRecord(PILOT_LEGACY_IDS[1], { task_date: new Date("2200-01-06T00:00:00Z") }),
     );

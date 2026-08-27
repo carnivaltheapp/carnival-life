@@ -8,6 +8,8 @@ import type { Database, Json } from "../../lib/supabase/database.types";
 import {
   FULL_BATCH_ID,
   FULL_MIGRATION_KIND,
+  UP_BATCH_ID,
+  UP_MIGRATION_KIND,
   chunks,
   contactSeed,
   fullPlayInsert,
@@ -34,12 +36,12 @@ function metadataObject(value: Json) {
     : {};
 }
 
-function isCurrentFullBatch(value: Json) {
+function isCurrentFullBatch(value: Json, batchId: string, kind: string) {
   const migration = metadataObject(metadataObject(value).migration ?? null);
-  return migration.kind === FULL_MIGRATION_KIND && migration.batch_id === FULL_BATCH_ID;
+  return migration.kind === kind && migration.batch_id === batchId;
 }
 
-async function loadSource() {
+async function loadSource(taskTypes: readonly string[]) {
   const uri = process.env.LEGACY_MONGO_URI;
   if (!uri) throw new Error("LEGACY_MONGO_URI is required in repo-root .env.local.");
   const mongo = new MongoClient(uri, {
@@ -55,7 +57,7 @@ async function loadSource() {
         is_active: true,
         is_deleted: false,
         task_date: { $gte: APPROVED_CUTOFF },
-        task_type: { $in: ["H", "S"] },
+        task_type: { $in: [...taskTypes] },
       })
       .sort({ _id: 1 })
       .toArray();
@@ -75,14 +77,26 @@ async function main() {
   }
   const args = parseFullArguments(process.argv.slice(2));
   requireFullWriteConfirmation(args, new URL(url).host);
+  const config =
+    args.taskTypes === "up"
+      ? {
+          batchId: UP_BATCH_ID,
+          kind: UP_MIGRATION_KIND,
+          taskTypes: ["U", "P"] as const,
+        }
+      : {
+          batchId: FULL_BATCH_ID,
+          kind: FULL_MIGRATION_KIND,
+          taskTypes: ["H", "S"] as const,
+        };
   const ownerUserId = args.targetUserId as string;
   const supabase = createClient<Database>(url, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
   await verifyTargetUser(supabase, ownerUserId);
 
-  const records = await loadSource();
-  const sourceValidation = validateFullSource(records);
+  const records = await loadSource(config.taskTypes);
+  const sourceValidation = validateFullSource(records, config.taskTypes);
   if (sourceValidation.duplicateIds.length > 0) {
     throw new Error(`Duplicate legacy IDs: ${sourceValidation.duplicateIds.join(", ")}`);
   }
@@ -177,7 +191,7 @@ async function main() {
     }
   }
   const conflicts = [...existingByLegacyId.entries()].filter(
-    ([, play]) => !isCurrentFullBatch(play.source_metadata),
+    ([, play]) => !isCurrentFullBatch(play.source_metadata, config.batchId, config.kind),
   );
   if (conflicts.length > 0) {
     throw new Error(`Legacy IDs already belong to another migration batch: ${conflicts.map(([id]) => id).join(", ")}`);
@@ -199,7 +213,7 @@ async function main() {
     }
     expectedByLegacyId.set(
       record.legacy.id,
-      fullPlayInsert(record, ownerUserId, basketId, playerContactId),
+      fullPlayInsert(record, ownerUserId, basketId, playerContactId, config.batchId, config.kind),
     );
   }
 
@@ -266,7 +280,7 @@ async function main() {
     .from("play_events")
     .select("play_id")
     .eq("owner_user_id", ownerUserId)
-    .eq("correlation_id", FULL_BATCH_ID)
+    .eq("correlation_id", config.batchId)
     .eq("event_type", "migration_import");
   if (eventReadError) throw new Error("Migration event-history lookup failed.");
   for (const event of eventRows ?? []) if (event.play_id) existingEventPlayIds.add(event.play_id);
@@ -275,13 +289,13 @@ async function main() {
     const { error } = await supabase.from("play_events").insert(
       group.map((play) => ({
         actor_user_id: ownerUserId,
-        correlation_id: FULL_BATCH_ID,
+        correlation_id: config.batchId,
         event_type: "migration_import",
         owner_user_id: ownerUserId,
         payload: {
           after: { legacy_mongo_id: play.legacy_mongo_id },
-          batch_id: FULL_BATCH_ID,
-          migration_kind: FULL_MIGRATION_KIND,
+          batch_id: config.batchId,
+          migration_kind: config.kind,
         } satisfies Json,
         play_id: play.id,
         source: "migration" as const,
@@ -291,17 +305,29 @@ async function main() {
   }
 
   const basketCounts: Record<string, number> = {};
+  const destinationCounts: Record<string, number> = {};
   let calendarDateCount = 0;
   for (const record of importable) {
     const placement = record.mapped.placement;
-    if (placement?.kind === "calendar") calendarDateCount += 1;
-    else if (placement?.kind === "basket") {
+    if (placement?.kind === "calendar") {
+      calendarDateCount += 1;
+      destinationCounts[placement.scheduledDate] =
+        (destinationCounts[placement.scheduledDate] ?? 0) + 1;
+    } else if (placement?.kind === "basket") {
       basketCounts[placement.basketName] = (basketCounts[placement.basketName] ?? 0) + 1;
+      destinationCounts[placement.basketName] =
+        (destinationCounts[placement.basketName] ?? 0) + 1;
     }
   }
   const result = {
-    batchId: FULL_BATCH_ID,
+    batchId: config.batchId,
     sourceCandidates: records.length,
+    taskTypeCounts: Object.fromEntries(
+      config.taskTypes.map((taskType) => [
+        taskType,
+        records.filter((record) => record.legacy.taskType === taskType).length,
+      ]),
+    ),
     importedCount: importable.length,
     skippedCount: skipped.length,
     failedCount: 0,
@@ -309,6 +335,7 @@ async function main() {
     reminderCount: importable.filter((record) => record.mapped.playType === "reminder").length,
     calendarDateCount,
     basketCounts,
+    destinationCounts,
     playsWithPlayer: importable.filter((record) => record.mapped.player).length,
     playsWithoutPlayer: importable.filter((record) => !record.mapped.player).length,
     emailPlayCount: importable.filter((record) => record.mapped.sourceType === "gmail").length,
@@ -324,7 +351,7 @@ async function main() {
   const reportDirectory = resolve("migration-reports");
   await mkdir(reportDirectory, { recursive: true });
   await writeFile(
-    resolve(reportDirectory, `legacy-full-import-${FULL_BATCH_ID}.json`),
+    resolve(reportDirectory, `legacy-full-import-${config.batchId}.json`),
     `${JSON.stringify(result, null, 2)}\n`,
     "utf8",
   );

@@ -138,6 +138,9 @@ export function migrationSourceMetadata(
           }
         : null,
       legacy_priority_index: record.legacy.priorityIndex,
+      ...(record.legacy.taskType === "U" || record.legacy.taskType === "P"
+        ? { legacy_headline: true }
+        : {}),
     },
     legacy_source: record.legacy.sourceRecord,
     external_ids: {

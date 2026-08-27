@@ -4,6 +4,8 @@ import { migrationSourceMetadata, pilotPlayInsert } from "./pilot";
 
 export const FULL_BATCH_ID = "36e5f6af-49fd-4bdb-aad0-6e0639117156";
 export const FULL_MIGRATION_KIND = "legacy_play_full";
+export const UP_BATCH_ID = "644347dc-8b48-4bd3-ade0-c1b963d6772d";
+export const UP_MIGRATION_KIND = "legacy_play_up_full";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -11,16 +13,27 @@ const UUID_PATTERN =
 export type FullArguments = {
   confirmHost: string | null;
   targetUserId: string | null;
+  taskTypes: "hs" | "up";
   write: boolean;
 };
 
 export function parseFullArguments(args: string[]): FullArguments {
-  const parsed: FullArguments = { confirmHost: null, targetUserId: null, write: false };
+  const parsed: FullArguments = {
+    confirmHost: null,
+    targetUserId: null,
+    taskTypes: "hs",
+    write: false,
+  };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === "--write") parsed.write = true;
     else if (argument === "--confirm-supabase-host") parsed.confirmHost = args[++index] ?? null;
     else if (argument === "--target-user-id") parsed.targetUserId = args[++index] ?? null;
+    else if (argument === "--task-types") {
+      const value = args[++index];
+      if (value !== "hs" && value !== "up") throw new Error("--task-types must be hs or up.");
+      parsed.taskTypes = value;
+    }
     else throw new Error(`Unsupported full-import option: ${argument}`);
   }
   return parsed;
@@ -36,7 +49,10 @@ export function requireFullWriteConfirmation(args: FullArguments, actualHost: st
   }
 }
 
-export function validateFullSource(records: MappedRecord[]) {
+export function validateFullSource(
+  records: MappedRecord[],
+  allowedTaskTypes: readonly string[] = ["H", "S"],
+) {
   const duplicateIds = new Set<string>();
   const seen = new Set<string>();
   const unsupportedBaskets: Array<{ id: string; reason: string }> = [];
@@ -44,8 +60,8 @@ export function validateFullSource(records: MappedRecord[]) {
   for (const record of records) {
     if (seen.has(record.legacy.id)) duplicateIds.add(record.legacy.id);
     seen.add(record.legacy.id);
-    if (record.legacy.taskType !== "H" && record.legacy.taskType !== "S") {
-      throw new Error(`Source filter admitted non-H/S legacy ID ${record.legacy.id}.`);
+    if (!record.legacy.taskType || !allowedTaskTypes.includes(record.legacy.taskType)) {
+      throw new Error(`Source filter admitted disallowed task_type for legacy ID ${record.legacy.id}.`);
     }
     const basketIssue = record.errors.find((issue) => issue.code === "unsupported_basket_date");
     if (basketIssue) unsupportedBaskets.push({ id: record.legacy.id, reason: basketIssue.message });
@@ -73,8 +89,12 @@ export function partitionFullRecords(records: MappedRecord[]) {
   };
 }
 
-export function fullSourceMetadata(record: MappedRecord): Json {
-  return migrationSourceMetadata(record, FULL_BATCH_ID, FULL_MIGRATION_KIND);
+export function fullSourceMetadata(
+  record: MappedRecord,
+  batchId = FULL_BATCH_ID,
+  kind = FULL_MIGRATION_KIND,
+): Json {
+  return migrationSourceMetadata(record, batchId, kind);
 }
 
 export function fullPlayInsert(
@@ -82,10 +102,12 @@ export function fullPlayInsert(
   ownerUserId: string,
   basketId: string | null,
   playerContactId: string | null,
+  batchId = FULL_BATCH_ID,
+  kind = FULL_MIGRATION_KIND,
 ) {
   return {
     ...pilotPlayInsert(record, ownerUserId, basketId, playerContactId),
-    source_metadata: fullSourceMetadata(record),
+    source_metadata: fullSourceMetadata(record, batchId, kind),
   } satisfies Database["public"]["Tables"]["plays"]["Insert"];
 }
 

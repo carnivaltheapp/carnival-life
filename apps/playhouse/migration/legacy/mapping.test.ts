@@ -122,7 +122,7 @@ describe("legacy Play mapping", () => {
 
   it("rejects malformed and undocumented required values", () => {
     const result = mapLegacyRecord(
-      realRecord({ action_type: "", duration: null, push_type: "none", task_type: "U" }),
+      realRecord({ action_type: "", duration: null, push_type: "none", task_type: "A" }),
     );
     expect(result.wouldImport).toBe(false);
     expect(result.errors.map((issue) => issue.code)).toEqual(
