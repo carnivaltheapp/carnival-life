@@ -13,6 +13,8 @@
     "lint": "npm run lint --workspace=@carnival/playhouse",
     "typecheck": "npm run typecheck --workspace=@carnival/playhouse",
     "test": "npm run test --workspace=@carnival/playhouse",
+    "migration:legacy:dry-run": "node --env-file=.env.local --import tsx apps/playhouse/migration/legacy/cli.ts",
+    "test:migration": "npm run test --workspace=@carnival/playhouse -- --run migration/legacy/mapping.test.ts",
     "test:e2e": "npm run test:e2e --workspace=@carnival/playhouse --",
     "test:e2e:ui": "npm run test:e2e:ui --workspace=@carnival/playhouse --",
     "build": "npm run build --workspace=@carnival/playhouse",
@@ -24,6 +26,8 @@
     "db:test": "supabase test db"
   },
   "devDependencies": {
-    "supabase": "2.115.0"
+    "mongodb": "7.6.0",
+    "supabase": "2.115.0",
+    "tsx": "4.23.12"
   }
 }

@@ -27,6 +27,7 @@ supabase/.temp/
 coverage/
 playwright-report/
 test-results/
+migration-reports/
 *.tsbuildinfo
 
 # Logs
