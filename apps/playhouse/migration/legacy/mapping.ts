@@ -1,4 +1,48 @@
+import { BSON } from "mongodb";
+
+import type { Json } from "../../lib/supabase/database.types";
+
 export const APPROVED_CUTOFF = new Date("2026-08-25T00:00:00.000Z");
+
+export const LEGACY_SOURCE_FIELDS = [
+  "_id",
+  "created_date",
+  "updated_date",
+  "is_deleted",
+  "is_active",
+  "user_id",
+  "category_id",
+  "action_type",
+  "first",
+  "last",
+  "amount",
+  "task_date",
+  "task_time",
+  "task_type",
+  "duration",
+  "url",
+  "phone",
+  "ptype",
+  "email",
+  "etype",
+  "contact_id",
+  "note",
+  "priority_index",
+  "old_task_id",
+  "push_type",
+  "time_task",
+  "is_pushed",
+  "g_address",
+  "branch",
+  "event_id",
+  "long_id",
+  "thread_id",
+  "message_id",
+  "last_id",
+  "place",
+  "regarding",
+  "task_status",
+] as const;
 
 export const LEGACY_BASKETS = {
   "2200-01-01": { name: "On The Way", slug: "on-the-way" },
@@ -39,6 +83,7 @@ export type MappedRecord = {
     regarding: string | null;
     sourceDuration: number | null;
     sourcePlace: string | null;
+    sourceRecord: Json;
   };
   mapped: {
     legacyMongoId: string;
@@ -79,6 +124,16 @@ export type MappedRecord = {
   warnings: Issue[];
   wouldImport: boolean;
 };
+
+export function serializeLegacySourceRecord(record: LegacyRecord): Json {
+  const serialized = BSON.EJSON.serialize(record, { relaxed: false }) as Record<string, Json>;
+  for (const field of LEGACY_SOURCE_FIELDS) {
+    if (!Object.hasOwn(serialized, field)) {
+      serialized[field] = null;
+    }
+  }
+  return serialized;
+}
 
 function text(record: LegacyRecord, key: string) {
   const value = record[key];
@@ -305,6 +360,7 @@ export function mapLegacyRecord(record: LegacyRecord): MappedRecord {
       regarding,
       sourceDuration: typeof rawDuration === "number" ? rawDuration : null,
       sourcePlace: place,
+      sourceRecord: serializeLegacySourceRecord(record),
       taskDate: isoDate(record.task_date),
       taskStatus: text(record, "task_status"),
       taskType,

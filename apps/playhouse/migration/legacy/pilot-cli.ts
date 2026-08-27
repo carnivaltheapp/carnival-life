@@ -1,5 +1,5 @@
 import type { Json } from "../../lib/supabase/database.types";
-import { classifyExistingPilotPlays, pilotPlayInsert } from "./pilot";
+import { classifyExistingPilotPlays, jsonValuesEqual, pilotPlayInsert } from "./pilot";
 import { PILOT_BATCH_ID, PILOT_KIND, PILOT_LEGACY_IDS } from "./pilot-manifest";
 import {
   loadPilotRecords,
@@ -31,7 +31,11 @@ async function main() {
   const supabase = productionClient(args);
   const targetUserId = args.targetUserId as string;
   const target = await verifyTargetUser(supabase, targetUserId);
-  const [{ data: basketRows, error: basketError }, { data: existingRows, error: existingError }] =
+  const [
+    { data: basketRows, error: basketError },
+    { data: existingRows, error: existingError },
+    { count: playCountBefore, error: countBeforeError },
+  ] =
     await Promise.all([
       supabase.from("baskets").select("id, slug").eq("owner_user_id", targetUserId),
       supabase
@@ -39,8 +43,12 @@ async function main() {
         .select("id, legacy_mongo_id, source_metadata")
         .eq("owner_user_id", targetUserId)
         .in("legacy_mongo_id", [...PILOT_LEGACY_IDS]),
+      supabase
+        .from("plays")
+        .select("id", { count: "exact", head: true })
+        .eq("owner_user_id", targetUserId),
     ]);
-  if (basketError || existingError) {
+  if (basketError || existingError || countBeforeError || playCountBefore === null) {
     throw new Error("Production preflight could not read the target user's Baskets/Plays.");
   }
   const classification = classifyExistingPilotPlays(existingRows ?? []);
@@ -95,11 +103,68 @@ async function main() {
 
   const { data: allRows, error: verifyError } = await supabase
     .from("plays")
-    .select("id, legacy_mongo_id, player_contact_id, source_metadata")
+    .select(
+      "id, basket_id, branch, created_at, duration_minutes, legacy_mongo_id, note, place, play_type, player_contact_id, push_rule, scheduled_date, sort_order, source_metadata, source_type, status, title, updated_at, url",
+    )
     .eq("owner_user_id", targetUserId)
     .in("legacy_mongo_id", [...PILOT_LEGACY_IDS]);
-  if (verifyError || (allRows?.length ?? 0) !== 10) {
-    throw new Error("Post-insert verification did not find exactly 10 pilot Plays.");
+  const { count: playCountAfter, error: countAfterError } = await supabase
+    .from("plays")
+    .select("id", { count: "exact", head: true })
+    .eq("owner_user_id", targetUserId);
+  if (verifyError || (allRows?.length ?? 0) !== PILOT_LEGACY_IDS.length) {
+    throw new Error(
+      `Post-insert verification did not find exactly ${PILOT_LEGACY_IDS.length} pilot Plays.`,
+    );
+  }
+  if (
+    countAfterError ||
+    playCountAfter === null ||
+    playCountAfter - playCountBefore !== inserts.length
+  ) {
+    throw new Error("Post-insert verification found an unexpected total Play-count change.");
+  }
+
+  const rowsByLegacyId = new Map((allRows ?? []).map((play) => [play.legacy_mongo_id, play]));
+  for (const record of records) {
+    const placement = record.mapped.placement;
+    const basketId =
+      placement?.kind === "basket" ? (baskets.get(placement.basketSlug) ?? null) : null;
+    const playerContactId = record.mapped.player
+      ? (contactsByProviderId.get(record.mapped.player.legacyContactId) ?? null)
+      : null;
+    const expected = pilotPlayInsert(record, targetUserId, basketId, playerContactId);
+    const actual = rowsByLegacyId.get(record.legacy.id);
+    if (!actual) {
+      throw new Error(`Post-insert verification is missing legacy ID ${record.legacy.id}.`);
+    }
+    const comparableKeys = [
+      "basket_id",
+      "branch",
+      "duration_minutes",
+      "legacy_mongo_id",
+      "note",
+      "place",
+      "play_type",
+      "player_contact_id",
+      "push_rule",
+      "scheduled_date",
+      "sort_order",
+      "source_type",
+      "status",
+      "title",
+      "url",
+    ] as const;
+    if (
+      comparableKeys.some((key) => (actual[key] ?? null) !== (expected[key] ?? null)) ||
+      (expected.created_at &&
+        new Date(actual.created_at).toISOString() !== new Date(expected.created_at).toISOString()) ||
+      (expected.updated_at &&
+        new Date(actual.updated_at).toISOString() !== new Date(expected.updated_at).toISOString()) ||
+      !jsonValuesEqual(actual.source_metadata, expected.source_metadata)
+    ) {
+      throw new Error(`Post-insert Mongo/source verification failed for ${record.legacy.id}.`);
+    }
   }
 
   const { data: eventRows, error: eventReadError } = await supabase
@@ -149,7 +214,7 @@ async function main() {
 
   const byLegacyId = new Map((allRows ?? []).map((play) => [play.legacy_mongo_id, play]));
   const result = {
-    actuallyImported: 10,
+    actuallyImported: PILOT_LEGACY_IDS.length,
     batchId: PILOT_BATCH_ID,
     records: records.map((record) => {
       const play = byLegacyId.get(record.legacy.id);

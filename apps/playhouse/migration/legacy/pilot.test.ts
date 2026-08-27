@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { mapLegacyRecord, type LegacyRecord } from "./mapping";
+import {
+  LEGACY_SOURCE_FIELDS,
+  mapLegacyRecord,
+  serializeLegacySourceRecord,
+  type LegacyRecord,
+} from "./mapping";
 import {
   classifyExistingPilotPlays,
   isPilotBatchMetadata,
@@ -12,7 +17,12 @@ import {
   validateRollbackRows,
   type ExistingPilotPlay,
 } from "./pilot";
-import { PILOT_BATCH_ID, PILOT_KIND, PILOT_LEGACY_IDS } from "./pilot-manifest";
+import {
+  PILOT_BATCH_ID,
+  PILOT_KIND,
+  PILOT_LEGACY_DAYS,
+  PILOT_LEGACY_IDS,
+} from "./pilot-manifest";
 import { parsePilotArguments, requireWriteConfirmation } from "./pilot-support";
 
 function legacyRecord(id: string, overrides: Partial<LegacyRecord> = {}) {
@@ -41,10 +51,7 @@ function cleanPilotRecords() {
     mapLegacyRecord(
       legacyRecord(id, {
         push_type: index % 3 === 0 ? "Everyday" : index % 3 === 1 ? "Weekday" : "Weekend",
-        task_date:
-          index % 2 === 0
-            ? new Date("2026-08-26T00:00:00Z")
-            : new Date("2400-01-11T00:00:00Z"),
+        task_date: new Date(`${PILOT_LEGACY_DAYS[index]}T00:00:00Z`),
         task_type: index === 0 ? "S" : "H",
       }),
     ),
@@ -63,9 +70,9 @@ function existingPlay(
 }
 
 describe("legacy pilot selection", () => {
-  it("locks exactly 10 unique legacy IDs", () => {
-    expect(PILOT_LEGACY_IDS).toHaveLength(10);
-    expect(new Set(PILOT_LEGACY_IDS)).toHaveProperty("size", 10);
+  it("locks exactly 16 unique H/S legacy IDs", () => {
+    expect(PILOT_LEGACY_IDS).toHaveLength(16);
+    expect(new Set(PILOT_LEGACY_IDS)).toHaveProperty("size", 16);
     expect(validatePilotRecords(cleanPilotRecords())).toEqual([]);
   });
 
@@ -81,9 +88,9 @@ describe("legacy pilot selection", () => {
     );
   });
 
-  it("rejects any selection other than the locked 10", () => {
-    expect(validatePilotRecords(cleanPilotRecords().slice(0, 9))).toEqual(
-      expect.arrayContaining([expect.stringContaining("exactly 10")]),
+  it("rejects any selection other than the locked 16", () => {
+    expect(validatePilotRecords(cleanPilotRecords().slice(0, 15))).toEqual(
+      expect.arrayContaining([expect.stringContaining("exactly 16")]),
     );
   });
 });
@@ -122,6 +129,28 @@ describe("pilot identity and idempotency", () => {
     });
   });
 
+  it("preserves every original Mongo field with BSON values in Extended JSON", () => {
+    const source = legacyRecord(PILOT_LEGACY_IDS[0], {
+      amount: 0,
+      is_pushed: false,
+      note: "",
+      old_task_id: null,
+    });
+    const serialized = serializeLegacySourceRecord(source) as Record<string, unknown>;
+    expect(Object.keys(serialized)).toEqual(expect.arrayContaining([...LEGACY_SOURCE_FIELDS]));
+    expect(serialized).toMatchObject({
+      amount: { $numberInt: "0" },
+      is_pushed: false,
+      note: "",
+      old_task_id: null,
+    });
+    expect(serialized._id).toBe(PILOT_LEGACY_IDS[0]);
+    expect(serialized.created_date).toEqual({ $date: { $numberLong: "1787248800000" } });
+    expect(pilotSourceMetadata(mapLegacyRecord(source))).toMatchObject({
+      legacy_source: serialized,
+    });
+  });
+
   it("classifies same-batch rows as idempotent and foreign rows as conflicts", () => {
     const sameBatch = existingPlay(PILOT_LEGACY_IDS[0]);
     const conflict = existingPlay(PILOT_LEGACY_IDS[1], {
@@ -130,7 +159,7 @@ describe("pilot identity and idempotency", () => {
     const result = classifyExistingPilotPlays([sameBatch, conflict]);
     expect(result.existing).toEqual([sameBatch]);
     expect(result.conflicts).toEqual([conflict]);
-    expect(result.missingLegacyIds).toHaveLength(8);
+    expect(result.missingLegacyIds).toHaveLength(14);
   });
 
   it("requires explicit write, batch, and target confirmation", () => {

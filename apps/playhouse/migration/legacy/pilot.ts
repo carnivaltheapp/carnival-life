@@ -1,12 +1,17 @@
 import type { Database, Json } from "../../lib/supabase/database.types";
 import type { MappedRecord } from "./mapping";
-import { PILOT_BATCH_ID, PILOT_KIND, PILOT_LEGACY_IDS } from "./pilot-manifest";
+import {
+  PILOT_BATCH_ID,
+  PILOT_KIND,
+  PILOT_LEGACY_DAYS,
+  PILOT_LEGACY_IDS,
+} from "./pilot-manifest";
 
 const ALLOWED_PILOT_WARNINGS = new Set([
+  "noncanonical_place_preserved",
   "player_requires_contact_resolution",
   "url_scheme_normalized",
 ]);
-const CANONICAL_PLACES = new Set(["office", "outside", "any"]);
 
 export type ExistingPilotPlay = {
   id: string;
@@ -32,17 +37,37 @@ export function isPilotBatchMetadata(value: Json, batchId = PILOT_BATCH_ID) {
   return migration.kind === PILOT_KIND && migration.batch_id === batchId;
 }
 
+export function jsonValuesEqual(left: Json, right: Json) {
+  const canonicalize = (value: Json): Json => {
+    if (Array.isArray(value)) return value.map(canonicalize);
+    if (typeof value !== "object" || value === null) return value;
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+        .map(([key, child]) => [key, canonicalize(child ?? null)]),
+    );
+  };
+  return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
+}
+
 export function validatePilotRecords(records: MappedRecord[]) {
   const expected = new Set(PILOT_LEGACY_IDS);
   const seen = new Set<string>();
   const issues: string[] = [];
 
-  if (records.length !== 10) {
-    issues.push(`Pilot must contain exactly 10 records; received ${records.length}.`);
+  if (records.length !== PILOT_LEGACY_IDS.length) {
+    issues.push(
+      `Pilot must contain exactly ${PILOT_LEGACY_IDS.length} records; received ${records.length}.`,
+    );
   }
   for (const record of records) {
+    const manifestIndex = PILOT_LEGACY_IDS.indexOf(
+      record.legacy.id as (typeof PILOT_LEGACY_IDS)[number],
+    );
     if (!expected.has(record.legacy.id as (typeof PILOT_LEGACY_IDS)[number])) {
       issues.push(`Legacy ID ${record.legacy.id} is not in the locked pilot manifest.`);
+    } else if (record.legacy.taskDate?.slice(0, 10) !== PILOT_LEGACY_DAYS[manifestIndex]) {
+      issues.push(`Legacy ID ${record.legacy.id} is not in its locked pilot destination.`);
     }
     if (seen.has(record.legacy.id)) {
       issues.push(`Legacy ID ${record.legacy.id} occurs more than once.`);
@@ -51,13 +76,13 @@ export function validatePilotRecords(records: MappedRecord[]) {
     if (!record.wouldImport || record.errors.length > 0) {
       issues.push(`Legacy ID ${record.legacy.id} is not a clean documented mapping.`);
     }
+    if (record.legacy.taskType !== "H" && record.legacy.taskType !== "S") {
+      issues.push(`Legacy ID ${record.legacy.id} is not an H/S Play.`);
+    }
     for (const warning of record.warnings) {
       if (!ALLOWED_PILOT_WARNINGS.has(warning.code)) {
         issues.push(`Legacy ID ${record.legacy.id} has unsupported warning ${warning.code}.`);
       }
-    }
-    if (record.mapped.place && !CANONICAL_PLACES.has(record.mapped.place)) {
-      issues.push(`Legacy ID ${record.legacy.id} has noncanonical Place ${record.mapped.place}.`);
     }
     if (!record.mapped.placement || !record.mapped.playType || !record.mapped.pushRule) {
       issues.push(`Legacy ID ${record.legacy.id} is missing required mapped values.`);
@@ -110,6 +135,7 @@ export function pilotSourceMetadata(record: MappedRecord): Json {
         : null,
       legacy_priority_index: record.legacy.priorityIndex,
     },
+    legacy_source: record.legacy.sourceRecord,
     external_ids: {
       event_id: record.mapped.externalIds.eventId,
       last_gmail_message_id: record.mapped.externalIds.lastGmailMessageId,
