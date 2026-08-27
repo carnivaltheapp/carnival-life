@@ -167,6 +167,21 @@ GOOGLE_OAUTH_CLIENT_SECRET=your-google-oauth-client-secret
 GOOGLE_TOKEN_ENCRYPTION_KEY=base64-encoded-32-byte-key
 ```
 
+PlayHouse temporarily uses the legacy Mongo database as its authoritative Play
+store while Supabase continues to provide authentication, profiles, Google
+accounts, credentials, and contact references. Configure the server-only Mongo
+connection locally and in Vercel:
+
+```dotenv
+PLAYHOUSE_DATA_SOURCE=mongo
+LEGACY_MONGO_URI=mongodb+srv://server-only-placeholder
+```
+
+`PLAYHOUSE_DATA_SOURCE` accepts only `mongo` or `supabase` and defaults to
+`mongo` when omitted. Set it to `supabase` only for the final cutover or an
+isolated Supabase-backed test environment. Never prefix `LEGACY_MONGO_URI` with
+`NEXT_PUBLIC_` or expose it to browser code.
+
 `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` must identify the same
 Google web OAuth client configured in Supabase Auth. Generate the encryption key
 once per environment with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
@@ -202,7 +217,7 @@ Create or connect the `carnival-playhouse` Vercel project to `carnivaltheapp/car
 - **Install, Build, and Output settings:** use Vercel's detected defaults
 - **Node.js:** a version satisfying `>=22.0.0`
 
-Vercel detects the repository's npm workspace lockfile and runs the PlayHouse package's `build` script from the selected Root Directory. Configure the two public Supabase values plus all four server-only credential-broker values listed above for Production and any Preview environment whose URL is included in the Supabase redirect allow list.
+Vercel detects the repository's npm workspace lockfile and runs the PlayHouse package's `build` script from the selected Root Directory. Configure the two public Supabase values, `LEGACY_MONGO_URI`, and all four server-only credential-broker values listed above for Production and any Preview environment whose URL is included in the Supabase redirect allow list. Mongo is the default Play store; `PLAYHOUSE_DATA_SOURCE=mongo` may be set explicitly.
 
 ## Project documentation
 

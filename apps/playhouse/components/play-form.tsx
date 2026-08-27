@@ -33,11 +33,13 @@ export function PlayForm({
   defaultPlacement,
   nextPlayOptions,
   play,
+  supportsWorkflows,
 }: {
   baskets: BasketSummary[];
   defaultPlacement: PlayPlacement;
   nextPlayOptions: NextPlayOption[];
   play?: PlayListItem;
+  supportsWorkflows: boolean;
 }) {
   const router = useRouter();
   const detailsRef = useRef<HTMLDetailsElement>(null);
@@ -290,7 +292,7 @@ export function PlayForm({
           ) : null}
         </div>
       </form>
-      {play ? (
+      {play && supportsWorkflows ? (
         <div className="editWorkflowArea">
           <NextPlayRelationshipForm
             currentNextPlayId={play.nextPlayId}

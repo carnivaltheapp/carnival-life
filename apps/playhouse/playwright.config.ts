@@ -17,6 +17,7 @@ const webServerEnvironment = Object.fromEntries(
 );
 webServerEnvironment.PLAYHOUSE_E2E_SUPABASE_SERVICE_ROLE_KEY = "";
 webServerEnvironment.PLAYHOUSE_E2E_PEOPLE_ADAPTER = "deterministic";
+webServerEnvironment.PLAYHOUSE_DATA_SOURCE = "supabase";
 
 export default defineConfig({
   expect: { timeout: 10_000 },

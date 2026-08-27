@@ -23,7 +23,6 @@ import {
   assignRelativeSortOrder,
   mapLegacyRecord,
   type LegacyRecord,
-  type MappedRecord,
 } from "./mapping";
 import { jsonValuesEqual } from "./pilot";
 import { verifyTargetUser } from "./pilot-support";

@@ -48,6 +48,7 @@ export default async function Home({
         nextPlayOptions: Awaited<ReturnType<typeof loadPlayhouseData>>["nextPlayOptions"];
         plays: Awaited<ReturnType<typeof loadPlayhouseData>>["plays"];
         selectedView: Awaited<ReturnType<typeof loadPlayhouseData>>["selectedView"];
+        supportsWorkflows: boolean;
       };
 
   try {
@@ -79,6 +80,7 @@ export default async function Home({
       const playhouseData = await loadPlayhouseData({
         basketSlug: firstValue(params.basket),
         date: firstValue(params.date),
+        ownerUserId: subject,
         supabase,
         timeZone,
         view: firstValue(params.view),
@@ -93,6 +95,7 @@ export default async function Home({
         nextPlayOptions: playhouseData.nextPlayOptions,
         plays: playhouseData.plays,
         selectedView: playhouseData.selectedView,
+        supportsWorkflows: playhouseData.supportsWorkflows,
       };
     }
   } catch {
@@ -119,6 +122,7 @@ export default async function Home({
       nextPlayOptions={pageState.nextPlayOptions}
       plays={pageState.plays}
       selectedView={pageState.selectedView}
+      supportsWorkflows={pageState.supportsWorkflows}
     />
   );
 }

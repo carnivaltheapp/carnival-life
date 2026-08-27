@@ -2,11 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import {
-  isUuid,
-  parsePlayInput,
-  type PlayInput,
-} from "../../domain/play-input";
+import { isUuid, parsePlayInput } from "../../domain/play-input";
 import {
   parseNewNextPlayInput,
   validateNextRelationship,
@@ -15,8 +11,10 @@ import {
   capturePlayMutationValues,
   type PlayMutationState,
 } from "../../domain/play-mutation";
+import type { BasketSummary } from "../../domain/play";
+import { resolvePlayhouseDataSource } from "../../lib/playhouse/data-source";
+import { createPlayRepository } from "../../lib/playhouse/play-repository";
 import { createClient } from "../../lib/supabase/server";
-import type { Database } from "../../lib/supabase/database.types";
 
 function errorState(message: string, fieldErrors?: PlayMutationState["fieldErrors"]): PlayMutationState {
   return { fieldErrors, message, status: "error" };
@@ -34,33 +32,20 @@ async function authenticatedClient() {
   return { supabase, userId };
 }
 
-async function basketExists(
+async function loadBaskets(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  basketId: string,
 ) {
   const { data, error } = await supabase
     .from("baskets")
-    .select("id")
-    .eq("id", basketId)
-    .maybeSingle();
-  return !error && Boolean(data);
-}
-
-function playValues(data: PlayInput) {
-  return {
-    basket_id: data.placement.kind === "basket" ? data.placement.basketId : null,
-    branch: data.branch,
-    duration_minutes: data.durationMinutes,
-    note: data.note,
-    place: data.place,
-    play_type: data.playType,
-    player_contact_id: data.playerContactId,
-    push_rule: data.pushRule,
-    scheduled_date:
-      data.placement.kind === "calendar" ? data.placement.scheduledDate : null,
-    title: data.title,
-    url: data.url,
-  } satisfies Database["public"]["Tables"]["plays"]["Update"];
+    .select("id, name, slug, sort_order")
+    .order("sort_order", { ascending: true });
+  if (error) return null;
+  return (data ?? []).map((basket) => ({
+    id: basket.id,
+    name: basket.name,
+    slug: basket.slug,
+    sortOrder: basket.sort_order,
+  })) satisfies BasketSummary[];
 }
 
 async function savePlayInternal(
@@ -77,19 +62,27 @@ async function savePlayInternal(
     return errorState("Your session expired. Refresh the page and sign in again.");
   }
 
+  const baskets = await loadBaskets(auth.supabase);
+  if (!baskets) {
+    return errorState("Your Baskets could not be loaded. Refresh and try again.");
+  }
+
   if (
     parsed.data.placement.kind === "basket" &&
-    !(await basketExists(auth.supabase, parsed.data.placement.basketId))
+    !baskets.some((basket) => basket.id === (
+      parsed.data.placement.kind === "basket" ? parsed.data.placement.basketId : ""
+    ))
   ) {
     return errorState("That Basket is no longer available.", {
       basketId: "Choose one of your current Baskets.",
     });
   }
 
+  let playerResourceName: string | null = null;
   if (parsed.data.playerContactId) {
     const { data: contact, error: contactError } = await auth.supabase
       .from("contact_references")
-      .select("id")
+      .select("id, provider_resource_name")
       .eq("id", parsed.data.playerContactId)
       .eq("owner_user_id", auth.userId)
       .maybeSingle();
@@ -99,44 +92,41 @@ async function savePlayInternal(
         playerContactId: "Choose one of your current Players.",
       });
     }
+    playerResourceName = contact.provider_resource_name;
   }
 
-  const values = playValues(parsed.data);
   const playIdValue = formData.get("playId");
   const playId = typeof playIdValue === "string" ? playIdValue : "";
-
-  if (playId) {
-    if (!isUuid(playId)) {
-      return errorState("This Play could not be identified. Refresh and try again.");
-    }
-
-    const { data, error } = await auth.supabase
-      .from("plays")
-      .update(values)
-      .eq("id", playId)
-      .eq("status", "open")
-      .select("id")
-      .maybeSingle();
-
-    if (error || !data) {
-      return errorState("This Play could not be updated. Refresh and try again.");
-    }
-
-    revalidatePath("/");
-    return { message: "Play updated.", status: "success" };
+  const source = resolvePlayhouseDataSource();
+  if (source === "mongo" && parsed.data.playerContactId && !playerResourceName) {
+    return errorState("That Player is missing its Google contact identifier.", {
+      playerContactId: "Choose a Google Player.",
+    });
   }
-
-  const { error } = await auth.supabase.from("plays").insert({
-    ...values,
-    owner_user_id: auth.userId,
+  const repository = await createPlayRepository({
+    baskets,
+    ownerUserId: auth.userId,
+    source,
+    supabase: auth.supabase,
   });
-
-  if (error) {
-    return errorState("This Play could not be created. Please try again.");
+  const saved = await repository.save({
+    input: parsed.data,
+    playId: playId || null,
+    playerResourceName,
+  });
+  if (!saved) {
+    return errorState(
+      playId
+        ? "This Play could not be updated. Refresh and try again."
+        : "This Play could not be created. Please try again.",
+    );
   }
 
   revalidatePath("/");
-  return { message: "Play created.", status: "success" };
+  return {
+    message: playId ? "Play updated." : "Play created.",
+    status: "success",
+  };
 }
 
 export async function savePlay(
@@ -162,7 +152,7 @@ async function setPlayStatus(
 ): Promise<PlayMutationState> {
   const playIdValue = formData.get("playId");
   const playId = typeof playIdValue === "string" ? playIdValue : "";
-  if (!isUuid(playId)) {
+  if (!playId) {
     return errorState("This Play could not be identified. Refresh and try again.");
   }
 
@@ -171,18 +161,15 @@ async function setPlayStatus(
     return errorState("Your session expired. Refresh the page and sign in again.");
   }
 
-  const { data, error } = await auth.supabase
-    .from("plays")
-    .update({
-      completed_at: status === "done" ? new Date().toISOString() : null,
-      status,
-    })
-    .eq("id", playId)
-    .eq("status", "open")
-    .select("id")
-    .maybeSingle();
+  const repository = await createPlayRepository({
+    baskets: [],
+    ownerUserId: auth.userId,
+    source: resolvePlayhouseDataSource(),
+    supabase: auth.supabase,
+  });
+  const saved = await repository.setStatus(playId, status);
 
-  if (error || !data) {
+  if (!saved) {
     return errorState(
       status === "done"
         ? "This Play could not be marked done. Refresh and try again."
@@ -236,6 +223,9 @@ export async function setNextPlay(
     const auth = await authenticatedClient();
     if (!auth) {
       return errorState("Your session expired. Refresh the page and sign in again.");
+    }
+    if (resolvePlayhouseDataSource() === "mongo") {
+      return errorState("Next Play relationships are unavailable while Mongo is the Play store.");
     }
 
     const { data: relationshipRows, error: relationshipError } = await auth.supabase
@@ -327,6 +317,9 @@ export async function doneCreate(
     if (!auth) {
       return errorState("Your session expired. Refresh the page and sign in again.");
     }
+    if (resolvePlayhouseDataSource() === "mongo") {
+      return errorState("Done/Create is unavailable while Mongo is the Play store.");
+    }
 
     let workflowResult:
       | {
@@ -352,7 +345,13 @@ export async function doneCreate(
 
       if (
         parsed.data.placement.kind === "basket" &&
-        !(await basketExists(auth.supabase, parsed.data.placement.basketId))
+        !(await loadBaskets(auth.supabase))?.some(
+          (basket) => basket.id === (
+            parsed.data.placement.kind === "basket"
+              ? parsed.data.placement.basketId
+              : ""
+          ),
+        )
       ) {
         return errorState("That Basket is no longer available.", {
           basketId: "Choose one of your current Baskets.",

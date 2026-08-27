@@ -29,6 +29,7 @@ export function PlayhouseShell({
   nextPlayOptions,
   plays,
   selectedView,
+  supportsWorkflows,
 }: {
   baskets: BasketSummary[];
   dataError: boolean;
@@ -36,6 +37,7 @@ export function PlayhouseShell({
   nextPlayOptions: NextPlayOption[];
   plays: PlayListItem[];
   selectedView: SelectedView;
+  supportsWorkflows: boolean;
 }) {
   const playCountLabel = `${plays.length} ${plays.length === 1 ? "Play" : "Plays"}`;
   const defaultPlacement =
@@ -155,6 +157,7 @@ export function PlayhouseShell({
                   baskets={baskets}
                   defaultPlacement={defaultPlacement}
                   nextPlayOptions={nextPlayOptions}
+                  supportsWorkflows={supportsWorkflows}
                 />
               ) : null}
             </div>
@@ -200,6 +203,7 @@ export function PlayhouseShell({
                       defaultPlacement={defaultPlacement}
                       nextPlayOptions={nextPlayOptions}
                       play={play}
+                      supportsWorkflows={supportsWorkflows}
                     />
                     <span className="playDataCell" title={play.sourceType === "gmail" ? "Email" : "User Play"}>
                       {play.sourceType === "gmail" ? "Email" : "—"}

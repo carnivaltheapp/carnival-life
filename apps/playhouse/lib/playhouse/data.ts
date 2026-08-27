@@ -7,6 +7,8 @@ import type {
 } from "../../domain/play";
 import { isIsoCalendarDate } from "../../domain/play-input";
 import type { Database } from "../supabase/database.types";
+import { resolvePlayhouseDataSource } from "./data-source";
+import { createPlayRepository } from "./play-repository";
 
 export type CalendarViewKey = "date" | "today" | "tomorrow" | "week";
 
@@ -30,6 +32,7 @@ export type PlayhouseData = {
   nextPlayOptions: NextPlayOption[];
   plays: PlayListItem[];
   selectedView: SelectedView;
+  supportsWorkflows: boolean;
 };
 
 export function dateInTimeZone(date: Date, timeZone: string) {
@@ -133,12 +136,14 @@ export function resolveSelectedView({
 export async function loadPlayhouseData({
   basketSlug,
   date,
+  ownerUserId,
   supabase,
   timeZone,
   view,
 }: {
   basketSlug?: string;
   date?: string;
+  ownerUserId: string;
   supabase: SupabaseClient<Database>;
   timeZone: string;
   view?: string;
@@ -163,108 +168,34 @@ export async function loadPlayhouseData({
       nextPlayOptions: [],
       plays: [],
       selectedView,
+      supportsWorkflows: false,
     };
   }
 
-  let playQuery = supabase
-    .from("plays")
-    .select(
-      "id, title, play_type, source_type, scheduled_date, basket_id, duration_minutes, player_contact_id, branch, note, url, push_rule, place, sort_order, created_at",
-    )
-    .eq("status", "open");
-
-  if (selectedView.kind === "basket") {
-    playQuery = playQuery.eq("basket_id", selectedView.basket.id);
-  } else {
-    playQuery = playQuery
-      .gte("scheduled_date", selectedView.startDate)
-      .lte("scheduled_date", selectedView.endDate);
+  try {
+    const repository = await createPlayRepository({
+      baskets,
+      ownerUserId,
+      source: resolvePlayhouseDataSource(),
+      supabase,
+    });
+    const result = await repository.list(selectedView);
+    return {
+      baskets,
+      error: result.error,
+      nextPlayOptions: result.nextPlayOptions,
+      plays: result.plays,
+      selectedView,
+      supportsWorkflows: repository.supportsWorkflows,
+    };
+  } catch {
+    return {
+      baskets,
+      error: true,
+      nextPlayOptions: [],
+      plays: [],
+      selectedView,
+      supportsWorkflows: false,
+    };
   }
-
-  const [
-    { data: playRows, error: playError },
-    { data: optionRows, error: optionError },
-  ] = await Promise.all([
-      playQuery
-        .order("sort_order", { ascending: true })
-        .order("created_at", { ascending: true }),
-      supabase
-        .from("plays")
-        .select("id, title, status, play_type, scheduled_date, basket_id")
-        .order("title", { ascending: true })
-        .limit(1000),
-    ]);
-
-  const playerContactIds = Array.from(
-    new Set(
-      (playRows ?? []).flatMap((play) =>
-        play.player_contact_id ? [play.player_contact_id] : [],
-      ),
-    ),
-  );
-  const contactResult =
-    playerContactIds.length > 0
-      ? await supabase
-          .from("contact_references")
-          .select("id, display_name")
-          .in("id", playerContactIds)
-      : { data: [], error: null };
-  const contactNameById = new Map(
-    (contactResult.data ?? []).map((contact) => [contact.id, contact.display_name]),
-  );
-
-  const playIds = (playRows ?? []).map((play) => play.id);
-  const relationshipResult =
-    playIds.length > 0
-      ? await supabase
-          .from("play_relationships")
-          .select("from_play_id, to_play_id")
-          .in("from_play_id", playIds)
-          .eq("relationship_type", "next")
-      : { data: [], error: null };
-  const nextByPlayId = new Map(
-    (relationshipResult.data ?? []).map((relationship) => [
-      relationship.from_play_id,
-      relationship.to_play_id,
-    ]),
-  );
-
-  const plays: PlayListItem[] = (playRows ?? []).map((play) => ({
-    basketId: play.basket_id,
-    branch: play.branch,
-    durationMinutes: play.duration_minutes,
-    id: play.id,
-    note: play.note,
-    nextPlayId: nextByPlayId.get(play.id) ?? null,
-    place: play.place,
-    playerContactId: play.player_contact_id,
-    playerDisplayName: play.player_contact_id
-      ? (contactNameById.get(play.player_contact_id) ?? null)
-      : null,
-    playType: play.play_type,
-    pushRule: play.push_rule,
-    scheduledDate: play.scheduled_date,
-    sourceType: play.source_type,
-    title: play.title,
-    url: play.url,
-  }));
-
-  const nextPlayOptions: NextPlayOption[] = (optionRows ?? []).map((play) => ({
-    basketId: play.basket_id,
-    id: play.id,
-    playType: play.play_type,
-    scheduledDate: play.scheduled_date,
-    status: play.status,
-    title: play.title,
-  }));
-
-  return {
-    baskets,
-    error: Boolean(
-      playError || optionError || contactResult.error || relationshipResult.error,
-    ),
-    nextPlayOptions,
-    plays,
-    selectedView,
-  };
 }
