@@ -121,11 +121,15 @@ export function classifyExistingPilotPlays(
   return { conflicts, existing, missingLegacyIds };
 }
 
-export function pilotSourceMetadata(record: MappedRecord): Json {
+export function migrationSourceMetadata(
+  record: MappedRecord,
+  batchId: string,
+  kind: string,
+): Json {
   return {
     migration: {
-      batch_id: PILOT_BATCH_ID,
-      kind: PILOT_KIND,
+      batch_id: batchId,
+      kind,
       legacy_contact: record.mapped.player
         ? {
             cached_display_name: record.mapped.player.cachedDisplayName,
@@ -144,6 +148,10 @@ export function pilotSourceMetadata(record: MappedRecord): Json {
       thread_id: record.mapped.externalIds.threadId,
     },
   } satisfies Json;
+}
+
+export function pilotSourceMetadata(record: MappedRecord): Json {
+  return migrationSourceMetadata(record, PILOT_BATCH_ID, PILOT_KIND);
 }
 
 export function pilotPlayInsert(
