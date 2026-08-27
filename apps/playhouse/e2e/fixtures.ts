@@ -103,7 +103,12 @@ export const test = base.extend<{ auth: AuthenticatedTestContext }>({
       throw new Error(`Could not create E2E session cookies: ${cookieError?.message}`);
     }
 
-    const context = await browser.newContext();
+    const utcHour = new Date().getUTCHours();
+    const context = await browser.newContext({
+      // Keep the browser calendar day different from UTC so Today regressions
+      // cannot be hidden by the seeded profile's UTC default.
+      timezoneId: utcHour < 10 ? "Pacific/Honolulu" : "Pacific/Kiritimati",
+    });
     await context.addCookies(
       Array.from(cookieJar, ([name, value]) => ({ name, url: baseURL, value })),
     );

@@ -7,6 +7,7 @@ import type {
   PlayListItem,
 } from "../domain/play";
 import type { SelectedView } from "../lib/playhouse/data";
+import { BrowserTimeZone } from "./browser-time-zone";
 import { PlayForm } from "./play-form";
 import { PlayStatusActions } from "./play-status-actions";
 
@@ -44,6 +45,7 @@ export function PlayhouseShell({
 
   return (
     <main className="workspace">
+      <BrowserTimeZone />
       <header className="appHeader">
         <Link className="brand" href="/?view=today" aria-label="Carnival PlayHouse home">
           <span className="brandMark" aria-hidden="true">

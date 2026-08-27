@@ -1,8 +1,13 @@
 import { PlayhouseShell } from "../components/playhouse-shell";
 import { SignedOutScreen } from "../components/signed-out-screen";
 import { loadPlayhouseData } from "../lib/playhouse/data";
+import {
+  BROWSER_TIME_ZONE_COOKIE,
+  resolveTimeZone,
+} from "../lib/playhouse/time-zone";
 import { isSupabaseConfigured } from "../lib/supabase/config";
 import { createClient } from "../lib/supabase/server";
+import { cookies } from "next/headers";
 
 type SearchValue = string | string[] | undefined;
 
@@ -66,7 +71,11 @@ export default async function Home({
         .from("users")
         .select("display_name, timezone")
         .maybeSingle();
-      const timeZone = profile?.timezone || "UTC";
+      const cookieStore = await cookies();
+      const timeZone = resolveTimeZone(
+        cookieStore.get(BROWSER_TIME_ZONE_COOKIE)?.value,
+        profile?.timezone,
+      );
       const playhouseData = await loadPlayhouseData({
         basketSlug: firstValue(params.basket),
         date: firstValue(params.date),

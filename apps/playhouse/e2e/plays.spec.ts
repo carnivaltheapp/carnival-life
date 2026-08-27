@@ -16,6 +16,18 @@ async function choosePlayer(
   await expect(input).toHaveValue(displayName);
 }
 
+async function browserCalendarDate(page: Parameters<typeof playRow>[0]) {
+  return page.evaluate(() => {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }).formatToParts(new Date());
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${values.year}-${values.month}-${values.day}`;
+  });
+}
+
 test("new Play defaults Duration to 30 and Place to Office", async ({ auth }) => {
   await auth.page.goto("/");
   const form = await openCreatePlay(auth.page);
@@ -143,12 +155,38 @@ test("Play moves date to Basket and Basket back to date", async ({ auth }) => {
   await edit.form.locator('select[name="placementKind"]').selectOption("calendar");
   await edit.form
     .getByLabel("Date", { exact: true })
-    .fill(new Date().toISOString().slice(0, 10));
+    .fill(await browserCalendarDate(auth.page));
   await edit.form.getByRole("button", { name: "Save changes" }).click();
   await expect(playRow(auth.page, "Move both ways")).toHaveCount(0);
 
   await auth.page.getByRole("link", { name: "Today" }).click();
   await expect(playRow(auth.page, "Move both ways")).toBeVisible();
+});
+
+test("Play moved from Backlog to Today remains visible after refresh", async ({ auth }) => {
+  await auth.page.goto("/?basket=backlog");
+  await createPlay(auth.page, "Backlog to Today");
+
+  const edit = await openEditPlay(auth.page, "Backlog to Today");
+  await edit.form.locator('select[name="placementKind"]').selectOption("calendar");
+  const today = await browserCalendarDate(auth.page);
+  await edit.form.getByLabel("Date", { exact: true }).fill(today);
+  await edit.form.getByRole("button", { name: "Save changes" }).click();
+
+  await expect(playRow(auth.page, "Backlog to Today")).toHaveCount(0);
+  const saved = await auth.user
+    .from("plays")
+    .select("basket_id, scheduled_date")
+    .eq("owner_user_id", auth.userId)
+    .eq("title", "Backlog to Today")
+    .single();
+  expect(saved.error).toBeNull();
+  expect(saved.data).toEqual({ basket_id: null, scheduled_date: today });
+
+  await auth.page.getByRole("link", { name: "Today" }).click();
+  await expect(playRow(auth.page, "Backlog to Today")).toBeVisible();
+  await auth.page.reload();
+  await expect(playRow(auth.page, "Backlog to Today")).toBeVisible();
 });
 
 test("Player can be created, displayed, changed, and cleared", async ({ auth }) => {
