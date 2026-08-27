@@ -189,34 +189,30 @@ export function PlayhouseShell({
               {plays.map((play) => (
                 <li className="playRow" data-testid="play-row" key={play.id}>
                   <div className="playRowLine">
-                    <span className="playTypeCell">
+                    <div className="playIdentityCell">
                       <span
                         className={`playTypeMarker playTypeMarker--${play.playType}`}
                         aria-label={play.playType === "reminder" ? "Reminder" : "Normal Play"}
                       />
-                      <span>
-                        {play.playType === "reminder" ? "Waiting" : "Normal"}
-                      </span>
-                    </span>
-                    <PlayForm
-                      baskets={baskets}
-                      defaultPlacement={defaultPlacement}
-                      nextPlayOptions={nextPlayOptions}
-                      play={play}
-                      supportsWorkflows={supportsWorkflows}
-                    />
-                    <span className="playDataCell" title={play.sourceType === "gmail" ? "Email" : "User Play"}>
-                      {play.sourceType === "gmail" ? "Email" : "—"}
-                    </span>
+                      {play.playerDisplayName ? (
+                        <span
+                          className="playPlayerCell"
+                          data-testid="play-player"
+                          title={play.playerDisplayName}
+                        >
+                          {play.playerDisplayName}
+                        </span>
+                      ) : null}
+                      <PlayForm
+                        baskets={baskets}
+                        defaultPlacement={defaultPlacement}
+                        nextPlayOptions={nextPlayOptions}
+                        play={play}
+                        supportsWorkflows={supportsWorkflows}
+                      />
+                    </div>
                     <span className="playDataCell">
                       {play.durationMinutes ? `${play.durationMinutes}m` : "—"}
-                    </span>
-                    <span
-                      className="playDataCell"
-                      data-testid="play-player"
-                      title={play.playerDisplayName ?? undefined}
-                    >
-                      {play.playerDisplayName ?? "—"}
                     </span>
                     <span className="playDataCell" title={play.branch ?? undefined}>
                       {play.branch ?? "—"}

@@ -64,6 +64,13 @@ export function addDays(isoDate: string, days: number) {
   return date.toISOString().slice(0, 10);
 }
 
+export function sortPlaysForDisplay(plays: PlayListItem[]) {
+  return [...plays].sort(
+    (left, right) =>
+      Number(left.playType === "reminder") - Number(right.playType === "reminder"),
+  );
+}
+
 export function resolveSelectedView({
   basketSlug,
   baskets,
@@ -184,7 +191,7 @@ export async function loadPlayhouseData({
       baskets,
       error: result.error,
       nextPlayOptions: result.nextPlayOptions,
-      plays: result.plays,
+      plays: sortPlaysForDisplay(result.plays),
       selectedView,
       supportsWorkflows: repository.supportsWorkflows,
     };

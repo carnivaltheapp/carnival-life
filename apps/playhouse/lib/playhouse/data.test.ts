@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { BasketSummary } from "../../domain/play";
-import { addDays, dateInTimeZone, resolveSelectedView } from "./data";
+import type { BasketSummary, PlayListItem } from "../../domain/play";
+import { addDays, dateInTimeZone, resolveSelectedView, sortPlaysForDisplay } from "./data";
 
 const baskets: BasketSummary[] = [
   { id: "basket-1", name: "Backlog", slug: "backlog", sortOrder: 10 },
@@ -72,5 +72,40 @@ describe("calendar date helpers", () => {
 
   it("adds days safely across month boundaries", () => {
     expect(addDays("2026-08-31", 1)).toBe("2026-09-01");
+  });
+});
+
+describe("Play display sorting", () => {
+  it("shows Normal Plays before Reminders while preserving repository order", () => {
+    const play = (id: string, playType: PlayListItem["playType"]): PlayListItem => ({
+      basketId: null,
+      branch: null,
+      durationMinutes: null,
+      id,
+      nextPlayId: null,
+      note: null,
+      place: null,
+      playerContactId: null,
+      playerDisplayName: null,
+      playType,
+      pushRule: "everyday",
+      scheduledDate: "2026-08-27",
+      sourceType: "user",
+      title: id,
+      url: null,
+    });
+    const repositoryOrder = [
+      play("reminder-1", "reminder"),
+      play("normal-1", "normal"),
+      play("reminder-2", "reminder"),
+      play("normal-2", "normal"),
+    ];
+
+    expect(sortPlaysForDisplay(repositoryOrder).map((item) => item.id)).toEqual([
+      "normal-1",
+      "normal-2",
+      "reminder-1",
+      "reminder-2",
+    ]);
   });
 });
