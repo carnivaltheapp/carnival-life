@@ -30,6 +30,7 @@ import type {
   RepositoryPlayList,
   SavePlayRequest,
 } from "./play-repository";
+import { mongoDiagnostic } from "./mongo-options";
 
 type ContactReferenceRow = {
   display_name: string;
@@ -144,10 +145,32 @@ export class MongoPlayRepository implements PlayRepository {
     const filter = selectedView.kind === "basket"
       ? mongoBasketFilter(selectedView.basket.slug)
       : mongoDateFilter(selectedView.startDate, selectedView.endDate);
-    const tasks = await this.dependencies.collection
-      .find(filter)
-      .sort({ priority_index: 1, created_date: 1, _id: 1 })
-      .toArray();
+    const isToday = selectedView.kind === "calendar" && selectedView.key === "today";
+    const startedAt = Date.now();
+    if (isToday) {
+      console.info("[PlayHouse Mongo] Today query start");
+    }
+    let tasks: WithId<LegacyTaskDocument>[];
+    try {
+      tasks = await this.dependencies.collection
+        .find(filter)
+        .sort({ priority_index: 1, created_date: 1, _id: 1 })
+        .toArray();
+      if (isToday) {
+        console.info("[PlayHouse Mongo] Today query success", {
+          count: tasks.length,
+          durationMs: Date.now() - startedAt,
+        });
+      }
+    } catch (error) {
+      if (isToday) {
+        console.error("[PlayHouse Mongo] Today query failure", {
+          durationMs: Date.now() - startedAt,
+          ...mongoDiagnostic(error),
+        });
+      }
+      throw error;
+    }
 
     return {
       error: false,
