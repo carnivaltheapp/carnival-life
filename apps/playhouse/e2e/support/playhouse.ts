@@ -18,7 +18,9 @@ export async function openEditPlay(page: Page, title: string) {
   const disclosure = row.getByTestId("edit-play");
   await disclosure.getByTestId("play-title").click();
   await expect(disclosure).toHaveAttribute("open", "");
-  return { disclosure, form: disclosure.locator("form.playForm"), row };
+  const form = disclosure.locator("form.playForm");
+  await expect(form).toBeInViewport();
+  return { disclosure, form, row };
 }
 
 export async function createPlay(
