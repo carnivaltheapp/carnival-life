@@ -397,20 +397,20 @@ h1 {
 }
 
 .playIdentityCell {
-  display: flex;
+  display: grid;
   min-width: 0;
-  gap: 6px;
+  grid-template-columns: 10px 112px minmax(0, 1fr);
+  gap: 5px;
   align-items: center;
 }
 
 .playIdentityCell > .editDisclosure {
-  flex: 1 1 0;
+  min-width: 0;
 }
 
 .playPlayerCell {
   overflow: hidden;
-  max-width: 120px;
-  flex: 0 1 auto;
+  min-width: 0;
   color: var(--muted);
   font-size: 0.7rem;
   text-overflow: ellipsis;

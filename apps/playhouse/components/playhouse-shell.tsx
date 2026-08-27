@@ -194,15 +194,13 @@ export function PlayhouseShell({
                         className={`playTypeMarker playTypeMarker--${play.playType}`}
                         aria-label={play.playType === "reminder" ? "Reminder" : "Normal Play"}
                       />
-                      {play.playerDisplayName ? (
-                        <span
-                          className="playPlayerCell"
-                          data-testid="play-player"
-                          title={play.playerDisplayName}
-                        >
-                          {play.playerDisplayName}
-                        </span>
-                      ) : null}
+                      <span
+                        className="playPlayerCell"
+                        data-testid={play.playerDisplayName ? "play-player" : undefined}
+                        title={play.playerDisplayName ?? undefined}
+                      >
+                        {play.playerDisplayName ?? ""}
+                      </span>
                       <PlayForm
                         baskets={baskets}
                         defaultPlacement={defaultPlacement}
