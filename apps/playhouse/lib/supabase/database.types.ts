@@ -198,6 +198,42 @@ export type Database = {
         };
         Relationships: [];
       };
+      play_events: {
+        Row: {
+          actor_user_id: string | null;
+          correlation_id: string | null;
+          event_type: string;
+          id: string;
+          occurred_at: string;
+          owner_user_id: string;
+          payload: Json;
+          play_id: string;
+          source: Database["public"]["Enums"]["play_event_source"];
+        };
+        Insert: {
+          actor_user_id?: string | null;
+          correlation_id?: string | null;
+          event_type: string;
+          id?: string;
+          occurred_at?: string;
+          owner_user_id: string;
+          payload?: Json;
+          play_id: string;
+          source?: Database["public"]["Enums"]["play_event_source"];
+        };
+        Update: {
+          actor_user_id?: string | null;
+          correlation_id?: string | null;
+          event_type?: string;
+          id?: string;
+          occurred_at?: string;
+          owner_user_id?: string;
+          payload?: Json;
+          play_id?: string;
+          source?: Database["public"]["Enums"]["play_event_source"];
+        };
+        Relationships: [];
+      };
       play_relationships: {
         Row: {
           created_at: string;
@@ -305,6 +341,13 @@ export type Database = {
     };
     Enums: {
       google_connection_status: "connected" | "disconnected" | "error";
+      play_event_source:
+        | "user"
+        | "roller"
+        | "gmail_sync"
+        | "calendar_sync"
+        | "migration"
+        | "system";
       play_relationship_type: "next";
       play_source_type: "user" | "gmail";
       play_status: "open" | "done" | "trash";
