@@ -14,6 +14,12 @@ export type CalendarViewKey = "date" | "today" | "tomorrow" | "week";
 
 export type SelectedView =
   | {
+      kind: "all";
+      key: "all";
+      label: string;
+      defaultDate: string;
+    }
+  | {
       kind: "calendar";
       key: CalendarViewKey;
       label: string;
@@ -107,6 +113,14 @@ export function resolveSelectedView({
   }
 
   const today = dateInTimeZone(now, timeZone);
+  if (view === "all") {
+    return {
+      defaultDate: today,
+      key: "all",
+      kind: "all",
+      label: "All Plays",
+    };
+  }
   const calendarView: CalendarViewKey =
     view === "tomorrow" || view === "week" ? view : "today";
 
@@ -191,7 +205,9 @@ export async function loadPlayhouseData({
       baskets,
       error: result.error,
       nextPlayOptions: result.nextPlayOptions,
-      plays: sortPlaysForDisplay(result.plays),
+      plays: selectedView.kind === "all"
+        ? result.plays
+        : sortPlaysForDisplay(result.plays),
       selectedView,
       supportsWorkflows: repository.supportsWorkflows,
     };

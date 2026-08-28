@@ -47,6 +47,22 @@ describe("PlayHouse destination resolution", () => {
     ).toMatchObject({ endDate: "2026-08-31", startDate: "2026-08-25" });
   });
 
+  it("resolves All Plays with Today as its new-Play default", () => {
+    expect(
+      resolveSelectedView({
+        baskets,
+        now: new Date("2026-08-25T18:00:00Z"),
+        timeZone: "America/Los_Angeles",
+        view: "all",
+      }),
+    ).toEqual({
+      defaultDate: "2026-08-25",
+      key: "all",
+      kind: "all",
+      label: "All Plays",
+    });
+  });
+
   it("resolves an explicit date used after Done/Create navigation", () => {
     expect(
       resolveSelectedView({

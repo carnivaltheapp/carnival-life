@@ -142,7 +142,9 @@ export class MongoPlayRepository implements PlayRepository {
   }
 
   async list(selectedView: SelectedView): Promise<RepositoryPlayList> {
-    const filter = selectedView.kind === "basket"
+    const filter = selectedView.kind === "all"
+      ? mongoActiveFilter()
+      : selectedView.kind === "basket"
       ? mongoBasketFilter(selectedView.basket.slug)
       : mongoDateFilter(selectedView.startDate, selectedView.endDate);
     const isToday = selectedView.kind === "calendar" && selectedView.key === "today";
@@ -154,8 +156,18 @@ export class MongoPlayRepository implements PlayRepository {
     try {
       tasks = await this.dependencies.collection
         .find(filter)
-        .sort({ priority_index: 1, created_date: 1, _id: 1 })
+        .sort(selectedView.kind === "all"
+          ? { task_date: 1, priority_index: 1, created_date: 1, _id: 1 }
+          : { priority_index: 1, created_date: 1, _id: 1 })
         .toArray();
+      if (selectedView.kind === "all") {
+        tasks.sort((left, right) => {
+          const leftDate = left.task_date instanceof Date ? left.task_date.getTime() : 0;
+          const rightDate = right.task_date instanceof Date ? right.task_date.getTime() : 0;
+          return leftDate - rightDate ||
+            Number(left.task_type === "S") - Number(right.task_type === "S");
+        });
+      }
       if (isToday) {
         console.info("[PlayHouse Mongo] Today query success", {
           count: tasks.length,

@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { NextPlayOption, PlayListItem } from "../../domain/play";
+import type { BasketSummary, NextPlayOption, PlayListItem } from "../../domain/play";
 import { gmailThreadIdFromMetadata } from "../../domain/play-display";
+import { LEGACY_BASKETS } from "../../migration/legacy/mapping";
 import type { Database } from "../supabase/database.types";
 import type { SelectedView } from "./data";
 import type {
@@ -33,6 +34,7 @@ export class SupabasePlayRepository implements PlayRepository {
   constructor(
     private readonly supabase: SupabaseClient<Database>,
     private readonly ownerUserId: string,
+    private readonly baskets: BasketSummary[],
   ) {}
 
   async get(playId: string) {
@@ -87,7 +89,7 @@ export class SupabasePlayRepository implements PlayRepository {
 
     if (selectedView.kind === "basket") {
       playQuery = playQuery.eq("basket_id", selectedView.basket.id);
-    } else {
+    } else if (selectedView.kind === "calendar") {
       playQuery = playQuery
         .gte("scheduled_date", selectedView.startDate)
         .lte("scheduled_date", selectedView.endDate);
@@ -104,6 +106,23 @@ export class SupabasePlayRepository implements PlayRepository {
         .limit(1000),
     ]);
     const playRows = playResult.data ?? [];
+    if (selectedView.kind === "all") {
+      const basketDayById = new Map(
+        this.baskets.flatMap((basket) => {
+          const match = Object.entries(LEGACY_BASKETS)
+            .find(([, legacyBasket]) => legacyBasket.slug === basket.slug);
+          return match ? [[basket.id, match[0]] as const] : [];
+        }),
+      );
+      playRows.sort((left, right) => {
+        const leftDate = left.scheduled_date ??
+          (left.basket_id ? basketDayById.get(left.basket_id) : undefined) ?? "9999-12-31";
+        const rightDate = right.scheduled_date ??
+          (right.basket_id ? basketDayById.get(right.basket_id) : undefined) ?? "9999-12-31";
+        return leftDate.localeCompare(rightDate) ||
+          Number(left.play_type === "reminder") - Number(right.play_type === "reminder");
+      });
+    }
     const playerContactIds = Array.from(
       new Set(playRows.flatMap((play) => play.player_contact_id ? [play.player_contact_id] : [])),
     );

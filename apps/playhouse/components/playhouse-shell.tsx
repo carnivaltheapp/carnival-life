@@ -7,16 +7,11 @@ import type {
   PlayListItem,
 } from "../domain/play";
 import type { SelectedView } from "../lib/playhouse/data";
-import { displayBranch } from "../domain/play-display";
+import { displayBranch, playRowLeadingLabel } from "../domain/play-display";
+import { CALENDAR_VIEWS } from "../domain/playhouse-navigation";
 import { BrowserTimeZone } from "./browser-time-zone";
 import { PlayForm } from "./play-form";
 import { PlayStatusActions } from "./play-status-actions";
-
-const CALENDAR_VIEWS = [
-  { key: "today", label: "Today", marker: "●" },
-  { key: "tomorrow", label: "Tomorrow", marker: "○" },
-  { key: "week", label: "Next 7 days", marker: "•••" },
-] as const;
 
 export type UserIdentity = {
   displayName: string;
@@ -44,7 +39,12 @@ export function PlayhouseShell({
   const defaultPlacement =
     selectedView.kind === "basket"
       ? { basketId: selectedView.basket.id, kind: "basket" as const }
-      : { kind: "calendar" as const, scheduledDate: selectedView.startDate };
+      : {
+          kind: "calendar" as const,
+          scheduledDate: selectedView.kind === "all"
+            ? selectedView.defaultDate
+            : selectedView.startDate,
+        };
 
   return (
     <main className="workspace">
@@ -86,7 +86,8 @@ export function PlayhouseShell({
               <div className="navItems">
                 {CALENDAR_VIEWS.map((item) => {
                   const isActive =
-                    selectedView.kind === "calendar" && selectedView.key === item.key;
+                    (selectedView.kind === "calendar" || selectedView.kind === "all") &&
+                    selectedView.key === item.key;
 
                   return (
                     <Link
@@ -141,7 +142,11 @@ export function PlayhouseShell({
           <div className="panelHeader">
             <div>
               <p className="eyebrow">
-                {selectedView.kind === "calendar" ? "Calendar" : "Basket"}
+                {selectedView.kind === "calendar"
+                  ? "Calendar"
+                  : selectedView.kind === "basket"
+                    ? "Basket"
+                    : "Plays"}
               </p>
               <h1 id="view-title">{selectedView.label}</h1>
             </div>
@@ -197,10 +202,18 @@ export function PlayhouseShell({
                       />
                       <span
                         className="playPlayerCell"
-                        data-testid={play.playerDisplayName ? "play-player" : undefined}
-                        title={play.playerDisplayName ?? undefined}
+                        data-testid={selectedView.kind === "all"
+                          ? "play-destination"
+                          : play.playerDisplayName
+                            ? "play-player"
+                            : undefined}
+                        title={playRowLeadingLabel(
+                          play,
+                          baskets,
+                          selectedView.kind === "all",
+                        ) || undefined}
                       >
-                        {play.playerDisplayName ?? ""}
+                        {playRowLeadingLabel(play, baskets, selectedView.kind === "all")}
                       </span>
                       <PlayForm
                         baskets={baskets}

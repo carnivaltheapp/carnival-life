@@ -176,4 +176,69 @@ describe("MongoPlayRepository mutations", () => {
       user_id: 43,
     });
   });
+
+  it("lists all active calendar and Basket Plays in date, type, priority order", async () => {
+    const tasks = [
+      {
+        _id: new ObjectId(),
+        action_type: "Earlier reminder",
+        priority_index: "10-00000128",
+        task_date: new Date("2026-08-27T00:00:00.000Z"),
+        task_type: "S",
+      },
+      {
+        _id: new ObjectId(),
+        action_type: "Earlier normal first",
+        priority_index: "10-00000228",
+        task_date: new Date("2026-08-27T00:00:00.000Z"),
+        task_type: "H",
+      },
+      {
+        _id: new ObjectId(),
+        action_type: "Earlier normal second",
+        priority_index: "10-00000328",
+        task_date: new Date("2026-08-27T00:00:00.000Z"),
+        task_type: "U",
+      },
+      {
+        _id: new ObjectId(),
+        action_type: "Backlog normal",
+        priority_index: "10-00000128",
+        task_date: new Date("2400-01-11T00:00:00.000Z"),
+        task_type: "P",
+      },
+    ];
+    const toArray = vi.fn().mockResolvedValue(tasks);
+    const sort = vi.fn().mockReturnValue({ toArray });
+    const find = vi.fn().mockReturnValue({ sort });
+
+    const result = await repository({ find: find as never }).list({
+      defaultDate: "2026-08-27",
+      key: "all",
+      kind: "all",
+      label: "All Plays",
+    });
+
+    expect(find).toHaveBeenCalledWith({
+      is_active: true,
+      is_deleted: false,
+      user_id: 43,
+    });
+    expect(sort).toHaveBeenCalledWith({
+      task_date: 1,
+      priority_index: 1,
+      created_date: 1,
+      _id: 1,
+    });
+    expect(result.plays.map((play) => play.title)).toEqual([
+      "Earlier normal first",
+      "Earlier normal second",
+      "Earlier reminder",
+      "Backlog normal",
+    ]);
+    expect(result.plays.at(-1)).toMatchObject({
+      basketId: baskets[0].id,
+      scheduledDate: null,
+    });
+  });
 });
