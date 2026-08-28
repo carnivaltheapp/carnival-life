@@ -44,6 +44,7 @@ export interface PlayListItem {
   basketId: string | null;
   branch: string | null;
   durationMinutes: number | null;
+  gmailThreadId?: string | null;
   id: string;
   note: string | null;
   nextPlayId: string | null;
@@ -53,6 +54,7 @@ export interface PlayListItem {
   playType: PlayType;
   pushRule: PushRule;
   scheduledDate: string | null;
+  sourceMetadata?: unknown;
   sourceType: PlaySourceType;
   title: string;
   url: string | null;

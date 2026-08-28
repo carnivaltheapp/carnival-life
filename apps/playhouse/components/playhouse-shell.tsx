@@ -7,6 +7,7 @@ import type {
   PlayListItem,
 } from "../domain/play";
 import type { SelectedView } from "../lib/playhouse/data";
+import { displayBranch } from "../domain/play-display";
 import { BrowserTimeZone } from "./browser-time-zone";
 import { PlayForm } from "./play-form";
 import { PlayStatusActions } from "./play-status-actions";
@@ -213,7 +214,7 @@ export function PlayhouseShell({
                       {play.durationMinutes ? `${play.durationMinutes}m` : "—"}
                     </span>
                     <span className="playDataCell" title={play.branch ?? undefined}>
-                      {play.branch ?? "—"}
+                      {displayBranch(play.branch) ?? "—"}
                     </span>
                     <span className="playDataCell playPlaceCell">
                       {play.place ?? "—"}

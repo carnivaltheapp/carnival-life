@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { NextPlayOption, PlayListItem } from "../../domain/play";
+import { gmailThreadIdFromMetadata } from "../../domain/play-display";
 import type { Database } from "../supabase/database.types";
 import type { SelectedView } from "./data";
 import type {
@@ -38,7 +39,7 @@ export class SupabasePlayRepository implements PlayRepository {
     const { data, error } = await this.supabase
       .from("plays")
       .select(
-        "id, title, play_type, source_type, scheduled_date, basket_id, duration_minutes, player_contact_id, branch, note, url, push_rule, place",
+        "id, title, play_type, source_type, scheduled_date, basket_id, duration_minutes, player_contact_id, branch, note, url, push_rule, place, source_metadata",
       )
       .eq("id", playId)
       .eq("status", "open")
@@ -59,6 +60,7 @@ export class SupabasePlayRepository implements PlayRepository {
       basketId: data.basket_id,
       branch: data.branch,
       durationMinutes: data.duration_minutes,
+      gmailThreadId: gmailThreadIdFromMetadata(data.source_metadata),
       id: data.id,
       nextPlayId: null,
       note: data.note,
@@ -68,6 +70,7 @@ export class SupabasePlayRepository implements PlayRepository {
       playType: data.play_type,
       pushRule: data.push_rule,
       scheduledDate: data.scheduled_date,
+      sourceMetadata: data.source_metadata,
       sourceType: data.source_type,
       title: data.title,
       url: data.url,
@@ -78,7 +81,7 @@ export class SupabasePlayRepository implements PlayRepository {
     let playQuery = this.supabase
       .from("plays")
       .select(
-        "id, title, play_type, source_type, scheduled_date, basket_id, duration_minutes, player_contact_id, branch, note, url, push_rule, place, sort_order, created_at",
+        "id, title, play_type, source_type, scheduled_date, basket_id, duration_minutes, player_contact_id, branch, note, url, push_rule, place, sort_order, created_at, source_metadata",
       )
       .eq("status", "open");
 
@@ -132,6 +135,7 @@ export class SupabasePlayRepository implements PlayRepository {
       basketId: play.basket_id,
       branch: play.branch,
       durationMinutes: play.duration_minutes,
+      gmailThreadId: gmailThreadIdFromMetadata(play.source_metadata),
       id: play.id,
       nextPlayId: nextByPlayId.get(play.id) ?? null,
       note: play.note,
@@ -143,6 +147,7 @@ export class SupabasePlayRepository implements PlayRepository {
       playType: play.play_type,
       pushRule: play.push_rule,
       scheduledDate: play.scheduled_date,
+      sourceMetadata: play.source_metadata,
       sourceType: play.source_type,
       title: play.title,
       url: play.url,

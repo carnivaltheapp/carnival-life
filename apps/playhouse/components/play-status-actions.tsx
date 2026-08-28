@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 
 import { doneCreate, markPlayDone, trashPlay } from "../app/plays/actions";
 import type {
@@ -11,6 +11,7 @@ import type {
   PlayPlacement,
 } from "../domain/play";
 import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
+import { gmailThreadUrl } from "../domain/play-display";
 
 function DoneIcon() {
   return <span aria-hidden="true">✓</span>;
@@ -24,7 +25,16 @@ function TrashIcon() {
   );
 }
 
+function GmailIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20">
+      <path d="M3 5.5 10 11l7-5.5M3 5.5v9h14v-9" />
+    </svg>
+  );
+}
+
 export function PlayStatusActions({ play }: { play: PlayListItem }) {
+  const infoDialogRef = useRef<HTMLDialogElement>(null);
   const [doneState, doneAction, donePending] = useActionState(
     markPlayDone,
     INITIAL_PLAY_MUTATION_STATE,
@@ -68,7 +78,42 @@ export function PlayStatusActions({ play }: { play: PlayListItem }) {
             {trashPending ? <span aria-hidden="true">…</span> : <TrashIcon />}
           </button>
         </form>
+        <button
+          aria-label="Play information"
+          className="rowIconButton infoButton"
+          onClick={() => infoDialogRef.current?.showModal()}
+          title="View Play JSON"
+          type="button"
+        >
+          <span aria-hidden="true" className="infoGlyph">i</span>
+        </button>
+        {play.gmailThreadId ? (
+          <a
+            aria-label="Open Gmail thread"
+            className="rowIconButton gmailButton"
+            href={gmailThreadUrl(play.gmailThreadId)}
+            rel="noopener noreferrer"
+            target="_blank"
+            title="Open Gmail thread"
+          >
+            <GmailIcon />
+          </a>
+        ) : null}
       </div>
+      <dialog className="playInfoDialog" ref={infoDialogRef}>
+        <div className="playInfoHeader">
+          <strong>Play JSON</strong>
+          <button
+            aria-label="Close Play information"
+            className="rowIconButton"
+            onClick={() => infoDialogRef.current?.close()}
+            type="button"
+          >
+            ×
+          </button>
+        </div>
+        <pre>{JSON.stringify(play, null, 2)}</pre>
+      </dialog>
       {errorMessage ? (
         <p className="rowError" role="alert">
           {errorMessage}

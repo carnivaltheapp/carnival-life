@@ -109,6 +109,7 @@ describe("Mongo Play mapping", () => {
       regarding: "email",
       task_date: new Date("2400-01-11T00:00:00.000Z"),
       task_type: "U",
+      thread_id: "gmail-thread-id",
       url: "https://example.test/path",
       user_id: 43,
     };
@@ -119,6 +120,7 @@ describe("Mongo Play mapping", () => {
       basketId: baskets[0].id,
       branch: "Branch",
       durationMinutes: 45,
+      gmailThreadId: "gmail-thread-id",
       note: "Legacy note",
       place: "outside",
       playerContactId: "33333333-3333-4333-8333-333333333333",

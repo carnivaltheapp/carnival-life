@@ -391,7 +391,7 @@ h1 {
   min-height: 38px;
   padding: 3px clamp(8px, 1.4vw, 14px);
   grid-template-columns:
-    minmax(330px, 3fr) 42px minmax(72px, 0.65fr) 54px 58px;
+    minmax(330px, 3fr) 42px minmax(72px, 0.65fr) 54px 106px;
   gap: 6px;
   align-items: center;
 }
@@ -808,6 +808,7 @@ h1 {
   border-radius: 7px;
   background: transparent;
   font-size: 0.82rem;
+  text-decoration: none;
 }
 
 .rowIconButton svg {
@@ -846,6 +847,67 @@ h1 {
 
 .trashButton:hover {
   background: rgba(129, 36, 59, 0.08);
+}
+
+.infoButton {
+  color: var(--muted);
+}
+
+.infoGlyph {
+  display: grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 0.58rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.gmailButton {
+  color: #b83a31;
+}
+
+.infoButton:hover,
+.gmailButton:hover {
+  background: rgba(53, 38, 72, 0.07);
+}
+
+.playInfoDialog {
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  overflow: hidden;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fffdfa;
+  box-shadow: 0 24px 70px rgba(48, 29, 83, 0.28);
+}
+
+.playInfoDialog::backdrop {
+  background: rgba(33, 25, 47, 0.28);
+}
+
+.playInfoHeader {
+  display: flex;
+  min-height: 42px;
+  padding: 7px 10px 7px 14px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+}
+
+.playInfoDialog pre {
+  overflow: auto;
+  max-height: calc(100vh - 92px);
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 0.7rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .rowError {

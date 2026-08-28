@@ -33,6 +33,7 @@ export type LegacyTaskDocument = Record<string, unknown> & {
   regarding?: unknown;
   task_date?: unknown;
   task_type?: unknown;
+  thread_id?: unknown;
   updated_date?: unknown;
   url?: unknown;
   user_id?: unknown;
@@ -264,6 +265,7 @@ export function mapMongoPlay(
     basketId: basket?.id ?? null,
     branch: text(task.branch),
     durationMinutes: number(task.duration),
+    gmailThreadId: text(task.thread_id),
     id: task._id.toHexString(),
     note: text(task.note),
     nextPlayId: null,
@@ -275,6 +277,7 @@ export function mapMongoPlay(
     playType: mongoPlayType(task.task_type),
     pushRule: mongoPushRule(task.push_type),
     scheduledDate: basket ? null : taskDay,
+    sourceMetadata: null,
     sourceType,
     title: text(task.action_type) ?? "Untitled Play",
     url: text(task.url),
