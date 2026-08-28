@@ -187,7 +187,7 @@ a {
 .workspaceBody {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
-  gap: clamp(24px, 4vw, 58px);
+  gap: clamp(10px, 1.2vw, 18px);
   min-height: calc(100vh - 76px);
   padding: clamp(24px, 4vw, 52px);
 }
@@ -391,7 +391,7 @@ h1 {
   min-height: 38px;
   padding: 3px clamp(8px, 1.4vw, 14px);
   grid-template-columns:
-    minmax(330px, 3fr) 42px minmax(72px, 0.65fr) 54px 106px;
+    minmax(300px, 3fr) 42px minmax(72px, 0.65fr) 54px 114px;
   gap: 6px;
   align-items: center;
 }
@@ -791,11 +791,15 @@ h1 {
 .statusActionArea {
   position: relative;
   display: grid;
+  width: 114px;
   justify-items: end;
 }
 
 .statusActions {
-  gap: 3px;
+  display: grid;
+  width: 114px;
+  grid-template-columns: repeat(4, 27px);
+  gap: 2px;
 }
 
 .rowIconButton {
@@ -805,6 +809,7 @@ h1 {
   min-height: 0;
   padding: 0;
   place-items: center;
+  border: 0;
   border-radius: 7px;
   background: transparent;
   font-size: 0.82rem;
@@ -869,9 +874,18 @@ h1 {
   color: #b83a31;
 }
 
-.infoButton:hover,
+.infoButton:hover {
+  color: var(--ink);
+  background: transparent;
+}
+
 .gmailButton:hover {
   background: rgba(53, 38, 72, 0.07);
+}
+
+.rowActionPlaceholder {
+  width: 27px;
+  height: 27px;
 }
 
 .playInfoDialog {
@@ -897,6 +911,29 @@ h1 {
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--line);
+}
+
+.playInfoHeaderActions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.playInfoTextButton {
+  min-height: 28px;
+  padding: 4px 9px;
+  color: var(--accent-deep);
+  border: 1px solid rgba(109, 63, 242, 0.18);
+  border-radius: 8px;
+  background: rgba(109, 63, 242, 0.06);
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.playInfoTextButton:hover {
+  background: rgba(109, 63, 242, 0.11);
 }
 
 .playInfoDialog pre {

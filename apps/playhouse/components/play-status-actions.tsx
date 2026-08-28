@@ -35,6 +35,7 @@ function GmailIcon() {
 
 export function PlayStatusActions({ play }: { play: PlayListItem }) {
   const infoDialogRef = useRef<HTMLDialogElement>(null);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
   const [doneState, doneAction, donePending] = useActionState(
     markPlayDone,
     INITIAL_PLAY_MUTATION_STATE,
@@ -50,6 +51,16 @@ export function PlayStatusActions({ play }: { play: PlayListItem }) {
       : trashState.status === "error"
         ? trashState.message
         : null;
+  const playJson = JSON.stringify(play, null, 2);
+
+  async function copyPlayJson() {
+    try {
+      await navigator.clipboard.writeText(playJson);
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("error");
+    }
+  }
 
   return (
     <div className="statusActionArea">
@@ -98,21 +109,39 @@ export function PlayStatusActions({ play }: { play: PlayListItem }) {
           >
             <GmailIcon />
           </a>
-        ) : null}
+        ) : (
+          <span aria-hidden="true" className="rowActionPlaceholder" />
+        )}
       </div>
       <dialog className="playInfoDialog" ref={infoDialogRef}>
         <div className="playInfoHeader">
           <strong>Play JSON</strong>
-          <button
-            aria-label="Close Play information"
-            className="rowIconButton"
-            onClick={() => infoDialogRef.current?.close()}
-            type="button"
-          >
-            ×
-          </button>
+          <div className="playInfoHeaderActions">
+            <button
+              className="playInfoTextButton"
+              onClick={copyPlayJson}
+              type="button"
+            >
+              {copyStatus === "copied"
+                ? "Copied"
+                : copyStatus === "error"
+                  ? "Copy failed"
+                  : "Copy"}
+            </button>
+            <button
+              aria-label="Close Play information"
+              className="playInfoTextButton"
+              onClick={() => {
+                infoDialogRef.current?.close();
+                setCopyStatus("idle");
+              }}
+              type="button"
+            >
+              Close
+            </button>
+          </div>
         </div>
-        <pre>{JSON.stringify(play, null, 2)}</pre>
+        <pre>{playJson}</pre>
       </dialog>
       {errorMessage ? (
         <p className="rowError" role="alert">
