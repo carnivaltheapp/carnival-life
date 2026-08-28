@@ -6,6 +6,7 @@ import {
   gmailThreadIdFromMetadata,
   gmailThreadUrl,
   playRowLeadingLabel,
+  usesDateLeadingColumn,
 } from "./play-display";
 
 const baskets = [
@@ -43,14 +44,12 @@ describe("Play row display helpers", () => {
     );
   });
 
-  it("formats real dates and shows Basket names without exposing sentinels", () => {
+  it("formats real scheduled dates from their actual calendar weekday", () => {
     expect(displayPlayDestination({ basketId: null, scheduledDate: "2026-09-07" }, baskets))
       .toBe("MON-0907");
-    expect(displayPlayDestination({ basketId: "basket-1", scheduledDate: null }, baskets))
-      .toBe("Backlog");
   });
 
-  it("replaces Player with destination only when requested by All Plays", () => {
+  it("replaces Player with date only for date-column views", () => {
     const play = {
       basketId: null,
       playerDisplayName: "Ada Lovelace",
@@ -58,5 +57,9 @@ describe("Play row display helpers", () => {
     };
     expect(playRowLeadingLabel(play, baskets, false)).toBe("Ada Lovelace");
     expect(playRowLeadingLabel(play, baskets, true)).toBe("MON-0907");
+    expect(usesDateLeadingColumn({ kind: "all", key: "all" })).toBe(true);
+    expect(usesDateLeadingColumn({ kind: "calendar", key: "week" })).toBe(true);
+    expect(usesDateLeadingColumn({ kind: "calendar", key: "today" })).toBe(false);
+    expect(usesDateLeadingColumn({ kind: "basket" })).toBe(false);
   });
 });

@@ -53,3 +53,7 @@ export function playRowLeadingLabel(
     ? displayPlayDestination(play, baskets)
     : (play.playerDisplayName ?? "");
 }
+
+export function usesDateLeadingColumn(view: { kind: string; key?: string }) {
+  return view.kind === "all" || (view.kind === "calendar" && view.key === "week");
+}

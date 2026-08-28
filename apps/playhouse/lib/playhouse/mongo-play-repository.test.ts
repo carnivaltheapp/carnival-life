@@ -177,8 +177,31 @@ describe("MongoPlayRepository mutations", () => {
     });
   });
 
-  it("lists all active calendar and Basket Plays in date, type, priority order", async () => {
+  it("lists active real dates from browser-local Today in date, type, priority order", async () => {
     const tasks = [
+      {
+        _id: new ObjectId(),
+        action_type: "Past",
+        task_date: new Date("2026-08-26T00:00:00.000Z"),
+        task_type: "H",
+      },
+      {
+        _id: new ObjectId(),
+        action_type: "Missing date",
+        task_type: "H",
+      },
+      {
+        _id: new ObjectId(),
+        action_type: "Invalid date",
+        task_date: "not-a-date",
+        task_type: "H",
+      },
+      {
+        _id: new ObjectId(),
+        action_type: "Backlog sentinel",
+        task_date: new Date("2400-01-11T00:00:00.000Z"),
+        task_type: "H",
+      },
       {
         _id: new ObjectId(),
         action_type: "Earlier reminder",
@@ -202,9 +225,9 @@ describe("MongoPlayRepository mutations", () => {
       },
       {
         _id: new ObjectId(),
-        action_type: "Backlog normal",
+        action_type: "Future normal",
         priority_index: "10-00000128",
-        task_date: new Date("2400-01-11T00:00:00.000Z"),
+        task_date: new Date("2026-08-28T00:00:00.000Z"),
         task_type: "P",
       },
     ];
@@ -222,6 +245,10 @@ describe("MongoPlayRepository mutations", () => {
     expect(find).toHaveBeenCalledWith({
       is_active: true,
       is_deleted: false,
+      task_date: {
+        $gte: new Date("2026-08-27T00:00:00.000Z"),
+        $lt: new Date("2200-01-01T00:00:00.000Z"),
+      },
       user_id: 43,
     });
     expect(sort).toHaveBeenCalledWith({
@@ -234,11 +261,8 @@ describe("MongoPlayRepository mutations", () => {
       "Earlier normal first",
       "Earlier normal second",
       "Earlier reminder",
-      "Backlog normal",
+      "Future normal",
     ]);
-    expect(result.plays.at(-1)).toMatchObject({
-      basketId: baskets[0].id,
-      scheduledDate: null,
-    });
+    expect(find.mock.calls[0][0]).not.toHaveProperty("task_type");
   });
 });

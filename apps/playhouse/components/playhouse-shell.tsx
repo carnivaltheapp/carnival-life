@@ -7,7 +7,11 @@ import type {
   PlayListItem,
 } from "../domain/play";
 import type { SelectedView } from "../lib/playhouse/data";
-import { displayBranch, playRowLeadingLabel } from "../domain/play-display";
+import {
+  displayBranch,
+  playRowLeadingLabel,
+  usesDateLeadingColumn,
+} from "../domain/play-display";
 import { CALENDAR_VIEWS } from "../domain/playhouse-navigation";
 import { BrowserTimeZone } from "./browser-time-zone";
 import { PlayForm } from "./play-form";
@@ -36,6 +40,7 @@ export function PlayhouseShell({
   supportsWorkflows: boolean;
 }) {
   const playCountLabel = `${plays.length} ${plays.length === 1 ? "Play" : "Plays"}`;
+  const showDateInLeadingColumn = usesDateLeadingColumn(selectedView);
   const defaultPlacement =
     selectedView.kind === "basket"
       ? { basketId: selectedView.basket.id, kind: "basket" as const }
@@ -202,7 +207,7 @@ export function PlayhouseShell({
                       />
                       <span
                         className="playPlayerCell"
-                        data-testid={selectedView.kind === "all"
+                        data-testid={showDateInLeadingColumn
                           ? "play-destination"
                           : play.playerDisplayName
                             ? "play-player"
@@ -210,10 +215,10 @@ export function PlayhouseShell({
                         title={playRowLeadingLabel(
                           play,
                           baskets,
-                          selectedView.kind === "all",
+                          showDateInLeadingColumn,
                         ) || undefined}
                       >
-                        {playRowLeadingLabel(play, baskets, selectedView.kind === "all")}
+                        {playRowLeadingLabel(play, baskets, showDateInLeadingColumn)}
                       </span>
                       <PlayForm
                         baskets={baskets}

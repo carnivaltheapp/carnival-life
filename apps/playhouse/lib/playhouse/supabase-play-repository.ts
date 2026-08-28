@@ -1,8 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { BasketSummary, NextPlayOption, PlayListItem } from "../../domain/play";
+import type { NextPlayOption, PlayListItem } from "../../domain/play";
 import { gmailThreadIdFromMetadata } from "../../domain/play-display";
-import { LEGACY_BASKETS } from "../../migration/legacy/mapping";
 import type { Database } from "../supabase/database.types";
 import type { SelectedView } from "./data";
 import type {
@@ -34,7 +33,6 @@ export class SupabasePlayRepository implements PlayRepository {
   constructor(
     private readonly supabase: SupabaseClient<Database>,
     private readonly ownerUserId: string,
-    private readonly baskets: BasketSummary[],
   ) {}
 
   async get(playId: string) {
@@ -93,12 +91,25 @@ export class SupabasePlayRepository implements PlayRepository {
       playQuery = playQuery
         .gte("scheduled_date", selectedView.startDate)
         .lte("scheduled_date", selectedView.endDate);
+    } else {
+      playQuery = playQuery
+        .gte("scheduled_date", selectedView.defaultDate)
+        .lt("scheduled_date", "2200-01-01")
+        .is("basket_id", null);
     }
 
+    const orderedPlayQuery = selectedView.kind === "all"
+      ? playQuery
+          .order("scheduled_date", { ascending: true })
+          .order("play_type", { ascending: true })
+          .order("sort_order", { ascending: true })
+          .order("created_at", { ascending: true })
+      : playQuery
+          .order("sort_order", { ascending: true })
+          .order("created_at", { ascending: true });
+
     const [playResult, optionResult] = await Promise.all([
-      playQuery
-        .order("sort_order", { ascending: true })
-        .order("created_at", { ascending: true }),
+      orderedPlayQuery,
       this.supabase
         .from("plays")
         .select("id, title, status, play_type, scheduled_date, basket_id")
@@ -106,23 +117,6 @@ export class SupabasePlayRepository implements PlayRepository {
         .limit(1000),
     ]);
     const playRows = playResult.data ?? [];
-    if (selectedView.kind === "all") {
-      const basketDayById = new Map(
-        this.baskets.flatMap((basket) => {
-          const match = Object.entries(LEGACY_BASKETS)
-            .find(([, legacyBasket]) => legacyBasket.slug === basket.slug);
-          return match ? [[basket.id, match[0]] as const] : [];
-        }),
-      );
-      playRows.sort((left, right) => {
-        const leftDate = left.scheduled_date ??
-          (left.basket_id ? basketDayById.get(left.basket_id) : undefined) ?? "9999-12-31";
-        const rightDate = right.scheduled_date ??
-          (right.basket_id ? basketDayById.get(right.basket_id) : undefined) ?? "9999-12-31";
-        return leftDate.localeCompare(rightDate) ||
-          Number(left.play_type === "reminder") - Number(right.play_type === "reminder");
-      });
-    }
     const playerContactIds = Array.from(
       new Set(playRows.flatMap((play) => play.player_contact_id ? [play.player_contact_id] : [])),
     );

@@ -109,6 +109,23 @@ export function mongoDateFilter(startDate: string, endDate = startDate) {
   } satisfies Filter<LegacyTaskDocument>;
 }
 
+export function mongoAllScheduledFilter(today: string) {
+  return {
+    ...mongoActiveFilter(),
+    task_date: {
+      $gte: new Date(`${today}T00:00:00.000Z`),
+      $lt: new Date("2200-01-01T00:00:00.000Z"),
+    },
+  } satisfies Filter<LegacyTaskDocument>;
+}
+
+export function isRealScheduledDateOnOrAfter(value: unknown, today: string) {
+  return value instanceof Date &&
+    Number.isFinite(value.getTime()) &&
+    value >= new Date(`${today}T00:00:00.000Z`) &&
+    value < new Date("2200-01-01T00:00:00.000Z");
+}
+
 export function mongoBasketFilter(basketSlug: string) {
   const day = basketDayBySlug.get(basketSlug);
   if (!day) {

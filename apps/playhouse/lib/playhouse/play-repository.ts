@@ -43,7 +43,7 @@ export async function createPlayRepository({
 }): Promise<PlayRepository> {
   if (source === "supabase") {
     const { SupabasePlayRepository } = await import("./supabase-play-repository");
-    return new SupabasePlayRepository(supabase, ownerUserId, baskets);
+    return new SupabasePlayRepository(supabase, ownerUserId);
   }
 
   const [{ getLegacyTaskCollection }, { MongoPlayRepository }] = await Promise.all([

@@ -10,9 +10,11 @@ import type { Database } from "../supabase/database.types";
 import type { SelectedView } from "./data";
 import {
   assertMongoUserMapping,
+  isRealScheduledDateOnOrAfter,
   legacyTaskDate,
   mapMongoPlay,
   mongoActiveFilter,
+  mongoAllScheduledFilter,
   mongoBasketFilter,
   mongoContactFallback,
   mongoContactResourceName,
@@ -143,7 +145,7 @@ export class MongoPlayRepository implements PlayRepository {
 
   async list(selectedView: SelectedView): Promise<RepositoryPlayList> {
     const filter = selectedView.kind === "all"
-      ? mongoActiveFilter()
+      ? mongoAllScheduledFilter(selectedView.defaultDate)
       : selectedView.kind === "basket"
       ? mongoBasketFilter(selectedView.basket.slug)
       : mongoDateFilter(selectedView.startDate, selectedView.endDate);
@@ -161,12 +163,17 @@ export class MongoPlayRepository implements PlayRepository {
           : { priority_index: 1, created_date: 1, _id: 1 })
         .toArray();
       if (selectedView.kind === "all") {
-        tasks.sort((left, right) => {
-          const leftDate = left.task_date instanceof Date ? left.task_date.getTime() : 0;
-          const rightDate = right.task_date instanceof Date ? right.task_date.getTime() : 0;
-          return leftDate - rightDate ||
-            Number(left.task_type === "S") - Number(right.task_type === "S");
-        });
+        tasks = tasks
+          .filter((task) => isRealScheduledDateOnOrAfter(
+            task.task_date,
+            selectedView.defaultDate,
+          ))
+          .sort((left, right) => {
+            const leftDate = left.task_date instanceof Date ? left.task_date.getTime() : 0;
+            const rightDate = right.task_date instanceof Date ? right.task_date.getTime() : 0;
+            return leftDate - rightDate ||
+              Number(left.task_type === "S") - Number(right.task_type === "S");
+          });
       }
       if (isToday) {
         console.info("[PlayHouse Mongo] Today query success", {
