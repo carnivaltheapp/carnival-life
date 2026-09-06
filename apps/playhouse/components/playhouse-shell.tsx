@@ -20,7 +20,7 @@ import {
 } from "../domain/play-display";
 import { CALENDAR_VIEWS } from "../domain/playhouse-navigation";
 import { togglePlaySelection } from "../domain/play-selection";
-import { playVisualForType } from "../domain/play-visual";
+import { playVisualForPlay } from "../domain/play-visual";
 import { BrowserTimeZone } from "./browser-time-zone";
 import { PlayForm } from "./play-form";
 import { PlayStatusActions } from "./play-status-actions";
@@ -340,10 +340,10 @@ function PlayhouseShellView({
                 aria-label={`Open Plays in ${selectedView.label}`}
               >
                 {plays.map((play) => {
-                  const playVisual = playVisualForType(play.playType);
+                  const playVisual = playVisualForPlay(play);
                   return (
                 <li
-                  className="playRow"
+                  className={`playRow ${playVisual.className}`}
                   data-dragging={draggedIds.includes(play.id) || undefined}
                   data-drop-target={dropTarget === `play:${play.id}` || undefined}
                   data-selected={selectedIds.has(play.id) || undefined}
@@ -382,7 +382,7 @@ function PlayhouseShellView({
                       >
                         <span
                           aria-hidden="true"
-                          className={`playTypeMarker ${playVisual.className}`}
+                          className={`playTypeMarker ${playVisual.markerClassName}`}
                           data-play-visual={playVisual.visualType}
                           title={playVisual.label}
                         />

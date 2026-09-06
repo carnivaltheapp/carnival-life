@@ -302,6 +302,7 @@ export function mapMongoPlay(
     durationMinutes: number(task.duration),
     gmailThreadId: text(task.thread_id),
     id: task._id.toHexString(),
+    legacyTaskType: text(task.task_type),
     note: text(task.note),
     nextPlayId: null,
     place: text(task.place),

@@ -46,6 +46,7 @@ export interface PlayListItem {
   durationMinutes: number | null;
   gmailThreadId?: string | null;
   id: string;
+  legacyTaskType?: string | null;
   note: string | null;
   nextPlayId: string | null;
   place: string | null;

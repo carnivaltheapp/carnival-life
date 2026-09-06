@@ -485,23 +485,23 @@ h1 {
   height: 10px;
   flex: 0 0 10px;
   border-radius: 50%;
-  background: #df7f12;
-  box-shadow: 0 0 0 4px rgba(223, 127, 18, 0.13);
+  background: var(--play-rank-color);
+  box-shadow: 0 0 0 4px var(--play-rank-ring);
 }
 
-.playTypeMarker--headline {
-  background: #df7f12;
-  box-shadow: 0 0 0 4px rgba(223, 127, 18, 0.13);
+.playVisual--headline {
+  --play-rank-color: #a65300;
+  --play-rank-ring: rgba(166, 83, 0, 0.13);
 }
 
-.playTypeMarker--reminder {
-  background: #248a57;
-  box-shadow: 0 0 0 4px rgba(36, 138, 87, 0.13);
+.playVisual--reminder {
+  --play-rank-color: #197044;
+  --play-rank-ring: rgba(25, 112, 68, 0.13);
 }
 
-.playTypeMarker--appointment {
-  background: #c83f4f;
-  box-shadow: 0 0 0 4px rgba(200, 63, 79, 0.13);
+.playVisual--appointment {
+  --play-rank-color: #b52e40;
+  --play-rank-ring: rgba(181, 46, 64, 0.13);
 }
 
 .playDataCell {
@@ -571,6 +571,7 @@ h1 {
   overflow: hidden;
   width: 100%;
   padding: 5px 3px;
+  color: var(--play-rank-color, var(--accent-deep));
   font-size: 0.78rem;
   font-weight: 500;
   text-decoration: underline;
@@ -580,7 +581,7 @@ h1 {
 }
 
 .editDisclosure .playTitleLink:hover {
-  color: var(--accent);
+  color: var(--play-rank-color, var(--accent));
   text-decoration-color: currentColor;
 }
 
