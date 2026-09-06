@@ -29,6 +29,11 @@ async function browserCalendarDate(page: Parameters<typeof playRow>[0]) {
   });
 }
 
+function addIsoDays(date: string, days: number) {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
 test("new Play defaults Duration to 30 and Place to Office", async ({ auth }) => {
   await auth.page.goto("/");
   const form = await openCreatePlay(auth.page);
@@ -164,6 +169,61 @@ test("Play moves date to Basket and Basket back to date", async ({ auth }) => {
 
   await auth.page.getByRole("link", { name: "Today" }).click();
   await expect(playRow(auth.page, "Move both ways")).toBeVisible();
+});
+
+test("Headline to Reminder requires a future date and Cancel makes no change", async ({ auth }) => {
+  await auth.page.goto("/");
+  await createPlay(auth.page, "Reminder date candidate");
+  const today = await browserCalendarDate(auth.page);
+  const futureDate = addIsoDays(today, 4);
+  const { form } = await openEditPlay(auth.page, "Reminder date candidate");
+
+  await form.getByLabel("Type").selectOption("reminder");
+  let prompt = auth.page.getByRole("dialog", { name: "Reminder Date" });
+  await expect(prompt).toBeVisible();
+  await prompt.getByRole("button", { name: "Cancel" }).click();
+  await expect(prompt).toHaveCount(0);
+  await expect(form.getByLabel("Type")).toHaveValue("normal");
+  const { data: unchanged } = await auth.user
+    .from("plays")
+    .select("play_type")
+    .eq("owner_user_id", auth.userId)
+    .eq("title", "Reminder date candidate")
+    .single();
+  expect(unchanged?.play_type).toBe("normal");
+
+  await form.getByLabel("Type").selectOption("reminder");
+  prompt = auth.page.getByRole("dialog", { name: "Reminder Date" });
+  await prompt.getByLabel("Reminder Date").fill(today);
+  await prompt.getByRole("button", { name: "Set Reminder" }).click();
+  await expect(prompt.getByRole("alert")).toContainText("after today");
+  await prompt.getByLabel("Reminder Date").fill(futureDate);
+  await prompt.getByRole("button", { name: "Set Reminder" }).click();
+
+  await expect(prompt).toHaveCount(0);
+  await expect(form.getByLabel("Type")).toHaveValue("reminder");
+  await expect(form.getByLabel("Date")).toHaveValue(futureDate);
+  await form.getByRole("button", { name: "Save changes" }).click();
+  await expect(auth.page.getByTestId("edit-play").filter({
+    has: auth.page.getByText("Reminder date candidate", { exact: true }),
+  })).toHaveCount(0);
+
+  const { data: saved, error } = await auth.user
+    .from("plays")
+    .select("duration_minutes, play_type, scheduled_date")
+    .eq("owner_user_id", auth.userId)
+    .eq("title", "Reminder date candidate")
+    .single();
+  expect(error).toBeNull();
+  expect(saved).toMatchObject({
+    duration_minutes: 30,
+    play_type: "reminder",
+    scheduled_date: futureDate,
+  });
+  await auth.page.goto(`/?date=${futureDate}`);
+  const reminderRow = playRow(auth.page, "Reminder date candidate");
+  await expect(reminderRow).toBeVisible();
+  await expect(reminderRow.locator(".playTypeMarker--reminder")).toBeVisible();
 });
 
 test("grid font setting updates immediately and persists locally", async ({ auth }) => {

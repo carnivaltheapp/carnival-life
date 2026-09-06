@@ -204,6 +204,9 @@ export async function loadPlayhouseData({
       source: resolvePlayhouseDataSource(),
       supabase,
     });
+    if (!(await repository.reconcileDueReminders(todayDate))) {
+      throw new Error("Due Reminders could not be reconciled.");
+    }
     const result = await repository.list(selectedView);
     return {
       baskets,

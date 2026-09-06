@@ -36,7 +36,7 @@ export const PLAY_VISUALS = {
   visualType: PlayVisualType;
 }>;
 
-function sourceTaskType(sourceMetadata: unknown) {
+export function legacyTaskTypeFromMetadata(sourceMetadata: unknown) {
   if (typeof sourceMetadata !== "object" || sourceMetadata === null) return null;
   const legacySource = (sourceMetadata as Record<string, unknown>).legacy_source;
   if (typeof legacySource !== "object" || legacySource === null) return null;
@@ -46,7 +46,7 @@ function sourceTaskType(sourceMetadata: unknown) {
 
 export function playVisualForType(playType: PlayType, legacyTaskType?: string | null) {
   if (legacyTaskType === "A") return PLAY_VISUALS.appointment;
-  if (legacyTaskType === "S") return PLAY_VISUALS.reminder;
+  if (legacyTaskType === "S" && playType === "reminder") return PLAY_VISUALS.reminder;
   if (legacyTaskType !== undefined && legacyTaskType !== null) {
     return PLAY_VISUALS.headline;
   }
@@ -58,6 +58,6 @@ export function playVisualForPlay(
 ) {
   return playVisualForType(
     play.playType,
-    play.legacyTaskType ?? sourceTaskType(play.sourceMetadata),
+    play.legacyTaskType ?? legacyTaskTypeFromMetadata(play.sourceMetadata),
   );
 }

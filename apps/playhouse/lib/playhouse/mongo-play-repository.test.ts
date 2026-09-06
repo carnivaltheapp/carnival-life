@@ -125,6 +125,63 @@ describe("MongoPlayRepository mutations", () => {
     expect(updateOne.mock.calls[0][1].$set.contact_id).toBe("");
   });
 
+  it("moves a Headline to a future Reminder with destination priority and no field replacement", async () => {
+    const id = new ObjectId();
+    const findOne = vi.fn()
+      .mockResolvedValueOnce({ _id: id, task_type: "U", user_id: 43 })
+      .mockResolvedValueOnce({ priority_index: "10-00000400" });
+    const updateOne = vi.fn().mockResolvedValue({ matchedCount: 1 });
+    expect(await repository({
+      findOne: findOne as never,
+      updateOne: updateOne as never,
+    }).save({
+      input: playInput({
+        durationMinutes: null,
+        placement: { kind: "calendar", scheduledDate: "2026-09-10" },
+        playType: "reminder",
+      }),
+      playId: id.toHexString(),
+      playerResourceName: null,
+    })).toBe(true);
+
+    expect(findOne.mock.calls[1][0]).toMatchObject({
+      _id: { $ne: id },
+      is_active: true,
+      is_deleted: false,
+      task_date: new Date("2026-09-10T00:00:00.000Z"),
+      task_type: "S",
+      user_id: 43,
+    });
+    expect(updateOne.mock.calls[0][1]).toEqual({
+      $set: expect.objectContaining({
+        priority_index: "10-00000500",
+        task_date: new Date("2026-09-10T00:00:00.000Z"),
+        task_type: "S",
+      }),
+    });
+    expect(updateOne.mock.calls[0][1].$set).not.toHaveProperty("thread_id");
+    expect(updateOne.mock.calls[0][1].$set).not.toHaveProperty("event_id");
+  });
+
+  it("does not convert an Appointment into a Reminder", async () => {
+    const id = new ObjectId();
+    const findOne = vi.fn().mockResolvedValue({ _id: id, task_type: "A", user_id: 43 });
+    const updateOne = vi.fn();
+    expect(await repository({
+      findOne: findOne as never,
+      updateOne: updateOne as never,
+    }).save({
+      input: playInput({
+        durationMinutes: null,
+        placement: { kind: "calendar", scheduledDate: "2026-09-10" },
+        playType: "reminder",
+      }),
+      playId: id.toHexString(),
+      playerResourceName: null,
+    })).toBe(false);
+    expect(updateOne).not.toHaveBeenCalled();
+  });
+
   it("lists every active type and includes the exact date/user filters", async () => {
     const tasks = ["H", "S", "U", "P", "A", "", null, "unknown"].map((taskType) => ({
       _id: new ObjectId(),
@@ -381,5 +438,78 @@ describe("MongoPlayRepository mutations", () => {
     expect(values).not.toHaveProperty("contact_id");
     expect(values).not.toHaveProperty("note");
     expect(values).not.toHaveProperty("place");
+  });
+
+  it("promotes due Reminders to deterministic top Headlines with scoped targeted sets", async () => {
+    const dueFirst = new ObjectId();
+    const dueSecond = new ObjectId();
+    const existingHeadline = new ObjectId();
+    const find = vi.fn()
+      .mockReturnValueOnce({
+        sort: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            { _id: dueFirst, priority_index: "10-00000100", task_date: new Date("2026-09-05T00:00:00Z"), task_type: "S" },
+            { _id: dueSecond, priority_index: "10-00000200", task_date: new Date("2026-09-06T00:00:00Z"), task_type: "S" },
+          ]),
+        }),
+      })
+      .mockReturnValueOnce({
+        sort: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            { _id: existingHeadline, priority_index: "10-00000400", task_date: new Date("2026-09-06T00:00:00Z"), task_type: "H" },
+          ]),
+        }),
+      });
+    const bulkWrite = vi.fn().mockResolvedValue({ matchedCount: 2 });
+
+    expect(await repository({
+      bulkWrite: bulkWrite as never,
+      find: find as never,
+    }).reconcileDueReminders("2026-09-06")).toBe(true);
+
+    expect(find.mock.calls[0][0]).toEqual({
+      is_active: true,
+      is_deleted: false,
+      task_date: { $lt: new Date("2026-09-07T00:00:00.000Z"), $type: "date" },
+      task_type: "S",
+      user_id: 43,
+    });
+    const operations = bulkWrite.mock.calls[0][0];
+    expect(operations).toHaveLength(2);
+    expect(operations.map((operation: { updateOne: { filter: { _id: ObjectId } } }) =>
+      operation.updateOne.filter._id.toHexString()
+    )).toEqual([dueFirst.toHexString(), dueSecond.toHexString()]);
+    for (const operation of operations) {
+      expect(operation.updateOne.filter).toMatchObject({
+        is_active: true,
+        is_deleted: false,
+        task_type: "S",
+        user_id: 43,
+      });
+      expect(operation.updateOne.update).toEqual({
+        $set: {
+          priority_index: expect.stringMatching(/^10-[0-9A-F]{8}$/),
+          task_date: new Date("2026-09-06T00:00:00.000Z"),
+          task_type: "H",
+          updated_date: expect.any(Date),
+        },
+      });
+    }
+    expect(operations[0].updateOne.update.$set.priority_index <
+      operations[1].updateOne.update.$set.priority_index).toBe(true);
+    expect(operations[1].updateOne.update.$set.priority_index < "10-00000400").toBe(true);
+  });
+
+  it("is idempotent when no active due Reminder matches", async () => {
+    const bulkWrite = vi.fn();
+    const find = vi.fn().mockReturnValue({
+      sort: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) }),
+    });
+    expect(await repository({
+      bulkWrite: bulkWrite as never,
+      find: find as never,
+    }).reconcileDueReminders("2026-09-06")).toBe(true);
+    expect(find).toHaveBeenCalledOnce();
+    expect(bulkWrite).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 
 import { isIsoCalendarDate, isUuid, parsePlayInput } from "../../domain/play-input";
 import {
@@ -14,7 +15,12 @@ import {
 import type { BasketSummary } from "../../domain/play";
 import type { PlayPlacement } from "../../domain/play";
 import { resolvePlayhouseDataSource } from "../../lib/playhouse/data-source";
+import { dateInTimeZone } from "../../lib/playhouse/data";
 import { createPlayRepository } from "../../lib/playhouse/play-repository";
+import {
+  BROWSER_TIME_ZONE_COOKIE,
+  resolveTimeZone,
+} from "../../lib/playhouse/time-zone";
 import { createClient } from "../../lib/supabase/server";
 
 function errorState(message: string, fieldErrors?: PlayMutationState["fieldErrors"]): PlayMutationState {
@@ -53,14 +59,30 @@ async function savePlayInternal(
   _previousState: PlayMutationState,
   formData: FormData,
 ): Promise<PlayMutationState> {
-  const parsed = parsePlayInput(formData);
-  if (!parsed.success) {
-    return errorState("Check the highlighted fields and try again.", parsed.errors);
+  const initialParse = parsePlayInput(formData);
+  if (!initialParse.success) {
+    return errorState("Check the highlighted fields and try again.", initialParse.errors);
   }
 
   const auth = await authenticatedClient();
   if (!auth) {
     return errorState("Your session expired. Refresh the page and sign in again.");
+  }
+
+  const [{ data: profile }, cookieStore] = await Promise.all([
+    auth.supabase.from("users").select("timezone").maybeSingle(),
+    cookies(),
+  ]);
+  const todayDate = dateInTimeZone(
+    new Date(),
+    resolveTimeZone(
+      cookieStore.get(BROWSER_TIME_ZONE_COOKIE)?.value,
+      profile?.timezone,
+    ),
+  );
+  const parsed = parsePlayInput(formData, { todayDate });
+  if (!parsed.success) {
+    return errorState("Check the highlighted fields and try again.", parsed.errors);
   }
 
   const baskets = await loadBaskets(auth.supabase);

@@ -317,6 +317,7 @@ function PlayhouseShellView({
                   defaultPlacement={defaultPlacement}
                   nextPlayOptions={nextPlayOptions}
                   supportsWorkflows={supportsWorkflows}
+                  todayDate={todayDate}
                 />
               ) : null}
               <GridSettings fontSize={gridFontSize} />
@@ -425,6 +426,7 @@ function PlayhouseShellView({
                         nextPlayOptions={nextPlayOptions}
                         play={play}
                         supportsWorkflows={supportsWorkflows}
+                        todayDate={todayDate}
                       />
                     </div>
                     <span className="playDataCell">

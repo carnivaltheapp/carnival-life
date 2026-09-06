@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { savePlay } from "../app/plays/actions";
 import type {
@@ -13,6 +14,8 @@ import type {
 } from "../domain/play";
 import type { PlayInputField } from "../domain/play-input";
 import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
+import { reminderDateError } from "../domain/reminder";
+import { playVisualForPlay } from "../domain/play-visual";
 import { NextPlayRelationshipForm } from "./next-play-relationship-form";
 import { applySuccessfulPlaySave } from "./play-form-success";
 import { PlayerCombobox } from "./player-combobox";
@@ -34,12 +37,14 @@ export function PlayForm({
   nextPlayOptions,
   play,
   supportsWorkflows,
+  todayDate,
 }: {
   baskets: BasketSummary[];
   defaultPlacement: PlayPlacement;
   nextPlayOptions: NextPlayOption[];
   play?: PlayListItem;
   supportsWorkflows: boolean;
+  todayDate: string;
 }) {
   const router = useRouter();
   const detailsRef = useRef<HTMLDetailsElement>(null);
@@ -50,11 +55,18 @@ export function PlayForm({
     : defaultPlacement;
   const [placementKind, setPlacementKind] = useState(initialPlacement.kind);
   const [playType, setPlayType] = useState<PlayType>(play?.playType ?? "normal");
+  const [scheduledDate, setScheduledDate] = useState(
+    initialPlacement.kind === "calendar" ? initialPlacement.scheduledDate : "",
+  );
+  const [reminderDate, setReminderDate] = useState("");
+  const [reminderDateMessage, setReminderDateMessage] = useState<string | null>(null);
+  const [showReminderDate, setShowReminderDate] = useState(false);
   const [state, formAction, isPending] = useActionState(
     savePlay,
     INITIAL_PLAY_MUTATION_STATE,
   );
   const isEditing = Boolean(play);
+  const isAppointment = play ? playVisualForPlay(play).visualType === "appointment" : false;
   const hasNonstandardPlace = Boolean(
     play?.place && !PLACE_OPTIONS.some((place) => place === play.place),
   );
@@ -78,6 +90,36 @@ export function PlayForm({
       refresh: () => router.refresh(),
     });
   }, [router, state]);
+
+  function nextDate(date: string) {
+    const [year, month, day] = date.split("-").map(Number);
+    return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+  }
+
+  function requestPlayType(nextPlayType: PlayType) {
+    if (nextPlayType !== "reminder" || playType === "reminder") {
+      setPlayType(nextPlayType);
+      return;
+    }
+    setReminderDate(scheduledDate > todayDate ? scheduledDate : "");
+    setReminderDateMessage(null);
+    setShowReminderDate(true);
+  }
+
+  function confirmReminder() {
+    const message = reminderDateError(
+      { kind: "calendar", scheduledDate: reminderDate },
+      todayDate,
+    );
+    if (message) {
+      setReminderDateMessage(message);
+      return;
+    }
+    setScheduledDate(reminderDate);
+    setPlacementKind("calendar");
+    setPlayType("reminder");
+    setShowReminderDate(false);
+  }
 
   return (
     <details
@@ -110,13 +152,15 @@ export function PlayForm({
         <div className="formRow field--wide">
           <label className="field compactField">
             <span className="srOnly">Type</span>
+            {isAppointment ? <input name="playType" type="hidden" value="normal" /> : null}
             <select
               aria-label="Type"
-              name="playType"
-              onChange={(event) => setPlayType(event.target.value as PlayType)}
+              disabled={isAppointment}
+              name={isAppointment ? undefined : "playType"}
+              onChange={(event) => requestPlayType(event.target.value as PlayType)}
               value={playType}
             >
-              <option value="normal">Type: Normal</option>
+              <option value="normal">Type: {isAppointment ? "Appointment" : "Normal"}</option>
               <option value="reminder">Type: Reminder</option>
             </select>
             <FieldError errors={state.fieldErrors} field="playType" />
@@ -125,7 +169,8 @@ export function PlayForm({
             <span className="srOnly">Placement</span>
             <select
               aria-label="Placement"
-              name="placementKind"
+              disabled={playType === "reminder"}
+              name={playType === "reminder" ? undefined : "placementKind"}
               onChange={(event) =>
                 setPlacementKind(event.target.value as "calendar" | "basket")
               }
@@ -134,6 +179,9 @@ export function PlayForm({
               <option value="calendar">Placement: Calendar date</option>
               <option value="basket">Placement: Basket</option>
             </select>
+            {playType === "reminder" ? (
+              <input name="placementKind" type="hidden" value="calendar" />
+            ) : null}
             <FieldError errors={state.fieldErrors} field="placement" />
           </label>
         </div>
@@ -151,13 +199,12 @@ export function PlayForm({
               <input
                 aria-label="Date"
                 aria-invalid={Boolean(state.fieldErrors?.scheduledDate)}
-                defaultValue={
-                  submittedValues?.scheduledDate ??
-                  (initialPlacement.kind === "calendar" ? initialPlacement.scheduledDate : "")
-                }
+                min={playType === "reminder" ? nextDate(todayDate) : undefined}
                 name="scheduledDate"
+                onChange={(event) => setScheduledDate(event.target.value)}
                 required
                 type="date"
+                value={scheduledDate}
               />
               <FieldError errors={state.fieldErrors} field="scheduledDate" />
             </label>
@@ -292,6 +339,43 @@ export function PlayForm({
           ) : null}
         </div>
       </form>
+      {showReminderDate && typeof document !== "undefined" ? createPortal((
+        <div className="reminderDateOverlay" role="presentation">
+          <section
+            aria-labelledby={`reminder-date-title-${play?.id ?? "new"}`}
+            aria-modal="true"
+            className="reminderDatePrompt"
+            role="dialog"
+          >
+            <h2 id={`reminder-date-title-${play?.id ?? "new"}`}>Reminder Date</h2>
+            <input
+              aria-label="Reminder Date"
+              min={nextDate(todayDate)}
+              onChange={(event) => {
+                setReminderDate(event.target.value);
+                setReminderDateMessage(null);
+              }}
+              type="date"
+              value={reminderDate}
+            />
+            {reminderDateMessage ? (
+              <small className="fieldError" role="alert">{reminderDateMessage}</small>
+            ) : null}
+            <div className="reminderDateActions">
+              <button
+                className="secondaryButton"
+                onClick={() => setShowReminderDate(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button className="primaryButton" onClick={confirmReminder} type="button">
+                Set Reminder
+              </button>
+            </div>
+          </section>
+        </div>
+      ), document.body) : null}
       {play && supportsWorkflows ? (
         <div className="editWorkflowArea">
           <NextPlayRelationshipForm

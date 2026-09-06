@@ -1,4 +1,5 @@
 import { PLAY_TYPES, PUSH_RULES, type PlayPlacement, type PlayType, type PushRule } from "./play";
+import { reminderDateError } from "./reminder";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -70,7 +71,10 @@ export function isIsoCalendarDate(valueToCheck: string) {
   );
 }
 
-export function parsePlayInput(formData: FormData): PlayInputResult {
+export function parsePlayInput(
+  formData: FormData,
+  options: { todayDate?: string } = {},
+): PlayInputResult {
   const errors: Partial<Record<PlayInputField, string>> = {};
   const title = value(formData, "title");
   const placementKind = value(formData, "placementKind");
@@ -116,6 +120,13 @@ export function parsePlayInput(formData: FormData): PlayInputResult {
     : null;
   if (!playType) {
     errors.playType = "Choose Normal or Reminder.";
+  }
+
+  if (playType === "reminder" && options.todayDate) {
+    const reminderError = reminderDateError(placement, options.todayDate);
+    if (reminderError) {
+      errors.scheduledDate = reminderError;
+    }
   }
 
   if (playerContactId && !isUuid(playerContactId)) {

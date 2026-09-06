@@ -8,6 +8,7 @@ import {
 
 import type { BasketSummary } from "../../domain/play";
 import { orderUpdatesForInsertion } from "../../domain/play-order";
+import { promotionOrderUpdates } from "../../domain/reminder";
 import type { Database } from "../supabase/database.types";
 import type { SelectedView } from "./data";
 import {
@@ -221,6 +222,95 @@ export class MongoPlayRepository implements PlayRepository {
     };
   }
 
+  async reconcileDueReminders(todayDate: string) {
+    const today = new Date(`${todayDate}T00:00:00.000Z`);
+    const tomorrow = new Date(today);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const dueReminders = await this.dependencies.collection
+      .find({
+        ...mongoActiveFilter(),
+        task_date: { $lt: tomorrow, $type: "date" },
+        task_type: "S",
+      })
+      .sort({ priority_index: 1, created_date: 1, _id: 1 })
+      .toArray();
+    if (!dueReminders.length) return true;
+
+    const existingHeadlines = await this.dependencies.collection
+      .find({
+        ...mongoActiveFilter(),
+        task_date: { $gte: today, $lt: tomorrow },
+        task_type: { $ne: "S" },
+      })
+      .sort({ priority_index: 1, created_date: 1, _id: 1 })
+      .toArray();
+    const dueOrders = dueReminders.map((task, index) => ({
+      id: task._id.toHexString(),
+      order: legacyPriorityNumber(task.priority_index, (index + 1) * 0x100),
+    }));
+    const headlineOrders = existingHeadlines.map((task, index) => ({
+      id: task._id.toHexString(),
+      order: legacyPriorityNumber(task.priority_index, (index + 1) * 0x100),
+    }));
+    const lowerBound = headlineOrders.length
+      ? Math.floor(headlineOrders[0].order / 0x100000000) * 0x100000000
+      : dueOrders.length
+        ? Math.floor(dueOrders[0].order / 0x100000000) * 0x100000000
+        : 10 * 0x100000000;
+    const orderById = new Map(promotionOrderUpdates({
+      dueReminders: dueOrders,
+      existingHeadlines: headlineOrders,
+      lowerBound,
+      step: 0x100,
+    }).map((update) => [update.id, legacyPriorityValue(update.order)]));
+    const updatedAt = new Date();
+    const operations = [
+      ...existingHeadlines.flatMap((task) => {
+        const priorityIndex = orderById.get(task._id.toHexString());
+        return priorityIndex && priorityIndex !== task.priority_index
+          ? [{
+              updateOne: {
+                filter: {
+                  _id: task._id,
+                  is_active: true,
+                  is_deleted: false,
+                  task_type: { $ne: "S" },
+                  user_id: MONGO_LEGACY_USER_ID,
+                },
+                update: { $set: { priority_index: priorityIndex, updated_date: updatedAt } },
+              },
+            }]
+          : [];
+      }),
+      ...dueReminders.map((task) => ({
+        updateOne: {
+          filter: {
+            _id: task._id,
+            is_active: true,
+            is_deleted: false,
+            task_type: "S",
+            user_id: MONGO_LEGACY_USER_ID,
+          },
+          update: {
+            $set: {
+              priority_index: orderById.get(task._id.toHexString()),
+              task_date: today,
+              task_type: "H",
+              updated_date: updatedAt,
+            },
+          },
+        },
+      })),
+    ];
+    const result = await this.dependencies.collection.bulkWrite(operations);
+    if (result.matchedCount === operations.length) return true;
+    return await this.dependencies.collection.countDocuments({
+      ...mongoActiveFilter(),
+      _id: { $in: dueReminders.map((task) => task._id) },
+      task_type: "S",
+    }) === 0;
+  }
+
   async save({ input, playId, playerResourceName }: SavePlayRequest) {
     if (playId) {
       let identityFilter: Filter<LegacyTaskDocument>;
@@ -238,13 +328,27 @@ export class MongoPlayRepository implements PlayRepository {
         projection: { task_type: 1 },
       });
       if (!existing) return false;
+      if (existing.task_type === "A" && input.playType === "reminder") return false;
+      const values = mongoEditableSet({
+        baskets: this.dependencies.baskets,
+        existingTaskType: existing.task_type,
+        input,
+        playerResourceName,
+      });
+      if (existing.task_type !== "S" && input.playType === "reminder") {
+        const latestReminder = await this.dependencies.collection.findOne(
+          {
+            ...mongoActiveFilter(),
+            _id: { $ne: existing._id },
+            task_date: legacyTaskDate(input, this.dependencies.baskets),
+            task_type: "S",
+          },
+          { projection: { priority_index: 1 }, sort: { priority_index: -1 } },
+        );
+        values.priority_index = nextLegacyPriorityIndex(latestReminder?.priority_index);
+      }
       const result = await this.dependencies.collection.updateOne(filter, {
-        $set: mongoEditableSet({
-          baskets: this.dependencies.baskets,
-          existingTaskType: existing.task_type,
-          input,
-          playerResourceName,
-        }),
+        $set: values,
       });
       return result.matchedCount === 1;
     }

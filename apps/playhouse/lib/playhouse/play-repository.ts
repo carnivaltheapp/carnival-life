@@ -33,6 +33,7 @@ export interface PlayRepository {
   readonly supportsWorkflows: boolean;
   get(playId: string): Promise<PlayListItem | null>;
   list(selectedView: SelectedView): Promise<RepositoryPlayList>;
+  reconcileDueReminders(todayDate: string): Promise<boolean>;
   reposition(request: RepositionPlaysRequest): Promise<boolean>;
   save(request: SavePlayRequest): Promise<boolean>;
   setStatus(playId: string, status: "done" | "trash"): Promise<boolean>;

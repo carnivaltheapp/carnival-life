@@ -53,6 +53,13 @@ describe("Play visual classification", () => {
     })).toBe(PLAY_VISUALS.appointment);
   });
 
+  it("shows an auto-promoted imported Reminder as a Headline", () => {
+    expect(playVisualForPlay({
+      playType: "normal",
+      sourceMetadata: { legacy_source: { task_type: "S" } },
+    })).toBe(PLAY_VISUALS.headline);
+  });
+
   it("is deterministic across views and unrelated move/reorder state", () => {
     const visual = playVisualForType("reminder");
     expect(playVisualForType("reminder")).toBe(visual);

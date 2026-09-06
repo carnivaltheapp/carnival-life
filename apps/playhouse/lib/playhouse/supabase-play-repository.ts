@@ -3,6 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NextPlayOption, PlayListItem } from "../../domain/play";
 import { gmailThreadIdFromMetadata } from "../../domain/play-display";
 import { orderUpdatesForInsertion } from "../../domain/play-order";
+import { promotionOrderUpdates } from "../../domain/reminder";
+import { legacyTaskTypeFromMetadata } from "../../domain/play-visual";
 import type { Database } from "../supabase/database.types";
 import type { SelectedView } from "./data";
 import type {
@@ -188,22 +190,150 @@ export class SupabasePlayRepository implements PlayRepository {
     };
   }
 
+  async reconcileDueReminders(todayDate: string) {
+    const { data: dueRows, error: dueError } = await this.supabase
+      .from("plays")
+      .select("id, sort_order")
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", "open")
+      .eq("play_type", "reminder")
+      .is("basket_id", null)
+      .lte("scheduled_date", todayDate)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (dueError) return false;
+    if (!dueRows.length) return true;
+
+    const { data: headlineRows, error: headlineError } = await this.supabase
+      .from("plays")
+      .select("id, sort_order")
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", "open")
+      .eq("play_type", "normal")
+      .eq("scheduled_date", todayDate)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (headlineError) return false;
+
+    const updates = new Map(promotionOrderUpdates({
+      dueReminders: dueRows.map((play) => ({ id: play.id, order: play.sort_order })),
+      existingHeadlines: headlineRows.map((play) => ({
+        id: play.id,
+        order: play.sort_order,
+      })),
+      step: 1000,
+    }).map((update) => [update.id, update.order]));
+    const results = await Promise.all([
+      ...headlineRows.flatMap((play) => {
+        const sortOrder = updates.get(play.id);
+        return sortOrder !== undefined && sortOrder !== play.sort_order
+          ? [this.supabase
+              .from("plays")
+              .update({ sort_order: sortOrder })
+              .eq("id", play.id)
+              .eq("owner_user_id", this.ownerUserId)
+              .eq("status", "open")
+              .eq("play_type", "normal")
+              .select("id")
+              .maybeSingle()]
+          : [];
+      }),
+      ...dueRows.map((play) => this.supabase
+        .from("plays")
+        .update({
+          basket_id: null,
+          play_type: "normal",
+          scheduled_date: todayDate,
+          sort_order: updates.get(play.id),
+        })
+        .eq("id", play.id)
+        .eq("owner_user_id", this.ownerUserId)
+        .eq("status", "open")
+        .eq("play_type", "reminder")
+        .select("id")
+        .maybeSingle()),
+    ]);
+    if (results.every(({ data, error }) => !error && Boolean(data))) return true;
+    const { count, error } = await this.supabase
+      .from("plays")
+      .select("id", { count: "exact", head: true })
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", "open")
+      .eq("play_type", "reminder")
+      .in("id", dueRows.map((play) => play.id));
+    return !error && count === 0;
+  }
+
   async save({ input, playId }: SavePlayRequest) {
     const values = playValues(input);
+    let reminderSortOrder: number | undefined;
     if (playId) {
+      const updateValues: Database["public"]["Tables"]["plays"]["Update"] = { ...values };
+      if (input.playType === "reminder") {
+        delete updateValues.duration_minutes;
+      }
+      const { data: existing, error: existingError } = await this.supabase
+        .from("plays")
+        .select("id, play_type, source_metadata")
+        .eq("id", playId)
+        .eq("owner_user_id", this.ownerUserId)
+        .eq("status", "open")
+        .maybeSingle();
+      if (existingError || !existing) return false;
+      if (
+        legacyTaskTypeFromMetadata(existing.source_metadata) === "A" &&
+        input.playType === "reminder"
+      ) return false;
+      if (existing.play_type !== "reminder" && input.playType === "reminder") {
+        const { data: latest, error: latestError } = await this.supabase
+          .from("plays")
+          .select("sort_order")
+          .eq("owner_user_id", this.ownerUserId)
+          .eq("status", "open")
+          .eq("play_type", "reminder")
+          .eq("scheduled_date", input.placement.kind === "calendar"
+            ? input.placement.scheduledDate
+            : "")
+          .neq("id", playId)
+          .order("sort_order", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (latestError) return false;
+        reminderSortOrder = (latest?.sort_order ?? 0) + 1000;
+      }
+      const orderedUpdate = reminderSortOrder === undefined
+        ? updateValues
+        : { ...updateValues, sort_order: reminderSortOrder };
       const { data, error } = await this.supabase
         .from("plays")
-        .update(values)
+        .update(orderedUpdate)
         .eq("id", playId)
+        .eq("owner_user_id", this.ownerUserId)
         .eq("status", "open")
         .select("id")
         .maybeSingle();
       return !error && Boolean(data);
     }
 
+    if (input.playType === "reminder" && input.placement.kind === "calendar") {
+      const { data: latest, error: latestError } = await this.supabase
+        .from("plays")
+        .select("sort_order")
+        .eq("owner_user_id", this.ownerUserId)
+        .eq("status", "open")
+        .eq("play_type", "reminder")
+        .eq("scheduled_date", input.placement.scheduledDate)
+        .order("sort_order", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (latestError) return false;
+      reminderSortOrder = (latest?.sort_order ?? 0) + 1000;
+    }
+
     const { error } = await this.supabase.from("plays").insert({
       ...values,
       owner_user_id: this.ownerUserId,
+      ...(reminderSortOrder === undefined ? {} : { sort_order: reminderSortOrder }),
     });
     return !error;
   }
