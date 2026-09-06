@@ -2,6 +2,13 @@ import type { DiscoveredGoogleCalendar } from "../../domain/calendar-settings";
 
 const GOOGLE_CALENDAR_API_ORIGIN = "https://www.googleapis.com";
 
+export class GoogleCalendarApiError extends Error {
+  constructor(public readonly status: number) {
+    super("Google Calendar discovery failed.");
+    this.name = "GoogleCalendarApiError";
+  }
+}
+
 type GoogleCalendarListEntry = {
   accessRole?: unknown;
   id?: unknown;
@@ -51,7 +58,7 @@ export async function listGoogleCalendars(
     const response = await request(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    if (!response.ok) throw new Error("Google Calendar discovery failed.");
+    if (!response.ok) throw new GoogleCalendarApiError(response.status);
 
     const page = (await response.json()) as GoogleCalendarListResponse;
     for (const entry of page.items ?? []) {

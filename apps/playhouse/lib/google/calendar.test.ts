@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { listGoogleCalendars, mapGoogleCalendar } from "./calendar";
+import {
+  GoogleCalendarApiError,
+  listGoogleCalendars,
+  mapGoogleCalendar,
+} from "./calendar";
 import { GOOGLE_CALENDAR_LIST_READONLY_SCOPE, GOOGLE_OAUTH_SCOPES } from "./scopes";
 
 describe("Google Calendar discovery", () => {
@@ -48,5 +52,22 @@ describe("Google Calendar discovery", () => {
     expect(request.mock.calls[0]?.[1]?.headers).toEqual({
       Authorization: "Bearer server-access-token",
     });
+  });
+
+  it("reports a safe status when Google rejects Calendar List access", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ error: "sensitive-provider-response" }), {
+        status: 403,
+      }),
+    );
+
+    const error = await listGoogleCalendars("server-access-token", request).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(GoogleCalendarApiError);
+    expect(error).toMatchObject({ status: 403 });
+    expect(JSON.stringify(error)).not.toContain("server-access-token");
+    expect(JSON.stringify(error)).not.toContain("sensitive-provider-response");
   });
 });

@@ -9,6 +9,8 @@ import {
 } from "../../domain/calendar-settings";
 import { isUuid } from "../../domain/play-input";
 import { discoverCalendarsForAccount } from "../../lib/google/calendar.server";
+import { GoogleCalendarApiError } from "../../lib/google/calendar";
+import { GoogleAccountReconnectRequiredError } from "../../lib/google/token-broker";
 import { createClient } from "../../lib/supabase/server";
 
 async function authenticatedClient() {
@@ -20,6 +22,13 @@ async function authenticatedClient() {
 
 function errorState(message: string): CalendarSettingsState {
   return { message, status: "error" };
+}
+
+function logCalendarFailure(
+  stage: string,
+  details: { code?: string; status?: number } = {},
+) {
+  console.error("[PlayHouse Calendar] operation failure", { ...details, stage });
 }
 
 export async function discoverGoogleCalendars(
@@ -40,7 +49,12 @@ export async function discoverGoogleCalendars(
     .eq("id", googleAccountId)
     .eq("owner_user_id", auth.userId)
     .maybeSingle();
-  if (accountError || !account) return errorState("That Google account is unavailable.");
+  if (accountError || !account) {
+    logCalendarFailure(accountError ? "connected_account_read" : "account_ownership", {
+      code: accountError?.code,
+    });
+    return errorState("That Google account is unavailable.");
+  }
   if (account.connection_status !== "connected") {
     return errorState("Google authorization must be reconnected before calendars can refresh.");
   }
@@ -55,7 +69,19 @@ export async function discoverGoogleCalendars(
       .select("provider_calendar_id, is_blocking")
       .eq("google_account_id", account.id)
       .eq("owner_user_id", auth.userId);
-    if (existingError) return errorState("Calendar settings could not be loaded.");
+    if (existingError) {
+      logCalendarFailure(
+        existingError.code === "PGRST205" || existingError.code === "42P01"
+          ? "database_schema"
+          : existingError.code === "42501"
+            ? "database_rls"
+            : "calendar_configuration_read",
+        {
+          code: existingError.code,
+        },
+      );
+      return errorState("Calendar settings could not be loaded.");
+    }
 
     const rows = calendarDiscoveryRows({
       calendars,
@@ -70,20 +96,42 @@ export async function discoverGoogleCalendars(
       const { error } = await auth.supabase
         .from("google_calendars")
         .upsert(rows, { onConflict: "google_account_id,provider_calendar_id" });
-      if (error) return errorState("Calendars could not be saved.");
+      if (error) {
+        logCalendarFailure("calendar_configuration_persistence", {
+          code: error.code,
+        });
+        return errorState("Calendars could not be saved.");
+      }
     }
 
-    await auth.supabase
+    const { error: syncStateError } = await auth.supabase
       .from("google_accounts")
       .update({ last_synced_at: new Date().toISOString(), sync_error: null })
       .eq("id", account.id)
       .eq("owner_user_id", auth.userId);
+    if (syncStateError) {
+      logCalendarFailure("account_sync_state_persistence", {
+        code: syncStateError.code,
+      });
+    }
     revalidatePath("/");
     return {
       message: `${rows.length} ${rows.length === 1 ? "calendar" : "calendars"} discovered.`,
       status: "success",
     };
-  } catch {
+  } catch (error) {
+    if (error instanceof GoogleAccountReconnectRequiredError) {
+      logCalendarFailure("google_reconnect_required");
+    } else if (error instanceof GoogleCalendarApiError) {
+      logCalendarFailure(
+        error.status === 401 || error.status === 403
+          ? "google_calendar_permission"
+          : "google_calendar_api",
+        { status: error.status },
+      );
+    } else {
+      logCalendarFailure("google_calendar_discovery");
+    }
     return errorState(
       "Google Calendar access is unavailable. Sign out and sign in with Google to grant access.",
     );
@@ -114,7 +162,12 @@ export async function setGoogleCalendarMode(
     .eq("owner_user_id", auth.userId)
     .select("id")
     .maybeSingle();
-  if (error || !data) return errorState("That calendar setting could not be saved.");
+  if (error || !data) {
+    logCalendarFailure(error ? "calendar_mode_persistence" : "calendar_ownership", {
+      code: error?.code,
+    });
+    return errorState("That calendar setting could not be saved.");
+  }
 
   revalidatePath("/");
   return { status: "success" };

@@ -24,6 +24,25 @@ export async function loadGoogleCalendarSettings(
   ]);
   const calendarsByAccount = new Map<string, CalendarSettingsAccount["calendars"]>();
 
+  if (accountResult.error) {
+    console.error("[PlayHouse Calendar] settings load failure", {
+      code: accountResult.error.code,
+      stage: "connected_account_read",
+    });
+  }
+  if (calendarResult.error) {
+    console.error("[PlayHouse Calendar] settings load failure", {
+      code: calendarResult.error.code,
+      stage:
+        calendarResult.error.code === "PGRST205" ||
+        calendarResult.error.code === "42P01"
+          ? "database_schema"
+          : calendarResult.error.code === "42501"
+            ? "database_rls"
+            : "calendar_configuration_read",
+    });
+  }
+
   for (const calendar of calendarResult.data ?? []) {
     const calendars = calendarsByAccount.get(calendar.google_account_id) ?? [];
     calendars.push({
