@@ -181,6 +181,8 @@ test("grid font setting updates immediately and persists locally", async ({ auth
     (button) => button.parentElement?.previousElementSibling?.getAttribute("data-testid"),
   )).toBe("create-play");
   await expect(row).toHaveCSS("font-size", "12px");
+  await expect(row.getByTestId("play-title")).toHaveCSS("font-size", "12px");
+  await expect(row.locator(".playDataCell").first()).toHaveCSS("font-size", "12px");
 
   await settingsButton.click();
   const menu = auth.page.getByRole("dialog", { name: "Settings menu" });
@@ -188,6 +190,8 @@ test("grid font setting updates immediately and persists locally", async ({ auth
   await expect(menu.getByRole("button")).toHaveCount(2);
   await menu.getByRole("button", { name: "Increase font size" }).click();
   await expect(row).toHaveCSS("font-size", "13px");
+  await expect(row.getByTestId("play-title")).toHaveCSS("font-size", "13px");
+  await expect(row.locator(".playDataCell").first()).toHaveCSS("font-size", "13px");
   expect(await auth.page.evaluate(
     (storageKey) => localStorage.getItem(storageKey),
     GRID_FONT_SIZE_STORAGE_KEY,
@@ -201,7 +205,16 @@ test("grid font setting updates immediately and persists locally", async ({ auth
   await expect(playRow(auth.page, "Resizable grid Play")).toHaveCSS("font-size", "13px");
   await auth.page.getByRole("button", { name: "Settings" }).click();
   await auth.page.getByRole("button", { name: "Decrease font size" }).click();
-  await expect(playRow(auth.page, "Resizable grid Play")).toHaveCSS("font-size", "12px");
+  const restoredRow = playRow(auth.page, "Resizable grid Play");
+  const description = restoredRow.getByTestId("play-title");
+  await expect(restoredRow).toHaveCSS("font-size", "12px");
+  await expect(description).toHaveCSS("font-size", "12px");
+  await expect(restoredRow.locator(".playDataCell").first()).toHaveCSS("font-size", "12px");
+  await expect(description).toHaveCSS("font-weight", "500");
+  await expect(description).toHaveCSS("white-space", "nowrap");
+  await expect(description).toHaveCSS("text-overflow", "ellipsis");
+  await description.click();
+  await expect(restoredRow.getByTestId("edit-play")).toHaveAttribute("open", "");
 });
 
 test("Play moved from Backlog to Today remains visible after refresh", async ({ auth }) => {
