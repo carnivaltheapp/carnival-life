@@ -136,6 +136,7 @@ export type Database = {
           is_primary: boolean;
           owner_user_id: string;
           provider_calendar_id: string;
+          semantic_role: Database["public"]["Enums"]["google_calendar_semantic_role"];
           summary: string;
           time_zone: string | null;
           updated_at: string;
@@ -149,6 +150,7 @@ export type Database = {
           is_primary?: boolean;
           owner_user_id: string;
           provider_calendar_id: string;
+          semantic_role?: Database["public"]["Enums"]["google_calendar_semantic_role"];
           summary: string;
           time_zone?: string | null;
           updated_at?: string;
@@ -162,6 +164,7 @@ export type Database = {
           is_primary?: boolean;
           owner_user_id?: string;
           provider_calendar_id?: string;
+          semantic_role?: Database["public"]["Enums"]["google_calendar_semantic_role"];
           summary?: string;
           time_zone?: string | null;
           updated_at?: string;
@@ -382,6 +385,14 @@ export type Database = {
       };
     };
     Enums: {
+      google_calendar_semantic_role:
+        | "appointment"
+        | "event"
+        | "place"
+        | "play"
+        | "reminder"
+        | "done"
+        | "none";
       google_connection_status: "connected" | "disconnected" | "error";
       play_event_source:
         | "user"

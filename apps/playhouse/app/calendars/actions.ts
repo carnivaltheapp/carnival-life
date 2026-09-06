@@ -66,7 +66,7 @@ export async function discoverGoogleCalendars(
     });
     const { data: existing, error: existingError } = await auth.supabase
       .from("google_calendars")
-      .select("provider_calendar_id, is_blocking")
+      .select("provider_calendar_id, is_blocking, semantic_role")
       .eq("google_account_id", account.id)
       .eq("owner_user_id", auth.userId);
     if (existingError) {
@@ -88,6 +88,10 @@ export async function discoverGoogleCalendars(
       existingModes: new Map((existing ?? []).map((calendar) => [
         calendar.provider_calendar_id,
         calendar.is_blocking ? "blocking" : "ignored",
+      ])),
+      existingSemanticRoles: new Map((existing ?? []).map((calendar) => [
+        calendar.provider_calendar_id,
+        calendar.semantic_role,
       ])),
       googleAccountId: account.id,
       ownerUserId: auth.userId,

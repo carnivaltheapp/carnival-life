@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public;
 
-select plan(9);
+select plan(12);
 
 select has_table('public', 'google_calendars', 'Google calendars table exists');
 select ok(
@@ -19,6 +19,13 @@ select policies_are(
     'google_calendars_update_own'
   ],
   'Google calendars expose only owner-scoped policies'
+);
+select col_type_is(
+  'public',
+  'google_calendars',
+  'semantic_role',
+  'google_calendar_semantic_role',
+  'Google calendars persist a constrained semantic role'
 );
 
 insert into auth.users (id, email)
@@ -45,7 +52,7 @@ values
   );
 
 insert into public.google_calendars (
-  id, owner_user_id, google_account_id, provider_calendar_id, summary
+  id, owner_user_id, google_account_id, provider_calendar_id, summary, semantic_role
 )
 values
   (
@@ -53,22 +60,34 @@ values
     '00000000-0000-4000-8000-000000000011'::uuid,
     '00000000-0000-4000-8000-000000000021'::uuid,
     'calendar-one',
-    'First calendar'
+    'First calendar',
+    'none'
   ),
   (
     '00000000-0000-4000-8000-000000000032'::uuid,
     '00000000-0000-4000-8000-000000000012'::uuid,
     '00000000-0000-4000-8000-000000000022'::uuid,
     'calendar-two',
-    'Second calendar'
+    'Second calendar',
+    'none'
   ),
   (
     '00000000-0000-4000-8000-000000000033'::uuid,
     '00000000-0000-4000-8000-000000000011'::uuid,
     '00000000-0000-4000-8000-000000000023'::uuid,
     'calendar-one',
-    'Same provider ID on another connected account'
+    'Same provider ID on another connected account',
+    'place'
   );
+
+select is(
+  (
+    select semantic_role from public.google_calendars
+    where id = '00000000-0000-4000-8000-000000000031'::uuid
+  ),
+  'none'::public.google_calendar_semantic_role,
+  'Ordinary calendars default to no semantic role'
+);
 
 set local role authenticated;
 select set_config(
@@ -98,7 +117,8 @@ select is(
 select lives_ok(
   $$
     update public.google_calendars
-    set is_blocking = true
+    set is_blocking = true,
+        semantic_role = 'appointment'
     where id = '00000000-0000-4000-8000-000000000031'::uuid
   $$,
   'An owner can persist Blocking configuration'
@@ -110,6 +130,15 @@ select is(
   ),
   true,
   'Blocking configuration persists'
+);
+select is(
+  (
+    select array_agg(semantic_role::text order by google_account_id)
+    from public.google_calendars
+    where provider_calendar_id = 'calendar-one'
+  ),
+  array['appointment', 'place'],
+  'Semantic assignments remain scoped to each connected account'
 );
 select throws_ok(
   $$

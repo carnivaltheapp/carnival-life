@@ -16,7 +16,7 @@ export async function loadGoogleCalendarSettings(
     supabase
       .from("google_calendars")
       .select(
-        "id, google_account_id, provider_calendar_id, summary, is_primary, access_role, time_zone, is_blocking",
+        "id, google_account_id, provider_calendar_id, summary, is_primary, access_role, time_zone, is_blocking, semantic_role",
       )
       .eq("owner_user_id", ownerUserId)
       .order("is_primary", { ascending: false })
@@ -51,6 +51,7 @@ export async function loadGoogleCalendarSettings(
       isPrimary: calendar.is_primary,
       mode: calendar.is_blocking ? "blocking" : "ignored",
       providerCalendarId: calendar.provider_calendar_id,
+      semanticRole: calendar.semantic_role,
       summary: calendar.summary,
       timeZone: calendar.time_zone,
     });

@@ -9,6 +9,7 @@ import {
 } from "../app/calendars/actions";
 import {
   INITIAL_CALENDAR_SETTINGS_STATE,
+  getCarnivalCalendarSemantic,
   type CalendarAvailabilityMode,
   type CalendarSettingsAccount,
   type CalendarSettingsCalendar,
@@ -75,6 +76,19 @@ function CalendarModeControl({
   );
 }
 
+function CalendarBehavior({ calendar }: { calendar: CalendarSettingsCalendar }) {
+  const semantic = getCarnivalCalendarSemantic(calendar.semanticRole);
+
+  if (!semantic) return <CalendarModeControl calendar={calendar} />;
+
+  return (
+    <span className="calendarSemanticBehavior">
+      <strong>{semantic.label}</strong>
+      <small>{semantic.description}</small>
+    </span>
+  );
+}
+
 export function CalendarSettings({
   accounts,
   error,
@@ -104,7 +118,7 @@ export function CalendarSettings({
                     {calendar.summary}
                     {calendar.isPrimary ? <small>Primary</small> : null}
                   </span>
-                  <CalendarModeControl calendar={calendar} />
+                  <CalendarBehavior calendar={calendar} />
                 </li>
               ))}
             </ul>

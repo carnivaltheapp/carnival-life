@@ -582,6 +582,22 @@ a {
   text-align: right;
 }
 
+.calendarSemanticBehavior {
+  display: grid;
+  justify-items: end;
+  line-height: 1.15;
+  text-align: right;
+}
+
+.calendarSemanticBehavior strong {
+  font-size: 0.66rem;
+}
+
+.calendarSemanticBehavior small {
+  color: var(--muted);
+  font-size: 0.58rem;
+}
+
 .eyebrow {
   margin: 0 0 7px;
   color: var(--accent-deep);
