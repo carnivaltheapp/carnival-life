@@ -265,4 +265,121 @@ describe("MongoPlayRepository mutations", () => {
     ]);
     expect(find.mock.calls[0][0]).not.toHaveProperty("task_type");
   });
+
+  it("reorders one Play with a minimal scoped priority update", async () => {
+    const [firstId, secondId, movedId] = [new ObjectId(), new ObjectId(), new ObjectId()];
+    const date = new Date("2026-09-06T00:00:00.000Z");
+    const destination = [
+      { _id: firstId, priority_index: "10-00000100", task_date: date, task_type: "H" },
+      { _id: secondId, priority_index: "10-00000200", task_date: date, task_type: "H" },
+      { _id: movedId, priority_index: "10-00000300", task_date: date, task_type: "H" },
+    ];
+    const find = vi.fn()
+      .mockReturnValueOnce({ toArray: vi.fn().mockResolvedValue([destination[2]]) })
+      .mockReturnValueOnce({
+        sort: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue(destination) }),
+      });
+    const bulkWrite = vi.fn().mockResolvedValue({ matchedCount: 1 });
+
+    expect(await repository({
+      bulkWrite: bulkWrite as never,
+      find: find as never,
+    }).reposition({
+      beforePlayId: secondId.toHexString(),
+      placement: { kind: "calendar", scheduledDate: "2026-09-06" },
+      playIds: [movedId.toHexString()],
+    })).toBe(true);
+
+    expect(bulkWrite).toHaveBeenCalledOnce();
+    const operation = bulkWrite.mock.calls[0][0][0].updateOne;
+    expect(operation.filter).toEqual({
+      _id: movedId,
+      is_active: true,
+      is_deleted: false,
+      user_id: 43,
+    });
+    expect(operation.update.$set).toMatchObject({ priority_index: "10-00000180" });
+    expect(operation.update.$set).not.toHaveProperty("task_date");
+    expect(operation.update.$set).not.toHaveProperty("task_type");
+  });
+
+  it("bulk-moves mixed types to a documented Basket without overwriting unrelated fields", async () => {
+    const normalId = new ObjectId();
+    const reminderId = new ObjectId();
+    const sourceDate = new Date("2026-09-06T00:00:00.000Z");
+    const selected = [
+      { _id: normalId, priority_index: "10-00000100", task_date: sourceDate, task_type: "U" },
+      { _id: reminderId, priority_index: "10-00000200", task_date: sourceDate, task_type: "S" },
+    ];
+    const find = vi.fn()
+      .mockReturnValueOnce({ toArray: vi.fn().mockResolvedValue(selected) })
+      .mockReturnValueOnce({
+        sort: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) }),
+      });
+    const bulkWrite = vi.fn().mockResolvedValue({ matchedCount: 2 });
+
+    expect(await repository({
+      bulkWrite: bulkWrite as never,
+      find: find as never,
+    }).reposition({
+      beforePlayId: null,
+      placement: { basketId: baskets[0].id, kind: "basket" },
+      playIds: [normalId.toHexString(), reminderId.toHexString()],
+    })).toBe(true);
+
+    const operations = bulkWrite.mock.calls[0][0].map(
+      (operation: { updateOne: { update: { $set: Record<string, unknown> } } }) =>
+        operation.updateOne.update.$set,
+    );
+    expect(operations).toHaveLength(2);
+    for (const values of operations) {
+      expect(values.task_date).toEqual(new Date("2400-01-11T00:00:00.000Z"));
+      expect(values).not.toHaveProperty("task_type");
+      expect(values).not.toHaveProperty("contact_id");
+      expect(values).not.toHaveProperty("note");
+      expect(values).not.toHaveProperty("branch");
+      expect(values).not.toHaveProperty("thread_id");
+    }
+  });
+
+  it("moves a Play to a real date without changing its legacy type or unrelated fields", async () => {
+    const playId = new ObjectId();
+    const selected = {
+      _id: playId,
+      priority_index: "10-00000100",
+      task_date: new Date("2400-01-11T00:00:00.000Z"),
+      task_type: "P",
+    };
+    const find = vi.fn()
+      .mockReturnValueOnce({ toArray: vi.fn().mockResolvedValue([selected]) })
+      .mockReturnValueOnce({
+        sort: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) }),
+      });
+    const bulkWrite = vi.fn().mockResolvedValue({ matchedCount: 1 });
+
+    expect(await repository({
+      bulkWrite: bulkWrite as never,
+      find: find as never,
+    }).reposition({
+      beforePlayId: null,
+      placement: { kind: "calendar", scheduledDate: "2026-09-07" },
+      playIds: [playId.toHexString()],
+    })).toBe(true);
+
+    expect(find.mock.calls[1][0]).toMatchObject({
+      is_active: true,
+      is_deleted: false,
+      task_date: {
+        $gte: new Date("2026-09-07T00:00:00.000Z"),
+        $lt: new Date("2026-09-08T00:00:00.000Z"),
+      },
+      user_id: 43,
+    });
+    const values = bulkWrite.mock.calls[0][0][0].updateOne.update.$set;
+    expect(values.task_date).toEqual(new Date("2026-09-07T00:00:00.000Z"));
+    expect(values).not.toHaveProperty("task_type");
+    expect(values).not.toHaveProperty("contact_id");
+    expect(values).not.toHaveProperty("note");
+    expect(values).not.toHaveProperty("place");
+  });
 });

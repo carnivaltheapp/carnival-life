@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { isUuid, parsePlayInput } from "../../domain/play-input";
+import { isIsoCalendarDate, isUuid, parsePlayInput } from "../../domain/play-input";
 import {
   parseNewNextPlayInput,
   validateNextRelationship,
@@ -12,6 +12,7 @@ import {
   type PlayMutationState,
 } from "../../domain/play-mutation";
 import type { BasketSummary } from "../../domain/play";
+import type { PlayPlacement } from "../../domain/play";
 import { resolvePlayhouseDataSource } from "../../lib/playhouse/data-source";
 import { createPlayRepository } from "../../lib/playhouse/play-repository";
 import { createClient } from "../../lib/supabase/server";
@@ -203,6 +204,79 @@ export async function trashPlay(
     return await setPlayStatus(formData, "trash");
   } catch {
     return errorState("PlayHouse could not move this Play to Trash. Please try again.");
+  }
+}
+
+export async function repositionPlays(request: {
+  beforePlayId: string | null;
+  placement: PlayPlacement;
+  playIds: string[];
+}): Promise<PlayMutationState> {
+  try {
+    const playIds = Array.from(new Set(request.playIds));
+    if (
+      playIds.length === 0 ||
+      playIds.length > 200 ||
+      playIds.some((playId) => !playId || playId.length > 100) ||
+      (request.beforePlayId !== null && (
+        !request.beforePlayId ||
+        request.beforePlayId.length > 100 ||
+        playIds.includes(request.beforePlayId)
+      )) ||
+      (request.placement.kind === "calendar" &&
+        !isIsoCalendarDate(request.placement.scheduledDate))
+    ) {
+      return errorState("This move request is invalid. Refresh and try again.");
+    }
+
+    const auth = await authenticatedClient();
+    if (!auth) {
+      return errorState("Your session expired. Refresh the page and sign in again.");
+    }
+    const baskets = await loadBaskets(auth.supabase);
+    if (!baskets) {
+      return errorState("Your Baskets could not be loaded. Refresh and try again.");
+    }
+    const basketId = request.placement.kind === "basket"
+      ? request.placement.basketId
+      : null;
+    if (
+      basketId &&
+      !baskets.some((basket) => basket.id === basketId)
+    ) {
+      return errorState("That Basket is no longer available.");
+    }
+
+    const source = resolvePlayhouseDataSource();
+    if (
+      source === "supabase" &&
+      (playIds.some((playId) => !isUuid(playId)) ||
+        (request.beforePlayId !== null && !isUuid(request.beforePlayId)))
+    ) {
+      return errorState("This move request is invalid. Refresh and try again.");
+    }
+    const repository = await createPlayRepository({
+      baskets,
+      ownerUserId: auth.userId,
+      source,
+      supabase: auth.supabase,
+    });
+    const moved = await repository.reposition({
+      beforePlayId: request.beforePlayId,
+      placement: request.placement,
+      playIds,
+    });
+    if (!moved) {
+      return errorState("These Plays could not be moved. The list has been reloaded.");
+    }
+
+    revalidatePath("/");
+    return {
+      message: playIds.length === 1 ? "Play moved." : `${playIds.length} Plays moved.`,
+      status: "success",
+    };
+  } catch {
+    return errorState("PlayHouse could not move these Plays. The list has been reloaded.");
   }
 }
 

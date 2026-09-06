@@ -3,6 +3,7 @@ import { ObjectId, type Filter, type WithId } from "mongodb";
 import type {
   BasketSummary,
   PlayListItem,
+  PlayPlacement,
   PlaySourceType,
   PlayType,
   PushRule,
@@ -148,16 +149,33 @@ export function mongoMutationFilter(playId: string): Filter<LegacyTaskDocument> 
 }
 
 export function legacyTaskDate(input: PlayInput, baskets: BasketSummary[]) {
-  if (input.placement.kind === "calendar") {
-    return new Date(`${input.placement.scheduledDate}T00:00:00.000Z`);
+  return legacyPlacementDate(input.placement, baskets);
+}
+
+export function legacyPlacementDate(
+  placement: PlayPlacement,
+  baskets: BasketSummary[],
+) {
+  if (placement.kind === "calendar") {
+    return new Date(`${placement.scheduledDate}T00:00:00.000Z`);
   }
-  const basketId = input.placement.kind === "basket" ? input.placement.basketId : "";
+  const basketId = placement.basketId;
   const basket = baskets.find((candidate) => candidate.id === basketId);
   const day = basket ? basketDayBySlug.get(basket.slug) : undefined;
   if (!day) {
     throw new Error("That Basket does not have a documented Mongo mapping.");
   }
   return new Date(`${day}T00:00:00.000Z`);
+}
+
+export function mongoPlacementDateFilter(
+  placement: PlayPlacement,
+  baskets: BasketSummary[],
+) {
+  const start = legacyPlacementDate(placement, baskets);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+  return { $gte: start, $lt: end };
 }
 
 export function mongoEditableSet({

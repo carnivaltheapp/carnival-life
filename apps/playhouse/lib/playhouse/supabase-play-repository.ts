@@ -2,11 +2,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { NextPlayOption, PlayListItem } from "../../domain/play";
 import { gmailThreadIdFromMetadata } from "../../domain/play-display";
+import { orderUpdatesForInsertion } from "../../domain/play-order";
 import type { Database } from "../supabase/database.types";
 import type { SelectedView } from "./data";
 import type {
   PlayRepository,
   RepositoryPlayList,
+  RepositionPlaysRequest,
   SavePlayRequest,
 } from "./play-repository";
 
@@ -204,6 +206,90 @@ export class SupabasePlayRepository implements PlayRepository {
       owner_user_id: this.ownerUserId,
     });
     return !error;
+  }
+
+  async reposition({
+    beforePlayId,
+    placement,
+    playIds,
+  }: RepositionPlaysRequest) {
+    const { data: selectedRows, error: selectedError } = await this.supabase
+      .from("plays")
+      .select("id, play_type, scheduled_date, basket_id, sort_order")
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", "open")
+      .in("id", playIds);
+    if (selectedError || selectedRows.length !== playIds.length) return false;
+
+    let destinationQuery = this.supabase
+      .from("plays")
+      .select("id, play_type, scheduled_date, basket_id, sort_order")
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", "open");
+    destinationQuery = placement.kind === "calendar"
+      ? destinationQuery.eq("scheduled_date", placement.scheduledDate)
+      : destinationQuery.eq("basket_id", placement.basketId);
+    const { data: destinationRows, error: destinationError } = await destinationQuery
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (destinationError) return false;
+    if (beforePlayId && !destinationRows.some((play) => play.id === beforePlayId)) {
+      return false;
+    }
+
+    const selectedById = new Map(selectedRows.map((play) => [play.id, play]));
+    const updates = new Map<string, Database["public"]["Tables"]["plays"]["Update"]>();
+
+    for (const playType of ["normal", "reminder"] as const) {
+      const movingPlayIds = playIds.filter(
+        (playId) => selectedById.get(playId)?.play_type === playType,
+      );
+      if (!movingPlayIds.length) continue;
+      const typeRows = destinationRows.filter((play) => play.play_type === playType);
+      const beforeMatchesType = beforePlayId
+        ? destinationRows.find((play) => play.id === beforePlayId)?.play_type === playType
+        : false;
+      for (const update of orderUpdatesForInsertion({
+        beforePlayId: beforeMatchesType ? beforePlayId : null,
+        destination: typeRows.map((play) => ({ id: play.id, order: play.sort_order })),
+        movingPlayIds,
+        step: 1000,
+      })) {
+        const existing = selectedById.get(update.id) ??
+          destinationRows.find((play) => play.id === update.id);
+        if (existing?.sort_order !== update.order) {
+          updates.set(update.id, { sort_order: update.order });
+        }
+      }
+    }
+
+    for (const playId of playIds) {
+      const play = selectedById.get(playId);
+      if (!play) return false;
+      const moved = placement.kind === "calendar"
+        ? play.scheduled_date !== placement.scheduledDate || play.basket_id !== null
+        : play.basket_id !== placement.basketId || play.scheduled_date !== null;
+      if (moved) {
+        updates.set(playId, {
+          ...(updates.get(playId) ?? {}),
+          basket_id: placement.kind === "basket" ? placement.basketId : null,
+          scheduled_date: placement.kind === "calendar" ? placement.scheduledDate : null,
+        });
+      }
+    }
+
+    if (!updates.size) return true;
+    const results = await Promise.all([...updates].map(([playId, values]) =>
+      this.supabase
+        .from("plays")
+        .update(values)
+        .eq("id", playId)
+        .eq("owner_user_id", this.ownerUserId)
+        .eq("status", "open")
+        .select("id")
+        .maybeSingle()
+    ));
+    return results.every(({ data, error }) => !error && Boolean(data));
   }
 
   async setStatus(playId: string, status: "done" | "trash") {

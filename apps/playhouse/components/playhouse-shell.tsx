@@ -1,10 +1,16 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState, useTransition, type DragEvent, type MouseEvent } from "react";
 
 import { signOut } from "../app/auth/actions";
+import { repositionPlays } from "../app/plays/actions";
 import type {
   BasketSummary,
   NextPlayOption,
   PlayListItem,
+  PlayPlacement,
 } from "../domain/play";
 import type { SelectedView } from "../lib/playhouse/data";
 import {
@@ -13,6 +19,7 @@ import {
   usesDateLeadingColumn,
 } from "../domain/play-display";
 import { CALENDAR_VIEWS } from "../domain/playhouse-navigation";
+import { togglePlaySelection } from "../domain/play-selection";
 import { BrowserTimeZone } from "./browser-time-zone";
 import { PlayForm } from "./play-form";
 import { PlayStatusActions } from "./play-status-actions";
@@ -22,15 +29,7 @@ export type UserIdentity = {
   email: string | null;
 };
 
-export function PlayhouseShell({
-  baskets,
-  dataError,
-  identity,
-  nextPlayOptions,
-  plays,
-  selectedView,
-  supportsWorkflows,
-}: {
+type PlayhouseShellProps = {
   baskets: BasketSummary[];
   dataError: boolean;
   identity: UserIdentity;
@@ -38,8 +37,45 @@ export function PlayhouseShell({
   plays: PlayListItem[];
   selectedView: SelectedView;
   supportsWorkflows: boolean;
-}) {
+  todayDate: string;
+};
+
+function selectedViewIdentity(selectedView: SelectedView) {
+  return selectedView.kind === "basket"
+    ? `basket:${selectedView.basket.id}`
+    : selectedView.kind === "calendar"
+      ? `calendar:${selectedView.key}:${selectedView.startDate}`
+      : `all:${selectedView.defaultDate}`;
+}
+
+function addCalendarDays(isoDate: string, days: number) {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+export function PlayhouseShell(props: PlayhouseShellProps) {
+  return <PlayhouseShellView key={selectedViewIdentity(props.selectedView)} {...props} />;
+}
+
+function PlayhouseShellView({
+  baskets,
+  dataError,
+  identity,
+  nextPlayOptions,
+  plays,
+  selectedView,
+  supportsWorkflows,
+  todayDate,
+}: PlayhouseShellProps) {
+  const router = useRouter();
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
+  const [draggedIds, setDraggedIds] = useState<string[]>([]);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const [movePending, startMove] = useTransition();
   const playCountLabel = `${plays.length} ${plays.length === 1 ? "Play" : "Plays"}`;
+  const visibleIds = plays.map((play) => play.id);
   const showDateInLeadingColumn = usesDateLeadingColumn(selectedView);
   const defaultPlacement =
     selectedView.kind === "basket"
@@ -50,6 +86,69 @@ export function PlayhouseShell({
             ? selectedView.defaultDate
             : selectedView.startDate,
         };
+  const reorderPlacement: PlayPlacement | null = selectedView.kind === "basket"
+    ? { basketId: selectedView.basket.id, kind: "basket" }
+    : selectedView.kind === "calendar" && selectedView.key !== "week"
+      ? { kind: "calendar", scheduledDate: selectedView.startDate }
+      : null;
+  function toggleSelection(playId: string, event: MouseEvent<HTMLButtonElement>) {
+    setSelectedIds((current) => togglePlaySelection({
+      anchorId: selectionAnchor,
+      clickedId: playId,
+      selectedIds: current,
+      shiftKey: event.shiftKey,
+      visibleIds,
+    }));
+    setSelectionAnchor(playId);
+  }
+
+  function beginDrag(playId: string, event: DragEvent<HTMLButtonElement>) {
+    const ids = selectedIds.has(playId)
+      ? visibleIds.filter((id) => selectedIds.has(id))
+      : [playId];
+    if (!selectedIds.has(playId)) {
+      setSelectedIds(new Set([playId]));
+      setSelectionAnchor(playId);
+    }
+    setDraggedIds(ids);
+    setMoveError(null);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", ids.join(","));
+  }
+
+  function persistMove(placement: PlayPlacement, beforePlayId: string | null) {
+    if (!draggedIds.length || movePending) return;
+    const playIds = visibleIds.filter((id) => draggedIds.includes(id));
+    startMove(async () => {
+      const result = await repositionPlays({ beforePlayId, placement, playIds });
+      setDraggedIds([]);
+      setDropTarget(null);
+      if (result.status === "success") {
+        setSelectedIds(new Set());
+        setSelectionAnchor(null);
+        setMoveError(null);
+      } else {
+        setMoveError(result.message);
+      }
+      router.refresh();
+    });
+  }
+
+  function destinationDropProps(placement: PlayPlacement, key: string) {
+    return {
+      "data-drop-target": dropTarget === key || undefined,
+      onDragOver: (event: DragEvent<HTMLElement>) => {
+        if (!draggedIds.length) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        setDropTarget(key);
+      },
+      onDrop: (event: DragEvent<HTMLElement>) => {
+        event.preventDefault();
+        persistMove(placement, null);
+      },
+    };
+  }
 
   return (
     <main className="workspace">
@@ -94,6 +193,12 @@ export function PlayhouseShell({
                     (selectedView.kind === "calendar" || selectedView.kind === "all") &&
                     selectedView.key === item.key;
 
+                  const dropPlacement = item.key === "today"
+                    ? { kind: "calendar" as const, scheduledDate: todayDate }
+                    : item.key === "tomorrow"
+                      ? { kind: "calendar" as const, scheduledDate: addCalendarDays(todayDate, 1) }
+                      : null;
+
                   return (
                     <Link
                       aria-current={isActive ? "page" : undefined}
@@ -101,6 +206,9 @@ export function PlayhouseShell({
                       data-active={isActive || undefined}
                       href={`/?view=${item.key}`}
                       key={item.key}
+                      {...(dropPlacement
+                        ? destinationDropProps(dropPlacement, `calendar:${item.key}`)
+                        : {})}
                     >
                       <span className="destinationIcon" aria-hidden="true">
                         {item.marker}
@@ -127,6 +235,10 @@ export function PlayhouseShell({
                       data-active={isActive || undefined}
                       href={`/?basket=${encodeURIComponent(basket.slug)}`}
                       key={basket.id}
+                      {...destinationDropProps(
+                        { basketId: basket.id, kind: "basket" },
+                        `basket:${basket.id}`,
+                      )}
                     >
                       <span className="destinationIcon basketIcon" aria-hidden="true">
                         ◇
@@ -156,6 +268,29 @@ export function PlayhouseShell({
               <h1 id="view-title">{selectedView.label}</h1>
             </div>
             <div className="panelActions">
+              {plays.length ? (
+                <div className="selectionToolbar" aria-label="Play selection controls">
+                  <span>{selectedIds.size} selected</span>
+                  <button
+                    disabled={movePending || selectedIds.size === plays.length}
+                    onClick={() => setSelectedIds(new Set(visibleIds))}
+                    type="button"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    aria-label="Clear Selection"
+                    disabled={movePending || selectedIds.size === 0}
+                    onClick={() => {
+                      setSelectedIds(new Set());
+                      setSelectionAnchor(null);
+                    }}
+                    type="button"
+                  >
+                    Clear
+                  </button>
+                </div>
+              ) : null}
               <span
                 className="countBadge"
                 data-testid="play-count"
@@ -196,15 +331,57 @@ export function PlayhouseShell({
               </p>
             </div>
           ) : (
-            <ol className="playList" aria-label={`Open Plays in ${selectedView.label}`}>
-              {plays.map((play) => (
-                <li className="playRow" data-testid="play-row" key={play.id}>
+            <>
+              {moveError ? <p className="moveError" role="alert">{moveError}</p> : null}
+              <ol
+                aria-busy={movePending}
+                className="playList"
+                aria-label={`Open Plays in ${selectedView.label}`}
+              >
+                {plays.map((play) => (
+                <li
+                  className="playRow"
+                  data-dragging={draggedIds.includes(play.id) || undefined}
+                  data-drop-target={dropTarget === `play:${play.id}` || undefined}
+                  data-selected={selectedIds.has(play.id) || undefined}
+                  data-testid="play-row"
+                  key={play.id}
+                  onDragOver={(event) => {
+                    if (!reorderPlacement || !draggedIds.length || draggedIds.includes(play.id)) {
+                      return;
+                    }
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                    setDropTarget(`play:${play.id}`);
+                  }}
+                  onDrop={(event) => {
+                    if (!reorderPlacement || draggedIds.includes(play.id)) return;
+                    event.preventDefault();
+                    persistMove(reorderPlacement, play.id);
+                  }}
+                >
                   <div className="playRowLine">
                     <div className="playIdentityCell">
-                      <span
-                        className={`playTypeMarker playTypeMarker--${play.playType}`}
-                        aria-label={play.playType === "reminder" ? "Reminder" : "Normal Play"}
-                      />
+                      <button
+                        aria-label={`${selectedIds.has(play.id) ? "Deselect" : "Select"} ${play.title}`}
+                        aria-pressed={selectedIds.has(play.id)}
+                        className="playSelectControl"
+                        disabled={movePending}
+                        draggable
+                        onClick={(event) => toggleSelection(play.id, event)}
+                        onDragEnd={() => {
+                          setDraggedIds([]);
+                          setDropTarget(null);
+                        }}
+                        onDragStart={(event) => beginDrag(play.id, event)}
+                        title="Select or drag Play"
+                        type="button"
+                      >
+                        <span
+                          className={`playTypeMarker playTypeMarker--${play.playType}`}
+                          aria-hidden="true"
+                        />
+                      </button>
                       <span
                         className="playPlayerCell"
                         data-testid={showDateInLeadingColumn
@@ -240,8 +417,9 @@ export function PlayhouseShell({
                     <PlayStatusActions play={play} />
                   </div>
                 </li>
-              ))}
-            </ol>
+                ))}
+              </ol>
+            </>
           )}
         </section>
       </div>

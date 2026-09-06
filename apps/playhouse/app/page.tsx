@@ -49,6 +49,7 @@ export default async function Home({
         plays: Awaited<ReturnType<typeof loadPlayhouseData>>["plays"];
         selectedView: Awaited<ReturnType<typeof loadPlayhouseData>>["selectedView"];
         supportsWorkflows: boolean;
+        todayDate: string;
       };
 
   try {
@@ -96,6 +97,7 @@ export default async function Home({
         plays: playhouseData.plays,
         selectedView: playhouseData.selectedView,
         supportsWorkflows: playhouseData.supportsWorkflows,
+        todayDate: playhouseData.todayDate,
       };
     }
   } catch {
@@ -123,6 +125,7 @@ export default async function Home({
       plays={pageState.plays}
       selectedView={pageState.selectedView}
       supportsWorkflows={pageState.supportsWorkflows}
+      todayDate={pageState.todayDate}
     />
   );
 }

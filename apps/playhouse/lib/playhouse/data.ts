@@ -39,6 +39,7 @@ export type PlayhouseData = {
   plays: PlayListItem[];
   selectedView: SelectedView;
   supportsWorkflows: boolean;
+  todayDate: string;
 };
 
 export function dateInTimeZone(date: Date, timeZone: string) {
@@ -180,7 +181,9 @@ export async function loadPlayhouseData({
     slug: basket.slug,
     sortOrder: basket.sort_order,
   }));
-  const selectedView = resolveSelectedView({ basketSlug, baskets, date, timeZone, view });
+  const now = new Date();
+  const selectedView = resolveSelectedView({ basketSlug, baskets, date, now, timeZone, view });
+  const todayDate = dateInTimeZone(now, timeZone);
 
   if (basketError) {
     return {
@@ -190,6 +193,7 @@ export async function loadPlayhouseData({
       plays: [],
       selectedView,
       supportsWorkflows: false,
+      todayDate,
     };
   }
 
@@ -210,6 +214,7 @@ export async function loadPlayhouseData({
         : sortPlaysForDisplay(result.plays),
       selectedView,
       supportsWorkflows: repository.supportsWorkflows,
+      todayDate,
     };
   } catch {
     return {
@@ -219,6 +224,7 @@ export async function loadPlayhouseData({
       plays: [],
       selectedView,
       supportsWorkflows: false,
+      todayDate,
     };
   }
 }

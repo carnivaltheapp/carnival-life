@@ -4,6 +4,7 @@ import type {
   BasketSummary,
   NextPlayOption,
   PlayListItem,
+  PlayPlacement,
 } from "../../domain/play";
 import type { PlayInput } from "../../domain/play-input";
 import type { Database } from "../supabase/database.types";
@@ -22,10 +23,17 @@ export type SavePlayRequest = {
   playerResourceName: string | null;
 };
 
+export type RepositionPlaysRequest = {
+  beforePlayId: string | null;
+  placement: PlayPlacement;
+  playIds: string[];
+};
+
 export interface PlayRepository {
   readonly supportsWorkflows: boolean;
   get(playId: string): Promise<PlayListItem | null>;
   list(selectedView: SelectedView): Promise<RepositoryPlayList>;
+  reposition(request: RepositionPlaysRequest): Promise<boolean>;
   save(request: SavePlayRequest): Promise<boolean>;
   setStatus(playId: string, status: "done" | "trash"): Promise<boolean>;
 }

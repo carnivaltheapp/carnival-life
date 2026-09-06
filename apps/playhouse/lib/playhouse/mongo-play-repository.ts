@@ -1,16 +1,19 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  ObjectId,
   type Collection,
   type Filter,
   type WithId,
 } from "mongodb";
 
 import type { BasketSummary } from "../../domain/play";
+import { orderUpdatesForInsertion } from "../../domain/play-order";
 import type { Database } from "../supabase/database.types";
 import type { SelectedView } from "./data";
 import {
   assertMongoUserMapping,
   isRealScheduledDateOnOrAfter,
+  legacyPlacementDate,
   legacyTaskDate,
   mapMongoPlay,
   mongoActiveFilter,
@@ -22,6 +25,8 @@ import {
   mongoDateFilter,
   mongoEditableSet,
   mongoMutationFilter,
+  mongoPlacementDateFilter,
+  mongoPlayType,
   MONGO_LEGACY_USER_ID,
   nextLegacyPriorityIndex,
   type LegacyTaskDocument,
@@ -30,6 +35,7 @@ import {
 import type {
   PlayRepository,
   RepositoryPlayList,
+  RepositionPlaysRequest,
   SavePlayRequest,
 } from "./play-repository";
 import { mongoDiagnostic } from "./mongo-options";
@@ -39,6 +45,23 @@ type ContactReferenceRow = {
   id: string;
   provider_resource_name: string | null;
 };
+
+function legacyPriorityNumber(value: unknown, fallback: number) {
+  const match = typeof value === "string" ? /^(\d{2})-([0-9A-Fa-f]{8})$/.exec(value) : null;
+  return match
+    ? Number.parseInt(match[1], 10) * 0x100000000 + Number.parseInt(match[2], 16)
+    : 10 * 0x100000000 + fallback;
+}
+
+function legacyPriorityValue(order: number) {
+  const bounded = Math.max(0, Math.min(Math.round(order), 99 * 0x100000000 + 0xffffffff));
+  const prefix = Math.floor(bounded / 0x100000000);
+  const suffix = bounded - prefix * 0x100000000;
+  return `${String(prefix).padStart(2, "0")}-${suffix
+    .toString(16)
+    .toUpperCase()
+    .padStart(8, "0")}`;
+}
 
 export class MongoPlayRepository implements PlayRepository {
   readonly supportsWorkflows = false;
@@ -243,6 +266,115 @@ export class MongoPlayRepository implements PlayRepository {
       }),
     );
     return result.acknowledged;
+  }
+
+  async reposition({
+    beforePlayId,
+    placement,
+    playIds,
+  }: RepositionPlaysRequest) {
+    let objectIds: ObjectId[];
+    try {
+      objectIds = playIds.map((playId) => {
+        if (!ObjectId.isValid(playId)) throw new Error("Invalid Play identifier.");
+        return new ObjectId(playId);
+      });
+    } catch {
+      return false;
+    }
+
+    const selectedTasks = await this.dependencies.collection
+      .find({
+        ...mongoActiveFilter(),
+        _id: { $in: objectIds },
+      })
+      .toArray();
+    if (selectedTasks.length !== playIds.length) return false;
+
+    const destinationDate = legacyPlacementDate(placement, this.dependencies.baskets);
+    const destinationTasks = await this.dependencies.collection
+      .find({
+        ...mongoActiveFilter(),
+        task_date: mongoPlacementDateFilter(placement, this.dependencies.baskets),
+      })
+      .sort({ priority_index: 1, created_date: 1, _id: 1 })
+      .toArray();
+    if (
+      beforePlayId &&
+      !destinationTasks.some((task) => task._id.toHexString() === beforePlayId)
+    ) {
+      return false;
+    }
+    const selectedById = new Map(
+      selectedTasks.map((task) => [task._id.toHexString(), task]),
+    );
+    const updates = new Map<string, Record<string, unknown>>();
+
+    for (const playType of ["normal", "reminder"] as const) {
+      const movingPlayIds = playIds.filter(
+        (playId) => mongoPlayType(selectedById.get(playId)?.task_type) === playType,
+      );
+      if (!movingPlayIds.length) continue;
+      const typeTasks = destinationTasks.filter(
+        (task) => mongoPlayType(task.task_type) === playType,
+      );
+      const orderedTypeTasks = typeTasks.map((task, index) => ({
+        id: task._id.toHexString(),
+        order: legacyPriorityNumber(task.priority_index, (index + 1) * 0x100),
+      }));
+      const lowerBound = orderedTypeTasks.length
+        ? Math.floor(orderedTypeTasks[0].order / 0x100000000) * 0x100000000
+        : 10 * 0x100000000;
+      const orderUpdates = orderUpdatesForInsertion({
+        beforePlayId: beforePlayId && mongoPlayType(
+          destinationTasks.find((task) => task._id.toHexString() === beforePlayId)?.task_type,
+        ) === playType
+          ? beforePlayId
+          : null,
+        destination: orderedTypeTasks,
+        lowerBound,
+        movingPlayIds,
+        step: 0x100,
+      });
+
+      for (const update of orderUpdates) {
+        const task = selectedById.get(update.id) ??
+          destinationTasks.find((candidate) => candidate._id.toHexString() === update.id);
+        const priorityIndex = legacyPriorityValue(update.order);
+        if (task?.priority_index !== priorityIndex) {
+          updates.set(update.id, { priority_index: priorityIndex });
+        }
+      }
+    }
+
+    for (const playId of playIds) {
+      const task = selectedById.get(playId);
+      if (!task) return false;
+      const sourceDate = task.task_date instanceof Date ? task.task_date.getTime() : NaN;
+      if (sourceDate !== destinationDate.getTime()) {
+        updates.set(playId, {
+          ...(updates.get(playId) ?? {}),
+          task_date: destinationDate,
+        });
+      }
+    }
+
+    if (!updates.size) return true;
+    const updatedAt = new Date();
+    const result = await this.dependencies.collection.bulkWrite(
+      [...updates].map(([playId, values]) => ({
+        updateOne: {
+          filter: {
+            _id: new ObjectId(playId),
+            is_active: true,
+            is_deleted: false,
+            user_id: MONGO_LEGACY_USER_ID,
+          },
+          update: { $set: { ...values, updated_date: updatedAt } },
+        },
+      })),
+    );
+    return result.matchedCount === updates.size;
   }
 
   async setStatus(playId: string, status: "done" | "trash") {
