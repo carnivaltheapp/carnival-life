@@ -98,12 +98,17 @@ describe("calendar date helpers", () => {
 });
 
 describe("Play display sorting", () => {
-  it("shows Normal Plays before Reminders while preserving repository order", () => {
-    const play = (id: string, playType: PlayListItem["playType"]): PlayListItem => ({
+  it("groups Appointments, Headlines, then Reminders while preserving priority order", () => {
+    const play = (
+      id: string,
+      playType: PlayListItem["playType"],
+      taskType: string,
+    ): PlayListItem => ({
       basketId: null,
       branch: null,
       durationMinutes: null,
       id,
+      legacyTaskType: taskType,
       nextPlayId: null,
       note: null,
       place: null,
@@ -117,15 +122,19 @@ describe("Play display sorting", () => {
       url: null,
     });
     const repositoryOrder = [
-      play("reminder-1", "reminder"),
-      play("normal-1", "normal"),
-      play("reminder-2", "reminder"),
-      play("normal-2", "normal"),
+      play("reminder-1", "reminder", "S"),
+      play("headline-1", "normal", "H"),
+      play("appointment-1", "normal", "A"),
+      play("reminder-2", "reminder", "S"),
+      play("headline-2", "normal", "U"),
+      play("appointment-2", "normal", "A"),
     ];
 
     expect(sortPlaysForDisplay(repositoryOrder).map((item) => item.id)).toEqual([
-      "normal-1",
-      "normal-2",
+      "appointment-1",
+      "appointment-2",
+      "headline-1",
+      "headline-2",
       "reminder-1",
       "reminder-2",
     ]);

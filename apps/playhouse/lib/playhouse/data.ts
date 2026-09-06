@@ -8,6 +8,7 @@ import type {
 import { isIsoCalendarDate } from "../../domain/play-input";
 import { sortChronologicalPlays } from "../../domain/play-sort";
 import { searchPlays } from "../../domain/play-search";
+import { playRankSortValue } from "../../domain/play-visual";
 import type { Database } from "../supabase/database.types";
 import { resolvePlayhouseDataSource } from "./data-source";
 import { createPlayRepository } from "./play-repository";
@@ -76,8 +77,7 @@ export function addDays(isoDate: string, days: number) {
 
 export function sortPlaysForDisplay(plays: PlayListItem[]) {
   return [...plays].sort(
-    (left, right) =>
-      Number(left.playType === "reminder") - Number(right.playType === "reminder"),
+    (left, right) => playRankSortValue(left) - playRankSortValue(right),
   );
 }
 
