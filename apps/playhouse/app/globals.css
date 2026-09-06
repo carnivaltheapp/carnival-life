@@ -404,16 +404,20 @@ h1 {
 
 .playRow {
   min-width: 680px;
-  border-bottom: 1px solid var(--line);
-  transition: background 120ms ease;
+  color: var(--play-rank-foreground);
+  border-bottom: 1px solid rgba(20, 12, 4, 0.34);
+  background-color: var(--play-rank-background);
+  transition: background-image 120ms ease, opacity 120ms ease;
 }
 
 .playRow:hover {
-  background: rgba(109, 63, 242, 0.035);
+  background-image: linear-gradient(rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.14));
 }
 
 .playRow[data-selected="true"] {
-  background: rgba(109, 63, 242, 0.09);
+  outline: 2px solid var(--play-rank-foreground);
+  outline-offset: -2px;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.2));
 }
 
 .playRow[data-dragging="true"] {
@@ -421,7 +425,7 @@ h1 {
 }
 
 .playRow[data-drop-target="true"] {
-  box-shadow: inset 0 2px 0 var(--accent);
+  box-shadow: inset 0 3px 0 var(--play-rank-foreground);
 }
 
 .playRowLine {
@@ -459,12 +463,12 @@ h1 {
 
 .playSelectControl:focus-visible {
   border-radius: 6px;
-  outline: 2px solid rgba(109, 63, 242, 0.35);
+  outline: 2px solid var(--play-rank-foreground);
   outline-offset: 1px;
 }
 
 .playSelectControl[aria-pressed="true"] .playTypeMarker {
-  box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--accent);
+  box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--play-rank-foreground);
 }
 
 .playIdentityCell > .editDisclosure {
@@ -474,7 +478,7 @@ h1 {
 .playPlayerCell {
   overflow: hidden;
   min-width: 0;
-  color: var(--muted);
+  color: var(--play-rank-foreground);
   font-size: 0.7rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -485,29 +489,14 @@ h1 {
   height: 10px;
   flex: 0 0 10px;
   border-radius: 50%;
-  background: var(--play-rank-color);
+  background: var(--play-rank-foreground);
   box-shadow: 0 0 0 4px var(--play-rank-ring);
-}
-
-.playVisual--headline {
-  --play-rank-color: #a65300;
-  --play-rank-ring: rgba(166, 83, 0, 0.13);
-}
-
-.playVisual--reminder {
-  --play-rank-color: #197044;
-  --play-rank-ring: rgba(25, 112, 68, 0.13);
-}
-
-.playVisual--appointment {
-  --play-rank-color: #b52e40;
-  --play-rank-ring: rgba(181, 46, 64, 0.13);
 }
 
 .playDataCell {
   overflow: hidden;
   min-width: 0;
-  color: var(--muted);
+  color: var(--play-rank-foreground);
   font-size: 0.7rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -571,7 +560,7 @@ h1 {
   overflow: hidden;
   width: 100%;
   padding: 5px 3px;
-  color: var(--play-rank-color, var(--accent-deep));
+  color: var(--play-rank-foreground, var(--accent-deep));
   font-size: 0.78rem;
   font-weight: 500;
   text-decoration: underline;
@@ -581,7 +570,7 @@ h1 {
 }
 
 .editDisclosure .playTitleLink:hover {
-  color: var(--play-rank-color, var(--accent));
+  color: var(--play-rank-foreground, var(--accent));
   text-decoration-color: currentColor;
 }
 
@@ -971,6 +960,15 @@ h1 {
 
 .gmailButton:hover {
   background: rgba(53, 38, 72, 0.07);
+}
+
+.playRow .rowIconButton {
+  color: var(--play-rank-foreground);
+}
+
+.playRow .rowIconButton:hover {
+  color: var(--play-rank-foreground);
+  background: rgba(255, 255, 255, 0.24);
 }
 
 .rowActionPlaceholder {

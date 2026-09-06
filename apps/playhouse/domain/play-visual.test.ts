@@ -6,18 +6,24 @@ import { PLAY_VISUALS, playVisualForPlay, playVisualForType } from "./play-visua
 describe("Play visual classification", () => {
   it("classifies Normal Plays as orange Headline indicators", () => {
     expect(playVisualForType("normal")).toEqual({
+      backgroundColor: "#FF9900",
       className: "playVisual--headline",
+      foregroundColor: "#16110A",
       label: "Headline",
       markerClassName: "playTypeMarker--headline",
+      ringColor: "rgba(22, 17, 10, 0.3)",
       visualType: "headline",
     });
   });
 
   it("classifies Reminder Plays as green Reminder indicators", () => {
     expect(playVisualForType("reminder")).toEqual({
+      backgroundColor: "#55FF33",
       className: "playVisual--reminder",
+      foregroundColor: "#10200C",
       label: "Reminder",
       markerClassName: "playTypeMarker--reminder",
+      ringColor: "rgba(16, 32, 12, 0.3)",
       visualType: "reminder",
     });
   });
@@ -35,6 +41,11 @@ describe("Play visual classification", () => {
     const domainType = mongoPlayType("A");
     expect(domainType).toBe("normal");
     expect(playVisualForType(domainType, "A")).toBe(PLAY_VISUALS.appointment);
+    expect(PLAY_VISUALS.appointment).toMatchObject({
+      backgroundColor: "#FF0000",
+      foregroundColor: "#120000",
+      label: "Appointment",
+    });
   });
 
   it("recognizes an imported Appointment from Supabase source metadata", () => {

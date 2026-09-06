@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition, type DragEvent, type MouseEvent } from "react";
+import {
+  useState,
+  useTransition,
+  type CSSProperties,
+  type DragEvent,
+  type MouseEvent,
+} from "react";
 
 import { signOut } from "../app/auth/actions";
 import { repositionPlays } from "../app/plays/actions";
@@ -349,6 +355,11 @@ function PlayhouseShellView({
                   data-selected={selectedIds.has(play.id) || undefined}
                   data-testid="play-row"
                   key={play.id}
+                  style={{
+                    "--play-rank-background": playVisual.backgroundColor,
+                    "--play-rank-foreground": playVisual.foregroundColor,
+                    "--play-rank-ring": playVisual.ringColor,
+                  } as CSSProperties}
                   onDragOver={(event) => {
                     if (!reorderPlacement || !draggedIds.length || draggedIds.includes(play.id)) {
                       return;

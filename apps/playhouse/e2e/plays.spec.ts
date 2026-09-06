@@ -113,6 +113,8 @@ test("Edit updates title and URL while preserving Duration and Place", async ({ 
     compactRow.getByRole("button", { exact: true, name: "Done" }),
   ).toBeVisible();
   await expect(compactRow.getByRole("button", { name: "Trash" })).toBeVisible();
+  await expect(compactRow.getByRole("button", { name: "Play information" })).toBeVisible();
+  await expect(compactRow.locator(".statusActions > *")).toHaveCount(4);
   const { form } = await openEditPlay(auth.page, "Before edit");
 
   await expect(form.getByLabel("Duration (minutes)")).toHaveValue("30");
