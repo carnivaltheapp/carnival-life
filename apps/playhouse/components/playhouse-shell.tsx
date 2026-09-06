@@ -20,6 +20,7 @@ import {
 } from "../domain/play-display";
 import { CALENDAR_VIEWS } from "../domain/playhouse-navigation";
 import { togglePlaySelection } from "../domain/play-selection";
+import { playVisualForType } from "../domain/play-visual";
 import { BrowserTimeZone } from "./browser-time-zone";
 import { PlayForm } from "./play-form";
 import { PlayStatusActions } from "./play-status-actions";
@@ -338,7 +339,9 @@ function PlayhouseShellView({
                 className="playList"
                 aria-label={`Open Plays in ${selectedView.label}`}
               >
-                {plays.map((play) => (
+                {plays.map((play) => {
+                  const playVisual = playVisualForType(play.playType);
+                  return (
                 <li
                   className="playRow"
                   data-dragging={draggedIds.includes(play.id) || undefined}
@@ -363,7 +366,7 @@ function PlayhouseShellView({
                   <div className="playRowLine">
                     <div className="playIdentityCell">
                       <button
-                        aria-label={`${selectedIds.has(play.id) ? "Deselect" : "Select"} ${play.title}`}
+                        aria-label={`${selectedIds.has(play.id) ? "Deselect" : "Select"} ${playVisual.label} Play ${play.title}`}
                         aria-pressed={selectedIds.has(play.id)}
                         className="playSelectControl"
                         disabled={movePending}
@@ -378,8 +381,10 @@ function PlayhouseShellView({
                         type="button"
                       >
                         <span
-                          className={`playTypeMarker playTypeMarker--${play.playType}`}
                           aria-hidden="true"
+                          className={`playTypeMarker ${playVisual.className}`}
+                          data-play-visual={playVisual.visualType}
+                          title={playVisual.label}
                         />
                       </button>
                       <span
@@ -417,7 +422,8 @@ function PlayhouseShellView({
                     <PlayStatusActions play={play} />
                   </div>
                 </li>
-                ))}
+                  );
+                })}
               </ol>
             </>
           )}

@@ -106,7 +106,7 @@ test("Edit updates title and URL while preserving Duration and Place", async ({ 
   await auth.page.goto("/");
   await createPlay(auth.page, "Before edit", { url: "example.com/original" });
   const compactRow = playRow(auth.page, "Before edit");
-  await expect(compactRow.locator(".playTypeMarker--normal")).toBeVisible();
+  await expect(compactRow.locator(".playTypeMarker--headline")).toBeVisible();
   await expect(compactRow.locator(".playRowLine")).toContainText("30m");
   await expect(compactRow.locator(".playRowLine")).toContainText("office");
   await expect(

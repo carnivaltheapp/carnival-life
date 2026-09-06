@@ -485,13 +485,23 @@ h1 {
   height: 10px;
   flex: 0 0 10px;
   border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 4px rgba(109, 63, 242, 0.1);
+  background: #df7f12;
+  box-shadow: 0 0 0 4px rgba(223, 127, 18, 0.13);
+}
+
+.playTypeMarker--headline {
+  background: #df7f12;
+  box-shadow: 0 0 0 4px rgba(223, 127, 18, 0.13);
 }
 
 .playTypeMarker--reminder {
-  background: #d78b0a;
-  box-shadow: 0 0 0 4px rgba(215, 139, 10, 0.12);
+  background: #248a57;
+  box-shadow: 0 0 0 4px rgba(36, 138, 87, 0.13);
+}
+
+.playTypeMarker--appointment {
+  background: #c83f4f;
+  box-shadow: 0 0 0 4px rgba(200, 63, 79, 0.13);
 }
 
 .playDataCell {
