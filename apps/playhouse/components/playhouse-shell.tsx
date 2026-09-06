@@ -358,7 +358,6 @@ function PlayhouseShellView({
                   style={{
                     "--play-rank-background": playVisual.backgroundColor,
                     "--play-rank-foreground": playVisual.foregroundColor,
-                    "--play-rank-ring": playVisual.ringColor,
                   } as CSSProperties}
                   onDragOver={(event) => {
                     if (!reorderPlacement || !draggedIds.length || draggedIds.includes(play.id)) {

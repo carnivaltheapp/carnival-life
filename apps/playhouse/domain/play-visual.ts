@@ -4,30 +4,27 @@ export type PlayVisualType = "appointment" | "headline" | "reminder";
 
 export const PLAY_VISUALS = {
   appointment: {
-    backgroundColor: "#FF0000",
+    backgroundColor: "#FF1717",
     className: "playVisual--appointment",
-    foregroundColor: "#120000",
+    foregroundColor: "#FFFFFF",
     label: "Appointment",
     markerClassName: "playTypeMarker--appointment",
-    ringColor: "rgba(18, 0, 0, 0.32)",
     visualType: "appointment",
   },
   headline: {
-    backgroundColor: "#FF9900",
+    backgroundColor: "#FF9800",
     className: "playVisual--headline",
-    foregroundColor: "#16110A",
+    foregroundColor: "#111111",
     label: "Headline",
     markerClassName: "playTypeMarker--headline",
-    ringColor: "rgba(22, 17, 10, 0.3)",
     visualType: "headline",
   },
   reminder: {
-    backgroundColor: "#55FF33",
+    backgroundColor: "#55F238",
     className: "playVisual--reminder",
-    foregroundColor: "#10200C",
+    foregroundColor: "#111111",
     label: "Reminder",
     markerClassName: "playTypeMarker--reminder",
-    ringColor: "rgba(16, 32, 12, 0.3)",
     visualType: "reminder",
   },
 } as const satisfies Record<PlayVisualType, {
@@ -36,7 +33,6 @@ export const PLAY_VISUALS = {
   foregroundColor: string;
   label: string;
   markerClassName: string;
-  ringColor: string;
   visualType: PlayVisualType;
 }>;
 
