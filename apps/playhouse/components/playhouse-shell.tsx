@@ -18,6 +18,7 @@ import type {
   PlayListItem,
   PlayPlacement,
 } from "../domain/play";
+import type { CalendarSettingsAccount } from "../domain/calendar-settings";
 import type { SelectedView } from "../lib/playhouse/data";
 import {
   displayBranch,
@@ -40,6 +41,8 @@ export type UserIdentity = {
 
 type PlayhouseShellProps = {
   baskets: BasketSummary[];
+  calendarAccounts: CalendarSettingsAccount[];
+  calendarSettingsError: boolean;
   dataError: boolean;
   identity: UserIdentity;
   nextPlayOptions: NextPlayOption[];
@@ -69,6 +72,8 @@ export function PlayhouseShell(props: PlayhouseShellProps) {
 
 function PlayhouseShellView({
   baskets,
+  calendarAccounts,
+  calendarSettingsError,
   dataError,
   identity,
   nextPlayOptions,
@@ -328,7 +333,11 @@ function PlayhouseShellView({
                   todayDate={todayDate}
                 />
               ) : null}
-              <GridSettings fontSize={gridFontSize} />
+              <GridSettings
+                calendarAccounts={calendarAccounts}
+                calendarSettingsError={calendarSettingsError}
+                fontSize={gridFontSize}
+              />
             </div>
           </div>
 

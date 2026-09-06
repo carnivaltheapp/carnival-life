@@ -10,6 +10,8 @@ import {
   parseGridFontSize,
   stepGridFontSize,
 } from "../domain/grid-font-size";
+import type { CalendarSettingsAccount } from "../domain/calendar-settings";
+import { CalendarSettings } from "./calendar-settings";
 
 const GRID_FONT_SIZE_EVENT = "playhouse-grid-font-size-change";
 
@@ -56,7 +58,15 @@ function GearIcon() {
   );
 }
 
-export function GridSettings({ fontSize }: { fontSize: number }) {
+export function GridSettings({
+  calendarAccounts,
+  calendarSettingsError,
+  fontSize,
+}: {
+  calendarAccounts: CalendarSettingsAccount[];
+  calendarSettingsError: boolean;
+  fontSize: number;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
 
@@ -92,24 +102,27 @@ export function GridSettings({ fontSize }: { fontSize: number }) {
       </button>
       {open ? (
         <div aria-label="Settings menu" className="settingsPopover" role="dialog">
-          <span>Font Size</span>
-          <output aria-label="Current grid font size">{fontSize}px</output>
-          <button
-            aria-label="Decrease font size"
-            disabled={fontSize <= MIN_GRID_FONT_SIZE}
-            onClick={() => persistGridFontSize(stepGridFontSize(fontSize, -1))}
-            type="button"
-          >
-            ↓
-          </button>
-          <button
-            aria-label="Increase font size"
-            disabled={fontSize >= MAX_GRID_FONT_SIZE}
-            onClick={() => persistGridFontSize(stepGridFontSize(fontSize, 1))}
-            type="button"
-          >
-            ↑
-          </button>
+          <div className="fontSizeSetting">
+            <span>Font Size</span>
+            <output aria-label="Current grid font size">{fontSize}px</output>
+            <button
+              aria-label="Decrease font size"
+              disabled={fontSize <= MIN_GRID_FONT_SIZE}
+              onClick={() => persistGridFontSize(stepGridFontSize(fontSize, -1))}
+              type="button"
+            >
+              ↓
+            </button>
+            <button
+              aria-label="Increase font size"
+              disabled={fontSize >= MAX_GRID_FONT_SIZE}
+              onClick={() => persistGridFontSize(stepGridFontSize(fontSize, 1))}
+              type="button"
+            >
+              ↑
+            </button>
+          </div>
+          <CalendarSettings accounts={calendarAccounts} error={calendarSettingsError} />
         </div>
       ) : null}
     </div>

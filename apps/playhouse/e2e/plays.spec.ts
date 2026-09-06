@@ -269,7 +269,7 @@ test("grid font setting updates immediately and persists locally", async ({ auth
   await settingsButton.click();
   const menu = auth.page.getByRole("dialog", { name: "Settings menu" });
   await expect(menu.getByText("Font Size", { exact: true })).toHaveCount(1);
-  await expect(menu.getByRole("button")).toHaveCount(2);
+  await expect(menu.locator(".fontSizeSetting").getByRole("button")).toHaveCount(2);
   await menu.getByRole("button", { name: "Increase font size" }).click();
   await expect(row).toHaveCSS("font-size", "13px");
   await expect(row.getByTestId("play-title")).toHaveCSS("font-size", "13px");

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { GOOGLE_OAUTH_SCOPES } from "../lib/google/scopes";
 import { createClient } from "../lib/supabase/client";
 
 export function GoogleSignInButton() {
@@ -24,7 +25,7 @@ export function GoogleSignInButton() {
             prompt: "consent",
           },
           redirectTo,
-          scopes: "https://www.googleapis.com/auth/contacts.readonly",
+          scopes: GOOGLE_OAUTH_SCOPES.join(" "),
         },
       });
 

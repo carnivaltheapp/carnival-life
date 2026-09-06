@@ -126,6 +126,48 @@ export type Database = {
         };
         Relationships: [];
       };
+      google_calendars: {
+        Row: {
+          access_role: string | null;
+          created_at: string;
+          google_account_id: string;
+          id: string;
+          is_blocking: boolean;
+          is_primary: boolean;
+          owner_user_id: string;
+          provider_calendar_id: string;
+          summary: string;
+          time_zone: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          access_role?: string | null;
+          created_at?: string;
+          google_account_id: string;
+          id?: string;
+          is_blocking?: boolean;
+          is_primary?: boolean;
+          owner_user_id: string;
+          provider_calendar_id: string;
+          summary: string;
+          time_zone?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          access_role?: string | null;
+          created_at?: string;
+          google_account_id?: string;
+          id?: string;
+          is_blocking?: boolean;
+          is_primary?: boolean;
+          owner_user_id?: string;
+          provider_calendar_id?: string;
+          summary?: string;
+          time_zone?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       plays: {
         Row: {
           basket_id: string | null;

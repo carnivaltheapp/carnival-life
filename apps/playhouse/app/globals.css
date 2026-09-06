@@ -415,18 +415,23 @@ a {
   top: calc(100% + 7px);
   right: 0;
   display: grid;
-  width: max-content;
-  min-width: 190px;
+  overflow-y: auto;
+  width: min(430px, calc(100vw - 32px));
+  max-height: calc(100vh - 110px);
   padding: 8px;
-  grid-template-columns: 1fr auto 28px 28px;
-  gap: 5px;
-  align-items: center;
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: 11px;
   background: #fffdfa;
   box-shadow: 0 14px 34px rgba(48, 29, 83, 0.2);
   font-size: 0.72rem;
+}
+
+.fontSizeSetting {
+  display: grid;
+  grid-template-columns: 1fr auto 28px 28px;
+  gap: 5px;
+  align-items: center;
 }
 
 .settingsPopover output {
@@ -452,6 +457,129 @@ a {
 .settingsPopover button:disabled {
   cursor: default;
   opacity: 0.4;
+}
+
+.calendarSettings {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.calendarSettings h2,
+.calendarSettings p {
+  margin: 0;
+}
+
+.calendarSettings h2 {
+  font-size: 0.74rem;
+}
+
+.calendarSettings p {
+  padding: 8px 0 2px;
+  color: var(--muted);
+}
+
+.calendarAccount + .calendarAccount {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+
+.calendarAccountHeader {
+  display: grid;
+  padding: 7px 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.calendarAccountHeader > strong,
+.calendarAccountHeader > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendarAccountHeader > small {
+  grid-column: 1;
+  color: var(--muted);
+  font-size: 0.65rem;
+}
+
+.calendarDiscoverForm {
+  display: grid;
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  justify-items: end;
+}
+
+.settingsPopover .calendarDiscoverForm button {
+  width: auto;
+  padding: 0 8px;
+}
+
+.calendarDiscoverForm small {
+  grid-column: 1 / -1;
+  max-width: 240px;
+  margin-top: 4px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.calendarDiscoverForm small[data-status="error"],
+.calendarModeControl small {
+  color: #81243b;
+}
+
+.calendarAccount ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.calendarAccount li {
+  display: grid;
+  min-height: 34px;
+  padding: 3px 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.calendarAccount li > span {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendarAccount li > span small {
+  margin-left: 5px;
+  color: var(--muted);
+  font-size: 0.6rem;
+}
+
+.calendarModeControl {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 3px;
+}
+
+.settingsPopover .calendarModeControl button {
+  width: auto;
+  padding: 0 7px;
+  color: var(--muted);
+}
+
+.settingsPopover .calendarModeControl button[aria-pressed="true"] {
+  color: white;
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.calendarModeControl small {
+  grid-column: 1 / -1;
+  max-width: 170px;
+  text-align: right;
 }
 
 .eyebrow {

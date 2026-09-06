@@ -1,5 +1,6 @@
 import { PlayhouseShell } from "../components/playhouse-shell";
 import { SignedOutScreen } from "../components/signed-out-screen";
+import { loadGoogleCalendarSettings } from "../lib/google/calendar-settings";
 import { loadPlayhouseData } from "../lib/playhouse/data";
 import {
   BROWSER_TIME_ZONE_COOKIE,
@@ -42,6 +43,8 @@ export default async function Home({
     | {
         kind: "signed-in";
         baskets: Awaited<ReturnType<typeof loadPlayhouseData>>["baskets"];
+        calendarAccounts: Awaited<ReturnType<typeof loadGoogleCalendarSettings>>["accounts"];
+        calendarSettingsError: boolean;
         dataError: boolean;
         displayName: string;
         email: string | null;
@@ -70,11 +73,12 @@ export default async function Home({
         email ??
         "Carnival Player";
 
-      const { data: profile, error: profileError } = await supabase
-        .from("users")
-        .select("display_name, timezone")
-        .maybeSingle();
-      const cookieStore = await cookies();
+      const [profileResult, cookieStore, calendarSettings] = await Promise.all([
+        supabase.from("users").select("display_name, timezone").maybeSingle(),
+        cookies(),
+        loadGoogleCalendarSettings(supabase, subject),
+      ]);
+      const { data: profile, error: profileError } = profileResult;
       const timeZone = resolveTimeZone(
         cookieStore.get(BROWSER_TIME_ZONE_COOKIE)?.value,
         profile?.timezone,
@@ -91,6 +95,8 @@ export default async function Home({
 
       pageState = {
         baskets: playhouseData.baskets,
+        calendarAccounts: calendarSettings.accounts,
+        calendarSettingsError: calendarSettings.error,
         dataError: Boolean(profileError) || playhouseData.error,
         displayName: profile?.display_name || fallbackName,
         email,
@@ -119,6 +125,8 @@ export default async function Home({
   return (
     <PlayhouseShell
       baskets={pageState.baskets}
+      calendarAccounts={pageState.calendarAccounts}
+      calendarSettingsError={pageState.calendarSettingsError}
       dataError={pageState.dataError}
       identity={{
         displayName: pageState.displayName,

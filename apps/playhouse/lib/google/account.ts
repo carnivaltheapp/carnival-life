@@ -1,9 +1,7 @@
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "../supabase/database.types";
-
-const CONTACTS_READONLY_SCOPE =
-  "https://www.googleapis.com/auth/contacts.readonly";
+import { GOOGLE_OAUTH_SCOPES } from "./scopes";
 
 function identityText(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -36,7 +34,7 @@ export async function upsertGoogleAccountAfterSignIn({
         display_name:
           identityText(identityData.full_name) ?? identityText(identityData.name),
         email: identityText(identityData.email) ?? session.user.email ?? null,
-        granted_scopes: [CONTACTS_READONLY_SCOPE],
+        granted_scopes: [...GOOGLE_OAUTH_SCOPES],
         owner_user_id: session.user.id,
         provider_subject: providerSubject,
         sync_error: null,
