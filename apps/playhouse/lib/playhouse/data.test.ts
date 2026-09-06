@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { BasketSummary, PlayListItem } from "../../domain/play";
-import { addDays, dateInTimeZone, resolveSelectedView, sortPlaysForDisplay } from "./data";
+import {
+  addDays,
+  dateInTimeZone,
+  resolveSelectedView,
+  sortPlaysForDisplay,
+  sortPlaysForSelectedView,
+} from "./data";
 
 const baskets: BasketSummary[] = [
   { id: "basket-1", name: "Backlog", slug: "backlog", sortOrder: 10 },
@@ -123,5 +129,50 @@ describe("Play display sorting", () => {
       "reminder-1",
       "reminder-2",
     ]);
+  });
+
+  it("uses chronological rank sorting for All Plays and Next 7 Days", () => {
+    const base = (id: string, date: string, taskType: string): PlayListItem => ({
+      basketId: null,
+      branch: null,
+      durationMinutes: null,
+      id,
+      legacyTaskType: taskType,
+      nextPlayId: null,
+      note: null,
+      place: null,
+      playerContactId: null,
+      playerDisplayName: null,
+      playType: taskType === "S" ? "reminder" : "normal",
+      pushRule: "everyday",
+      scheduledDate: date,
+      sortOrder: 100,
+      sourceType: "user",
+      title: id,
+      url: null,
+    });
+    const plays = [
+      base("monday-appointment", "2026-09-07", "A"),
+      base("sunday-reminder", "2026-09-06", "S"),
+      base("sunday-headline", "2026-09-06", "H"),
+      base("sunday-appointment", "2026-09-06", "A"),
+    ];
+    const expected = [
+      "sunday-appointment", "sunday-headline", "sunday-reminder", "monday-appointment",
+    ];
+
+    expect(sortPlaysForSelectedView(plays, {
+      defaultDate: "2026-09-06",
+      key: "all",
+      kind: "all",
+      label: "All Plays",
+    }).map((item) => item.id)).toEqual(expected);
+    expect(sortPlaysForSelectedView(plays, {
+      endDate: "2026-09-12",
+      key: "week",
+      kind: "calendar",
+      label: "Next 7 days",
+      startDate: "2026-09-06",
+    }).map((item) => item.id)).toEqual(expected);
   });
 });

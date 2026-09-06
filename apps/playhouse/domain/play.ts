@@ -57,6 +57,7 @@ export interface PlayListItem {
   scheduledDate: string | null;
   sourceMetadata?: unknown;
   sourceType: PlaySourceType;
+  sortOrder?: number;
   title: string;
   url: string | null;
 }

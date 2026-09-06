@@ -6,6 +6,7 @@ import type {
   PlayListItem,
 } from "../../domain/play";
 import { isIsoCalendarDate } from "../../domain/play-input";
+import { sortChronologicalPlays } from "../../domain/play-sort";
 import type { Database } from "../supabase/database.types";
 import { resolvePlayhouseDataSource } from "./data-source";
 import { createPlayRepository } from "./play-repository";
@@ -76,6 +77,16 @@ export function sortPlaysForDisplay(plays: PlayListItem[]) {
     (left, right) =>
       Number(left.playType === "reminder") - Number(right.playType === "reminder"),
   );
+}
+
+export function sortPlaysForSelectedView(
+  plays: PlayListItem[],
+  selectedView: SelectedView,
+) {
+  return selectedView.kind === "all" ||
+      (selectedView.kind === "calendar" && selectedView.key === "week")
+    ? sortChronologicalPlays(plays)
+    : sortPlaysForDisplay(plays);
 }
 
 export function resolveSelectedView({
@@ -212,9 +223,7 @@ export async function loadPlayhouseData({
       baskets,
       error: result.error,
       nextPlayOptions: result.nextPlayOptions,
-      plays: selectedView.kind === "all"
-        ? result.plays
-        : sortPlaysForDisplay(result.plays),
+      plays: sortPlaysForSelectedView(result.plays, selectedView),
       selectedView,
       supportsWorkflows: repository.supportsWorkflows,
       todayDate,

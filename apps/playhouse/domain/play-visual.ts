@@ -61,3 +61,11 @@ export function playVisualForPlay(
     play.legacyTaskType ?? legacyTaskTypeFromMetadata(play.sourceMetadata),
   );
 }
+
+export function playRankSortValue(
+  play: Pick<PlayListItem, "legacyTaskType" | "playType" | "sourceMetadata">,
+) {
+  const visualType = playVisualForPlay(play).visualType;
+  if (visualType === "appointment") return 0;
+  return visualType === "reminder" ? 2 : 1;
+}

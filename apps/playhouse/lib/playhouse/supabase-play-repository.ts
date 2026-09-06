@@ -166,6 +166,7 @@ export class SupabasePlayRepository implements PlayRepository {
       scheduledDate: play.scheduled_date,
       sourceMetadata: play.source_metadata,
       sourceType: play.source_type,
+      sortOrder: play.sort_order,
       title: play.title,
       url: play.url,
     }));

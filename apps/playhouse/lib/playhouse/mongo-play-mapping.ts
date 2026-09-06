@@ -266,6 +266,25 @@ export function nextLegacyPriorityIndex(existing: unknown) {
   return `${match[1]}-${next.toString(16).toUpperCase().padStart(8, "0")}`;
 }
 
+export function legacyPriorityNumber(value: unknown, fallback: number) {
+  const match = typeof value === "string"
+    ? /^(\d{2})-([0-9A-Fa-f]{8})$/.exec(value)
+    : null;
+  return match
+    ? Number.parseInt(match[1], 10) * 0x100000000 + Number.parseInt(match[2], 16)
+    : 10 * 0x100000000 + fallback;
+}
+
+export function legacyPriorityValue(order: number) {
+  const bounded = Math.max(0, Math.min(Math.round(order), 99 * 0x100000000 + 0xffffffff));
+  const prefix = Math.floor(bounded / 0x100000000);
+  const suffix = bounded - prefix * 0x100000000;
+  return `${String(prefix).padStart(2, "0")}-${suffix
+    .toString(16)
+    .toUpperCase()
+    .padStart(8, "0")}`;
+}
+
 export type MongoContactDisplay = {
   displayName: string;
   id: string;
@@ -315,6 +334,7 @@ export function mapMongoPlay(
     scheduledDate: basket ? null : taskDay,
     sourceMetadata: null,
     sourceType,
+    sortOrder: legacyPriorityNumber(task.priority_index, 0),
     title: text(task.action_type) ?? "Untitled Play",
     url: text(task.url),
   };

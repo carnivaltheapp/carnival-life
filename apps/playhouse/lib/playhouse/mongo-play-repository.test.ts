@@ -234,7 +234,7 @@ describe("MongoPlayRepository mutations", () => {
     });
   });
 
-  it("lists active real dates from browser-local Today in date, type, priority order", async () => {
+  it("loads active real dates from browser-local Today in repository priority order", async () => {
     const tasks = [
       {
         _id: new ObjectId(),
@@ -315,9 +315,9 @@ describe("MongoPlayRepository mutations", () => {
       _id: 1,
     });
     expect(result.plays.map((play) => play.title)).toEqual([
+      "Earlier reminder",
       "Earlier normal first",
       "Earlier normal second",
-      "Earlier reminder",
       "Future normal",
     ]);
     expect(find.mock.calls[0][0]).not.toHaveProperty("task_type");
