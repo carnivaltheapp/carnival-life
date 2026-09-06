@@ -1,5 +1,5 @@
 import type { BasketSummary, PlayListItem } from "./play";
-import { playRankSortValue } from "./play-visual";
+import { comparePlayRankAndPriority } from "./play-sort";
 
 function tokens(query: string) {
   return query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
@@ -63,9 +63,7 @@ export function compareSearchResults(
     if (destinationOrder) return destinationOrder;
   }
 
-  const rankOrder = playRankSortValue(left) - playRankSortValue(right);
-  if (rankOrder) return rankOrder;
-  return (left.sortOrder ?? 0) - (right.sortOrder ?? 0);
+  return comparePlayRankAndPriority(left, right);
 }
 
 export function searchPlays(
