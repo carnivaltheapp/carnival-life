@@ -30,6 +30,7 @@ import { playVisualForPlay } from "../domain/play-visual";
 import { BrowserTimeZone } from "./browser-time-zone";
 import { GridSettings, useGridFontSizePreference } from "./grid-settings";
 import { PlayForm } from "./play-form";
+import { PlaySearch } from "./play-search";
 import { PlayStatusActions } from "./play-status-actions";
 
 export type UserIdentity = {
@@ -44,6 +45,7 @@ type PlayhouseShellProps = {
   nextPlayOptions: NextPlayOption[];
   plays: PlayListItem[];
   selectedView: SelectedView;
+  searchQuery: string;
   supportsWorkflows: boolean;
   todayDate: string;
 };
@@ -72,6 +74,7 @@ function PlayhouseShellView({
   nextPlayOptions,
   plays,
   selectedView,
+  searchQuery,
   supportsWorkflows,
   todayDate,
 }: PlayhouseShellProps) {
@@ -85,7 +88,7 @@ function PlayhouseShellView({
   const [movePending, startMove] = useTransition();
   const playCountLabel = `${plays.length} ${plays.length === 1 ? "Play" : "Plays"}`;
   const visibleIds = plays.map((play) => play.id);
-  const showDateInLeadingColumn = usesDateLeadingColumn(selectedView);
+  const showDateInLeadingColumn = Boolean(searchQuery) || usesDateLeadingColumn(selectedView);
   const defaultPlacement =
     selectedView.kind === "basket"
       ? { basketId: selectedView.basket.id, kind: "basket" as const }
@@ -95,7 +98,9 @@ function PlayhouseShellView({
             ? selectedView.defaultDate
             : selectedView.startDate,
         };
-  const reorderPlacement: PlayPlacement | null = selectedView.kind === "basket"
+  const reorderPlacement: PlayPlacement | null = searchQuery
+    ? null
+    : selectedView.kind === "basket"
     ? { basketId: selectedView.basket.id, kind: "basket" }
     : selectedView.kind === "calendar" && selectedView.key !== "week"
       ? { kind: "calendar", scheduledDate: selectedView.startDate }
@@ -272,15 +277,18 @@ function PlayhouseShellView({
           <div className="panelHeader">
             <div>
               <p className="eyebrow">
-                {selectedView.kind === "calendar"
+                {searchQuery
+                  ? "Plays"
+                  : selectedView.kind === "calendar"
                   ? "Calendar"
                   : selectedView.kind === "basket"
                     ? "Basket"
                     : "Plays"}
               </p>
-              <h1 id="view-title">{selectedView.label}</h1>
+              <h1 id="view-title">{searchQuery ? "Search Results" : selectedView.label}</h1>
             </div>
             <div className="panelActions">
+              <PlaySearch initialQuery={searchQuery} />
               {plays.length ? (
                 <div className="selectionToolbar" aria-label="Play selection controls">
                   <span>{selectedIds.size} selected</span>
@@ -340,9 +348,11 @@ function PlayhouseShellView({
               <span className="spark" aria-hidden="true">
                 ✦
               </span>
-              <h2>No Plays here yet.</h2>
+              <h2>{searchQuery ? "No Plays found" : "No Plays here yet."}</h2>
               <p>
-                Create a Play here, or choose another calendar date or Basket.
+                {searchQuery
+                  ? "Try another search, or clear it to return to this view."
+                  : "Create a Play here, or choose another calendar date or Basket."}
               </p>
             </div>
           ) : (
@@ -388,7 +398,7 @@ function PlayhouseShellView({
                         aria-pressed={selectedIds.has(play.id)}
                         className="playSelectControl"
                         disabled={movePending}
-                        draggable
+                        draggable={!searchQuery}
                         onClick={(event) => toggleSelection(play.id, event)}
                         onDragEnd={() => {
                           setDraggedIds([]);

@@ -49,6 +49,7 @@ export default async function Home({
         plays: Awaited<ReturnType<typeof loadPlayhouseData>>["plays"];
         selectedView: Awaited<ReturnType<typeof loadPlayhouseData>>["selectedView"];
         supportsWorkflows: boolean;
+        searchQuery: string;
         todayDate: string;
       };
 
@@ -85,6 +86,7 @@ export default async function Home({
         supabase,
         timeZone,
         view: firstValue(params.view),
+        searchQuery: firstValue(params.q)?.trim().slice(0, 200),
       });
 
       pageState = {
@@ -97,6 +99,7 @@ export default async function Home({
         plays: playhouseData.plays,
         selectedView: playhouseData.selectedView,
         supportsWorkflows: playhouseData.supportsWorkflows,
+        searchQuery: playhouseData.searchQuery,
         todayDate: playhouseData.todayDate,
       };
     }
@@ -124,6 +127,7 @@ export default async function Home({
       nextPlayOptions={pageState.nextPlayOptions}
       plays={pageState.plays}
       selectedView={pageState.selectedView}
+      searchQuery={pageState.searchQuery}
       supportsWorkflows={pageState.supportsWorkflows}
       todayDate={pageState.todayDate}
     />

@@ -332,6 +332,7 @@ export function mapMongoPlay(
     playType: mongoPlayType(task.task_type),
     pushRule: mongoPushRule(task.push_type),
     scheduledDate: basket ? null : taskDay,
+    searchableText: [text(task.email)].filter((value): value is string => Boolean(value)),
     sourceMetadata: null,
     sourceType,
     sortOrder: legacyPriorityNumber(task.priority_index, 0),

@@ -7,6 +7,7 @@ import type {
 } from "../../domain/play";
 import { isIsoCalendarDate } from "../../domain/play-input";
 import { sortChronologicalPlays } from "../../domain/play-sort";
+import { searchPlays } from "../../domain/play-search";
 import type { Database } from "../supabase/database.types";
 import { resolvePlayhouseDataSource } from "./data-source";
 import { createPlayRepository } from "./play-repository";
@@ -40,6 +41,7 @@ export type PlayhouseData = {
   plays: PlayListItem[];
   selectedView: SelectedView;
   supportsWorkflows: boolean;
+  searchQuery: string;
   todayDate: string;
 };
 
@@ -173,6 +175,7 @@ export async function loadPlayhouseData({
   supabase,
   timeZone,
   view,
+  searchQuery = "",
 }: {
   basketSlug?: string;
   date?: string;
@@ -180,6 +183,7 @@ export async function loadPlayhouseData({
   supabase: SupabaseClient<Database>;
   timeZone: string;
   view?: string;
+  searchQuery?: string;
 }): Promise<PlayhouseData> {
   const { data: basketRows, error: basketError } = await supabase
     .from("baskets")
@@ -204,6 +208,7 @@ export async function loadPlayhouseData({
       plays: [],
       selectedView,
       supportsWorkflows: false,
+      searchQuery,
       todayDate,
     };
   }
@@ -218,12 +223,15 @@ export async function loadPlayhouseData({
     if (!(await repository.reconcileDueReminders(todayDate))) {
       throw new Error("Due Reminders could not be reconciled.");
     }
-    const result = await repository.list(selectedView);
+    const result = await repository.list(searchQuery ? undefined : selectedView);
     return {
       baskets,
       error: result.error,
       nextPlayOptions: result.nextPlayOptions,
-      plays: sortPlaysForSelectedView(result.plays, selectedView),
+      plays: searchQuery
+        ? searchPlays(result.plays, searchQuery, baskets)
+        : sortPlaysForSelectedView(result.plays, selectedView),
+      searchQuery,
       selectedView,
       supportsWorkflows: repository.supportsWorkflows,
       todayDate,
@@ -236,6 +244,7 @@ export async function loadPlayhouseData({
       plays: [],
       selectedView,
       supportsWorkflows: false,
+      searchQuery,
       todayDate,
     };
   }

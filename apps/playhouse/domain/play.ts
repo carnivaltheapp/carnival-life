@@ -55,6 +55,7 @@ export interface PlayListItem {
   playType: PlayType;
   pushRule: PushRule;
   scheduledDate: string | null;
+  searchableText?: string[];
   sourceMetadata?: unknown;
   sourceType: PlaySourceType;
   sortOrder?: number;

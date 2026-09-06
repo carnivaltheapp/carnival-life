@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NextPlayOption, PlayListItem } from "../../domain/play";
 import { gmailThreadIdFromMetadata } from "../../domain/play-display";
 import { orderUpdatesForInsertion } from "../../domain/play-order";
+import { searchableMetadataText } from "../../domain/play-search";
 import { promotionOrderUpdates } from "../../domain/reminder";
 import { legacyTaskTypeFromMetadata } from "../../domain/play-visual";
 import type { Database } from "../supabase/database.types";
@@ -81,28 +82,29 @@ export class SupabasePlayRepository implements PlayRepository {
     } satisfies PlayListItem;
   }
 
-  async list(selectedView: SelectedView): Promise<RepositoryPlayList> {
+  async list(selectedView?: SelectedView): Promise<RepositoryPlayList> {
     let playQuery = this.supabase
       .from("plays")
       .select(
         "id, title, play_type, source_type, scheduled_date, basket_id, duration_minutes, player_contact_id, branch, note, url, push_rule, place, sort_order, created_at, source_metadata",
       )
+      .eq("owner_user_id", this.ownerUserId)
       .eq("status", "open");
 
-    if (selectedView.kind === "basket") {
+    if (selectedView?.kind === "basket") {
       playQuery = playQuery.eq("basket_id", selectedView.basket.id);
-    } else if (selectedView.kind === "calendar") {
+    } else if (selectedView?.kind === "calendar") {
       playQuery = playQuery
         .gte("scheduled_date", selectedView.startDate)
         .lte("scheduled_date", selectedView.endDate);
-    } else {
+    } else if (selectedView) {
       playQuery = playQuery
         .gte("scheduled_date", selectedView.defaultDate)
         .lt("scheduled_date", "2200-01-01")
         .is("basket_id", null);
     }
 
-    const orderedPlayQuery = selectedView.kind === "all"
+    const orderedPlayQuery = !selectedView || selectedView.kind === "all"
       ? playQuery
           .order("scheduled_date", { ascending: true })
           .order("play_type", { ascending: true })
@@ -117,6 +119,7 @@ export class SupabasePlayRepository implements PlayRepository {
       this.supabase
         .from("plays")
         .select("id, title, status, play_type, scheduled_date, basket_id")
+        .eq("owner_user_id", this.ownerUserId)
         .order("title", { ascending: true })
         .limit(1000),
     ]);
@@ -127,11 +130,11 @@ export class SupabasePlayRepository implements PlayRepository {
     const contactResult = playerContactIds.length
       ? await this.supabase
           .from("contact_references")
-          .select("id, display_name")
+          .select("id, display_name, email")
           .in("id", playerContactIds)
       : { data: [], error: null };
-    const contactNameById = new Map(
-      (contactResult.data ?? []).map((contact) => [contact.id, contact.display_name]),
+    const contactById = new Map(
+      (contactResult.data ?? []).map((contact) => [contact.id, contact]),
     );
     const playIds = playRows.map((play) => play.id);
     const relationshipResult = playIds.length
@@ -159,11 +162,17 @@ export class SupabasePlayRepository implements PlayRepository {
       place: play.place,
       playerContactId: play.player_contact_id,
       playerDisplayName: play.player_contact_id
-        ? (contactNameById.get(play.player_contact_id) ?? null)
+        ? (contactById.get(play.player_contact_id)?.display_name ?? null)
         : null,
       playType: play.play_type,
       pushRule: play.push_rule,
       scheduledDate: play.scheduled_date,
+      searchableText: [
+        ...(play.player_contact_id
+          ? [contactById.get(play.player_contact_id)?.email]
+          : []),
+        ...searchableMetadataText(play.source_metadata),
+      ].filter((value): value is string => typeof value === "string"),
       sourceMetadata: play.source_metadata,
       sourceType: play.source_type,
       sortOrder: play.sort_order,

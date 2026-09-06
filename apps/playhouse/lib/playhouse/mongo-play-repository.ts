@@ -61,7 +61,10 @@ export class MongoPlayRepository implements PlayRepository {
     assertMongoUserMapping(dependencies.ownerUserId);
   }
 
-  private async contactMap(tasks: WithId<LegacyTaskDocument>[]) {
+  private async contactMap(
+    tasks: WithId<LegacyTaskDocument>[],
+    cacheMissing = true,
+  ) {
     const resourceNames = Array.from(
       new Set(tasks.flatMap((task) => {
         const resourceName = mongoContactResourceName(task);
@@ -81,7 +84,7 @@ export class MongoPlayRepository implements PlayRepository {
     const found = new Set(rows.flatMap((row) => row.provider_resource_name ? [row.provider_resource_name] : []));
     const missing = resourceNames.filter((resourceName) => !found.has(resourceName));
 
-    if (missing.length) {
+    if (missing.length && cacheMissing) {
       const { data: account, error: accountError } = await this.dependencies.supabase
         .from("google_accounts")
         .select("id")
@@ -125,8 +128,11 @@ export class MongoPlayRepository implements PlayRepository {
     );
   }
 
-  private async mapTasks(tasks: WithId<LegacyTaskDocument>[]) {
-    const contacts = await this.contactMap(tasks);
+  private async mapTasks(
+    tasks: WithId<LegacyTaskDocument>[],
+    cacheMissing = true,
+  ) {
+    const contacts = await this.contactMap(tasks, cacheMissing);
     return tasks.map((task) => {
       const resourceName = mongoContactResourceName(task);
       return mapMongoPlay(
@@ -152,13 +158,15 @@ export class MongoPlayRepository implements PlayRepository {
     return (await this.mapTasks([task]))[0] ?? null;
   }
 
-  async list(selectedView: SelectedView): Promise<RepositoryPlayList> {
-    const filter = selectedView.kind === "all"
+  async list(selectedView?: SelectedView): Promise<RepositoryPlayList> {
+    const filter = !selectedView
+      ? mongoActiveFilter()
+      : selectedView.kind === "all"
       ? mongoAllScheduledFilter(selectedView.defaultDate)
       : selectedView.kind === "basket"
       ? mongoBasketFilter(selectedView.basket.slug)
       : mongoDateFilter(selectedView.startDate, selectedView.endDate);
-    const isToday = selectedView.kind === "calendar" && selectedView.key === "today";
+    const isToday = selectedView?.kind === "calendar" && selectedView.key === "today";
     const startedAt = Date.now();
     if (isToday) {
       console.info("[PlayHouse Mongo] Today query start");
@@ -167,11 +175,11 @@ export class MongoPlayRepository implements PlayRepository {
     try {
       tasks = await this.dependencies.collection
         .find(filter)
-        .sort(selectedView.kind === "all"
+        .sort(!selectedView || selectedView.kind === "all"
           ? { task_date: 1, priority_index: 1, created_date: 1, _id: 1 }
           : { priority_index: 1, created_date: 1, _id: 1 })
         .toArray();
-      if (selectedView.kind === "all") {
+      if (selectedView?.kind === "all") {
         tasks = tasks
           .filter((task) => isRealScheduledDateOnOrAfter(
             task.task_date,
@@ -197,7 +205,7 @@ export class MongoPlayRepository implements PlayRepository {
     return {
       error: false,
       nextPlayOptions: [],
-      plays: await this.mapTasks(tasks),
+      plays: await this.mapTasks(tasks, Boolean(selectedView)),
     };
   }
 

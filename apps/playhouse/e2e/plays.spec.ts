@@ -171,6 +171,28 @@ test("Play moves date to Basket and Basket back to date", async ({ auth }) => {
   await expect(playRow(auth.page, "Move both ways")).toBeVisible();
 });
 
+test("global search shows standard rows and clearing restores the current view", async ({ auth }) => {
+  await auth.page.goto("/?view=today");
+  await createPlay(auth.page, "Unique search contract");
+  const search = auth.page.getByRole("searchbox", { name: "Search Plays" });
+  await search.fill("search contract");
+
+  await expect(auth.page.getByRole("heading", { name: "Search Results" })).toBeVisible();
+  const result = playRow(auth.page, "Unique search contract");
+  await expect(result).toBeVisible();
+  await expect(result.getByTestId("play-destination")).toBeVisible();
+  await expect(result.getByRole("button", { name: "Done" })).toBeVisible();
+  await expect(result.getByRole("button", { name: "Trash" })).toBeVisible();
+  await expect(result.getByRole("button", { name: "Play information" })).toBeVisible();
+  await expect(result.locator(".playTypeMarker--headline")).toBeVisible();
+
+  await search.fill("no matching play text");
+  await expect(auth.page.getByRole("heading", { name: "No Plays found" })).toBeVisible();
+  await auth.page.getByRole("button", { name: "Clear Play search" }).click();
+  await expect(auth.page.getByRole("heading", { name: "Today" })).toBeVisible();
+  await expect(playRow(auth.page, "Unique search contract")).toBeVisible();
+});
+
 test("Headline to Reminder requires a future date and Cancel makes no change", async ({ auth }) => {
   await auth.page.goto("/");
   await createPlay(auth.page, "Reminder date candidate");

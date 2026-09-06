@@ -297,6 +297,54 @@ a {
   gap: 10px;
 }
 
+.playSearch {
+  position: relative;
+  display: block;
+  width: clamp(150px, 18vw, 230px);
+  flex: 0 1 230px;
+}
+
+.playSearch input {
+  width: 100%;
+  height: 34px;
+  padding: 0 31px 0 10px;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.78);
+  font: inherit;
+  font-size: 0.76rem;
+}
+
+.playSearch input:focus {
+  border-color: rgba(109, 63, 242, 0.55);
+  outline: 3px solid rgba(109, 63, 242, 0.12);
+}
+
+.playSearch input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.playSearch button {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  transform: translateY(-50%);
+  color: var(--muted);
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.playSearch button:hover {
+  background: rgba(109, 63, 242, 0.09);
+}
+
 .selectionToolbar {
   display: flex;
   min-height: 30px;
@@ -1475,6 +1523,11 @@ h1 {
   .panelActions {
     align-items: flex-end;
     flex-direction: column-reverse;
+  }
+
+  .playSearch {
+    width: min(230px, calc(100vw - 40px));
+    flex-basis: auto;
   }
 
   .createDisclosure .playForm {

@@ -13,12 +13,16 @@ const baskets: BasketSummary[] = [
   { id: "11111111-1111-4111-8111-111111111111", name: "Backlog", slug: "backlog", sortOrder: 10 },
 ];
 
-function repository(collection: Partial<Collection<LegacyTaskDocument>>, ownerUserId = MONGO_CARNIVAL_USER_ID) {
+function repository(
+  collection: Partial<Collection<LegacyTaskDocument>>,
+  ownerUserId = MONGO_CARNIVAL_USER_ID,
+  supabase: unknown = {},
+) {
   return new MongoPlayRepository({
     baskets,
     collection: collection as Collection<LegacyTaskDocument>,
     ownerUserId,
-    supabase: {} as never,
+    supabase: supabase as never,
   });
 }
 
@@ -213,6 +217,63 @@ describe("MongoPlayRepository mutations", () => {
       user_id: 43,
     });
     expect(find.mock.calls[0][0]).not.toHaveProperty("task_type");
+  });
+
+  it("loads the global search population with one active user-scoped query", async () => {
+    const toArray = vi.fn().mockResolvedValue([]);
+    const sort = vi.fn().mockReturnValue({ toArray });
+    const find = vi.fn().mockReturnValue({ sort });
+    const result = await repository({ find: find as never }).list();
+
+    expect(result.plays).toEqual([]);
+    expect(find).toHaveBeenCalledOnce();
+    expect(find).toHaveBeenCalledWith({
+      is_active: true,
+      is_deleted: false,
+      user_id: 43,
+    });
+    expect(find.mock.calls[0][0]).not.toHaveProperty("task_type");
+    expect(sort).toHaveBeenCalledWith({
+      task_date: 1,
+      priority_index: 1,
+      created_date: 1,
+      _id: 1,
+    });
+  });
+
+  it("does not cache missing contact references while loading search data", async () => {
+    const task = {
+      _id: new ObjectId(),
+      action_type: "Contact Play",
+      contact_id: "people/search-only",
+      first: "Search",
+      is_active: true,
+      is_deleted: false,
+      last: "Player",
+      task_date: new Date("2026-09-06T00:00:00Z"),
+      task_type: "H",
+      user_id: 43,
+    };
+    const find = vi.fn().mockReturnValue({
+      sort: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue([task]) }),
+    });
+    const inQuery = vi.fn().mockResolvedValue({ data: [], error: null });
+    const eq = vi.fn().mockReturnValue({ in: inQuery });
+    const select = vi.fn().mockReturnValue({ eq });
+    const from = vi.fn().mockReturnValue({ select });
+
+    const result = await repository(
+      { find: find as never },
+      MONGO_CARNIVAL_USER_ID,
+      { from },
+    ).list();
+
+    expect(result.plays[0]).toMatchObject({
+      playerDisplayName: "Search Player",
+      title: "Contact Play",
+    });
+    expect(from).toHaveBeenCalledOnce();
+    expect(from).toHaveBeenCalledWith("contact_references");
   });
 
   it("queries a Basket by its documented sentinel without loading other Plays", async () => {

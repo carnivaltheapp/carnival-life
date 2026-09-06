@@ -32,7 +32,7 @@ export type RepositionPlaysRequest = {
 export interface PlayRepository {
   readonly supportsWorkflows: boolean;
   get(playId: string): Promise<PlayListItem | null>;
-  list(selectedView: SelectedView): Promise<RepositoryPlayList>;
+  list(selectedView?: SelectedView): Promise<RepositoryPlayList>;
   reconcileDueReminders(todayDate: string): Promise<boolean>;
   reposition(request: RepositionPlaysRequest): Promise<boolean>;
   save(request: SavePlayRequest): Promise<boolean>;
