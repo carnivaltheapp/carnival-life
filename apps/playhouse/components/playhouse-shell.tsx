@@ -28,6 +28,7 @@ import { CALENDAR_VIEWS } from "../domain/playhouse-navigation";
 import { togglePlaySelection } from "../domain/play-selection";
 import { playVisualForPlay } from "../domain/play-visual";
 import { BrowserTimeZone } from "./browser-time-zone";
+import { GridSettings, useGridFontSizePreference } from "./grid-settings";
 import { PlayForm } from "./play-form";
 import { PlayStatusActions } from "./play-status-actions";
 
@@ -75,6 +76,7 @@ function PlayhouseShellView({
   todayDate,
 }: PlayhouseShellProps) {
   const router = useRouter();
+  const gridFontSize = useGridFontSizePreference();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
   const [draggedIds, setDraggedIds] = useState<string[]>([]);
@@ -262,7 +264,11 @@ function PlayhouseShellView({
           </nav>
         </aside>
 
-        <section className="playPanel" aria-labelledby="view-title">
+        <section
+          className="playPanel"
+          aria-labelledby="view-title"
+          style={{ "--play-grid-font-size": `${gridFontSize}px` } as CSSProperties}
+        >
           <div className="panelHeader">
             <div>
               <p className="eyebrow">
@@ -313,6 +319,7 @@ function PlayhouseShellView({
                   supportsWorkflows={supportsWorkflows}
                 />
               ) : null}
+              <GridSettings fontSize={gridFontSize} />
             </div>
           </div>
 

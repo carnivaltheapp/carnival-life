@@ -1,6 +1,7 @@
 import type { Locator } from "@playwright/test";
 
 import { expect, test } from "./fixtures";
+import { GRID_FONT_SIZE_STORAGE_KEY } from "../domain/grid-font-size";
 import { createPlay, openCreatePlay, openEditPlay, playRow } from "./support/playhouse";
 
 async function choosePlayer(
@@ -163,6 +164,44 @@ test("Play moves date to Basket and Basket back to date", async ({ auth }) => {
 
   await auth.page.getByRole("link", { name: "Today" }).click();
   await expect(playRow(auth.page, "Move both ways")).toBeVisible();
+});
+
+test("grid font setting updates immediately and persists locally", async ({ auth }) => {
+  await auth.page.goto("/");
+  await auth.page.evaluate(
+    (storageKey) => localStorage.setItem(storageKey, "invalid"),
+    GRID_FONT_SIZE_STORAGE_KEY,
+  );
+  await auth.page.reload();
+  await createPlay(auth.page, "Resizable grid Play");
+
+  const row = playRow(auth.page, "Resizable grid Play");
+  const settingsButton = auth.page.getByRole("button", { name: "Settings" });
+  expect(await settingsButton.evaluate(
+    (button) => button.parentElement?.previousElementSibling?.getAttribute("data-testid"),
+  )).toBe("create-play");
+  await expect(row).toHaveCSS("font-size", "12px");
+
+  await settingsButton.click();
+  const menu = auth.page.getByRole("dialog", { name: "Settings menu" });
+  await expect(menu.getByText("Font Size", { exact: true })).toHaveCount(1);
+  await expect(menu.getByRole("button")).toHaveCount(2);
+  await menu.getByRole("button", { name: "Increase font size" }).click();
+  await expect(row).toHaveCSS("font-size", "13px");
+  expect(await auth.page.evaluate(
+    (storageKey) => localStorage.getItem(storageKey),
+    GRID_FONT_SIZE_STORAGE_KEY,
+  )).toBe("13");
+  await expect(row.getByRole("button", { exact: true, name: "Done" })).toBeVisible();
+  await expect(row.getByRole("button", { name: "Trash" })).toBeVisible();
+  await expect(row.getByRole("button", { name: "Play information" })).toBeVisible();
+  await expect(row.locator(".statusActions > *")).toHaveCount(4);
+
+  await auth.page.reload();
+  await expect(playRow(auth.page, "Resizable grid Play")).toHaveCSS("font-size", "13px");
+  await auth.page.getByRole("button", { name: "Settings" }).click();
+  await auth.page.getByRole("button", { name: "Decrease font size" }).click();
+  await expect(playRow(auth.page, "Resizable grid Play")).toHaveCSS("font-size", "12px");
 });
 
 test("Play moved from Backlog to Today remains visible after refresh", async ({ auth }) => {
