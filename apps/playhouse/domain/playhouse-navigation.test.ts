@@ -7,9 +7,16 @@ import {
   friendlyCalendarDate,
   isSelectableCalendarDate,
   rollingCalendarDates,
+  sidebarSectionForView,
 } from "./playhouse-navigation";
 
 describe("PlayHouse calendar navigation", () => {
+  it("selects the sidebar section from the active route", () => {
+    expect(sidebarSectionForView("calendar")).toBe("calendar");
+    expect(sidebarSectionForView("all")).toBe("calendar");
+    expect(sidebarSectionForView("basket")).toBe("baskets");
+  });
+
   it("keeps Go to Date before the range views", () => {
     expect(CALENDAR_VIEWS.map((view) => view.label)).toEqual([
       "Go to Date",

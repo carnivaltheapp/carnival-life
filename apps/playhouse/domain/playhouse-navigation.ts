@@ -4,6 +4,14 @@ export const CALENDAR_VIEWS = [
   { key: "all", label: "All Plays", marker: "∞" },
 ] as const;
 
+export type SidebarSection = "calendar" | "baskets";
+
+export function sidebarSectionForView(
+  viewKind: "all" | "basket" | "calendar",
+): SidebarSection {
+  return viewKind === "basket" ? "baskets" : "calendar";
+}
+
 export function addCalendarDays(isoDate: string, days: number) {
   const [year, month, day] = isoDate.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);

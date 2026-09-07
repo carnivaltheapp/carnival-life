@@ -32,6 +32,7 @@ import {
   friendlyCalendarDate,
   isSelectableCalendarDate,
   rollingCalendarDates,
+  sidebarSectionForView,
 } from "../domain/playhouse-navigation";
 import { togglePlaySelection } from "../domain/play-selection";
 import { playVisualForPlay } from "../domain/play-visual";
@@ -90,6 +91,9 @@ function PlayhouseShellView({
   const gridFontSize = useGridFontSizePreference();
   const datePickerRef = useRef<HTMLInputElement>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [sidebarSection, setSidebarSection] = useState(() =>
+    sidebarSectionForView(selectedView.kind)
+  );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
   const [draggedIds, setDraggedIds] = useState<string[]>([]);
@@ -214,9 +218,35 @@ function PlayhouseShellView({
       <div className="workspaceBody">
         <aside className="sidebar" aria-label="Play destinations">
           <nav className="destinationNav">
-            <section aria-labelledby="calendar-heading">
-              <h2 id="calendar-heading">Calendar</h2>
-              <div className="navItems">
+            <div aria-label="Navigation section" className="sidebarSectionToggle" role="group">
+              <button
+                aria-controls="calendar-navigation"
+                aria-pressed={sidebarSection === "calendar"}
+                data-active={sidebarSection === "calendar" || undefined}
+                onClick={() => setSidebarSection("calendar")}
+                type="button"
+              >
+                Calendar
+              </button>
+              <button
+                aria-controls="basket-navigation"
+                aria-pressed={sidebarSection === "baskets"}
+                data-active={sidebarSection === "baskets" || undefined}
+                onClick={() => {
+                  setDatePickerOpen(false);
+                  setSidebarSection("baskets");
+                }}
+                type="button"
+              >
+                Baskets
+              </button>
+            </div>
+            {sidebarSection === "calendar" ? (
+              <div
+                aria-label="Calendar destinations"
+                className="navItems"
+                id="calendar-navigation"
+              >
                 {sidebarDates.map((item) => {
                   const isActive = selectedView.kind === "calendar" &&
                     selectedView.key !== "week" &&
@@ -322,11 +352,12 @@ function PlayhouseShellView({
                   );
                 })}
               </div>
-            </section>
-
-            <section aria-labelledby="baskets-heading">
-              <h2 id="baskets-heading">Baskets</h2>
-              <div className="navItems">
+            ) : (
+              <div
+                aria-label="Basket destinations"
+                className="navItems"
+                id="basket-navigation"
+              >
                 {baskets.map((basket) => {
                   const isActive =
                     selectedView.kind === "basket" &&
@@ -355,7 +386,7 @@ function PlayhouseShellView({
                   <p className="navEmpty">No Baskets available</p>
                 ) : null}
               </div>
-            </section>
+            )}
           </nav>
         </aside>
 
