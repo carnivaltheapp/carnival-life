@@ -200,7 +200,7 @@ a {
   position: sticky;
   top: 26px;
   display: grid;
-  gap: 30px;
+  gap: 15px;
 }
 
 .destinationNav h2 {
@@ -659,6 +659,10 @@ h1 {
   font-size: clamp(1.8rem, 4vw, 2.55rem);
   line-height: 1;
   letter-spacing: -0.055em;
+}
+
+.calendarDateTitle {
+  font-size: clamp(1.35rem, 3vw, 1.9125rem);
 }
 
 .countBadge {
@@ -1631,7 +1635,7 @@ h1 {
   }
 
   .destinationNav section + section {
-    margin-top: 18px;
+    margin-top: 9px;
   }
 
   .navItems {

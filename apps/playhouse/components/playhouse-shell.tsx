@@ -375,7 +375,13 @@ function PlayhouseShellView({
                       : "Plays"}
                 </p>
               ) : null}
-              <h1 id="view-title">
+              <h1
+                className={!searchQuery && selectedView.kind === "calendar" &&
+                    selectedView.key !== "week"
+                  ? "calendarDateTitle"
+                  : undefined}
+                id="view-title"
+              >
                 {!searchQuery && selectedView.kind === "calendar" && selectedView.key !== "week"
                   ? friendlyCalendarDate(selectedView.startDate)
                   : searchQuery
