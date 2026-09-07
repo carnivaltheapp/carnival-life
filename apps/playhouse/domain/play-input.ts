@@ -73,7 +73,7 @@ export function isIsoCalendarDate(valueToCheck: string) {
 
 export function parsePlayInput(
   formData: FormData,
-  options: { todayDate?: string } = {},
+  options: { minimumReminderDate?: string } = {},
 ): PlayInputResult {
   const errors: Partial<Record<PlayInputField, string>> = {};
   const title = value(formData, "title");
@@ -122,8 +122,8 @@ export function parsePlayInput(
     errors.playType = "Choose Normal or Reminder.";
   }
 
-  if (playType === "reminder" && options.todayDate) {
-    const reminderError = reminderDateError(placement, options.todayDate);
+  if (playType === "reminder" && options.minimumReminderDate) {
+    const reminderError = reminderDateError(placement, options.minimumReminderDate);
     if (reminderError) {
       errors.scheduledDate = reminderError;
     }

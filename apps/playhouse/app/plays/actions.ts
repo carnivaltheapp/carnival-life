@@ -14,6 +14,7 @@ import {
 } from "../../domain/play-mutation";
 import type { BasketSummary } from "../../domain/play";
 import type { PlayPlacement } from "../../domain/play";
+import { reminderContextDate } from "../../domain/reminder";
 import { resolvePlayhouseDataSource } from "../../lib/playhouse/data-source";
 import { dateInTimeZone } from "../../lib/playhouse/data";
 import { createPlayRepository } from "../../lib/playhouse/play-repository";
@@ -80,7 +81,14 @@ async function savePlayInternal(
       profile?.timezone,
     ),
   );
-  const parsed = parsePlayInput(formData, { todayDate });
+  const submittedReminderContext = formData.get("reminderContextDate");
+  const minimumReminderDate = reminderContextDate({
+    displayedDate: typeof submittedReminderContext === "string"
+      ? submittedReminderContext
+      : null,
+    todayDate,
+  });
+  const parsed = parsePlayInput(formData, { minimumReminderDate });
   if (!parsed.success) {
     return errorState("Check the highlighted fields and try again.", parsed.errors);
   }

@@ -208,7 +208,7 @@ export class SupabasePlayRepository implements PlayRepository {
       .eq("status", "open")
       .eq("play_type", "reminder")
       .is("basket_id", null)
-      .lte("scheduled_date", todayDate)
+      .lt("scheduled_date", todayDate)
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: true });
     if (dueError) return false;

@@ -113,22 +113,25 @@ describe("Play input validation", () => {
     });
   });
 
-  it("requires a future calendar date for a Reminder when Today is supplied", () => {
+  it("allows the current PlayHouse date for a Reminder and rejects earlier dates", () => {
     expect(parsePlayInput(form({
       playType: "reminder",
       scheduledDate: "2026-08-26",
-    }), { todayDate: "2026-08-26" })).toMatchObject({
-      errors: { scheduledDate: expect.any(String) },
-      success: false,
+    }), { minimumReminderDate: "2026-08-26" })).toMatchObject({
+      data: {
+        placement: { kind: "calendar", scheduledDate: "2026-08-26" },
+        playType: "reminder",
+      },
+      success: true,
     });
     expect(parsePlayInput(form({
       playType: "reminder",
       scheduledDate: "2026-08-25",
-    }), { todayDate: "2026-08-26" })).toMatchObject({ success: false });
+    }), { minimumReminderDate: "2026-08-26" })).toMatchObject({ success: false });
     expect(parsePlayInput(form({
       playType: "reminder",
       scheduledDate: "2026-08-27",
-    }), { todayDate: "2026-08-26" })).toMatchObject({
+    }), { minimumReminderDate: "2026-08-26" })).toMatchObject({
       data: {
         placement: { kind: "calendar", scheduledDate: "2026-08-27" },
         playType: "reminder",

@@ -510,7 +510,7 @@ describe("MongoPlayRepository mutations", () => {
         sort: vi.fn().mockReturnValue({
           toArray: vi.fn().mockResolvedValue([
             { _id: dueFirst, priority_index: "10-00000100", task_date: new Date("2026-09-05T00:00:00Z"), task_type: "S" },
-            { _id: dueSecond, priority_index: "10-00000200", task_date: new Date("2026-09-06T00:00:00Z"), task_type: "S" },
+            { _id: dueSecond, priority_index: "10-00000200", task_date: new Date("2026-09-05T00:00:00Z"), task_type: "S" },
           ]),
         }),
       })
@@ -531,7 +531,7 @@ describe("MongoPlayRepository mutations", () => {
     expect(find.mock.calls[0][0]).toEqual({
       is_active: true,
       is_deleted: false,
-      task_date: { $lt: new Date("2026-09-07T00:00:00.000Z"), $type: "date" },
+      task_date: { $lt: new Date("2026-09-06T00:00:00.000Z"), $type: "date" },
       task_type: "S",
       user_id: 43,
     });

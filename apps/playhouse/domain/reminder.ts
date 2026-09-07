@@ -1,7 +1,7 @@
 import type { PlayPlacement } from "./play";
 import { orderUpdatesForInsertion, type OrderedPlay } from "./play-order";
 
-export const REMINDER_DATE_ERROR = "Choose a date after today.";
+export const REMINDER_DATE_ERROR = "Choose a date on or after the current PlayHouse date.";
 
 function isIsoCalendarDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -14,18 +14,36 @@ function isIsoCalendarDate(value: string) {
 
 export function reminderDateError(
   placement: PlayPlacement | null,
-  todayDate: string,
+  minimumDate: string,
 ) {
   if (
     !placement ||
     placement.kind !== "calendar" ||
     !isIsoCalendarDate(placement.scheduledDate) ||
-    placement.scheduledDate <= todayDate ||
+    placement.scheduledDate < minimumDate ||
     placement.scheduledDate >= "2200-01-01"
   ) {
     return REMINDER_DATE_ERROR;
   }
   return null;
+}
+
+export function reminderContextDate({
+  displayedDate,
+  scheduledDate,
+  todayDate,
+}: {
+  displayedDate?: string | null;
+  scheduledDate?: string | null;
+  todayDate: string;
+}) {
+  const contextDate = displayedDate ?? scheduledDate;
+  return contextDate &&
+      isIsoCalendarDate(contextDate) &&
+      contextDate >= todayDate &&
+      contextDate < "2200-01-01"
+    ? contextDate
+    : todayDate;
 }
 
 export function promotionOrderUpdates({

@@ -37,14 +37,14 @@ export function PlayForm({
   nextPlayOptions,
   play,
   supportsWorkflows,
-  todayDate,
+  reminderContextDate,
 }: {
   baskets: BasketSummary[];
   defaultPlacement: PlayPlacement;
   nextPlayOptions: NextPlayOption[];
   play?: PlayListItem;
   supportsWorkflows: boolean;
-  todayDate: string;
+  reminderContextDate: string;
 }) {
   const router = useRouter();
   const detailsRef = useRef<HTMLDetailsElement>(null);
@@ -91,17 +91,12 @@ export function PlayForm({
     });
   }, [router, state]);
 
-  function nextDate(date: string) {
-    const [year, month, day] = date.split("-").map(Number);
-    return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
-  }
-
   function requestPlayType(nextPlayType: PlayType) {
     if (nextPlayType !== "reminder" || playType === "reminder") {
       setPlayType(nextPlayType);
       return;
     }
-    setReminderDate(scheduledDate > todayDate ? scheduledDate : "");
+    setReminderDate(reminderContextDate);
     setReminderDateMessage(null);
     setShowReminderDate(true);
   }
@@ -109,7 +104,7 @@ export function PlayForm({
   function confirmReminder() {
     const message = reminderDateError(
       { kind: "calendar", scheduledDate: reminderDate },
-      todayDate,
+      reminderContextDate,
     );
     if (message) {
       setReminderDateMessage(message);
@@ -135,6 +130,7 @@ export function PlayForm({
       </summary>
       <form action={formAction} className="playForm" noValidate>
         {play ? <input name="playId" type="hidden" value={play.id} /> : null}
+        <input name="reminderContextDate" type="hidden" value={reminderContextDate} />
 
         <label className="field compactField field--wide">
           <span className="srOnly">Title</span>
@@ -199,7 +195,7 @@ export function PlayForm({
               <input
                 aria-label="Date"
                 aria-invalid={Boolean(state.fieldErrors?.scheduledDate)}
-                min={playType === "reminder" ? nextDate(todayDate) : undefined}
+                min={playType === "reminder" ? reminderContextDate : undefined}
                 name="scheduledDate"
                 onChange={(event) => setScheduledDate(event.target.value)}
                 required
@@ -350,7 +346,7 @@ export function PlayForm({
             <h2 id={`reminder-date-title-${play?.id ?? "new"}`}>Reminder Date</h2>
             <input
               aria-label="Reminder Date"
-              min={nextDate(todayDate)}
+              min={reminderContextDate}
               onChange={(event) => {
                 setReminderDate(event.target.value);
                 setReminderDateMessage(null);

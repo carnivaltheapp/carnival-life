@@ -7,7 +7,7 @@ function query(result: { count?: number | null; data: unknown; error: unknown })
     then?: PromiseLike<unknown>["then"];
   } = {};
   for (const method of [
-    "eq", "in", "is", "lte", "maybeSingle", "order", "select", "update",
+    "eq", "in", "is", "lt", "maybeSingle", "order", "select", "update",
   ]) {
     builder[method] = vi.fn(() => method === "maybeSingle"
       ? Promise.resolve(result)
@@ -43,7 +43,7 @@ describe("Supabase Reminder reconciliation", () => {
     expect(due.eq).toHaveBeenCalledWith("status", "open");
     expect(due.eq).toHaveBeenCalledWith("play_type", "reminder");
     expect(due.is).toHaveBeenCalledWith("basket_id", null);
-    expect(due.lte).toHaveBeenCalledWith("scheduled_date", "2026-09-06");
+    expect(due.lt).toHaveBeenCalledWith("scheduled_date", "2026-09-06");
     expect(update.update).toHaveBeenCalledWith({
       basket_id: null,
       play_type: "normal",

@@ -216,7 +216,7 @@ export class MongoPlayRepository implements PlayRepository {
     const dueReminders = await this.dependencies.collection
       .find({
         ...mongoActiveFilter(),
-        task_date: { $lt: tomorrow, $type: "date" },
+        task_date: { $lt: today, $type: "date" },
         task_type: "S",
       })
       .sort({ priority_index: 1, created_date: 1, _id: 1 })

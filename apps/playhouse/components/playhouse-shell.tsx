@@ -35,6 +35,7 @@ import {
 } from "../domain/playhouse-navigation";
 import { togglePlaySelection } from "../domain/play-selection";
 import { playVisualForPlay } from "../domain/play-visual";
+import { reminderContextDate } from "../domain/reminder";
 import { BrowserTimeZone } from "./browser-time-zone";
 import { GridSettings, useGridFontSizePreference } from "./grid-settings";
 import { PlayForm } from "./play-form";
@@ -107,6 +108,10 @@ function PlayhouseShellView({
             ? selectedView.defaultDate
             : selectedView.startDate,
         };
+  const displayedReminderDate =
+    selectedView.kind === "calendar" && selectedView.key !== "week"
+      ? selectedView.startDate
+      : null;
   const reorderPlacement: PlayPlacement | null = searchQuery
     ? null
     : selectedView.kind === "basket"
@@ -423,7 +428,10 @@ function PlayhouseShellView({
                   defaultPlacement={defaultPlacement}
                   nextPlayOptions={nextPlayOptions}
                   supportsWorkflows={supportsWorkflows}
-                  todayDate={todayDate}
+                  reminderContextDate={reminderContextDate({
+                    displayedDate: displayedReminderDate,
+                    todayDate,
+                  })}
                 />
               ) : null}
               <GridSettings
@@ -538,7 +546,11 @@ function PlayhouseShellView({
                         nextPlayOptions={nextPlayOptions}
                         play={play}
                         supportsWorkflows={supportsWorkflows}
-                        todayDate={todayDate}
+                        reminderContextDate={reminderContextDate({
+                          displayedDate: displayedReminderDate,
+                          scheduledDate: play.scheduledDate,
+                          todayDate,
+                        })}
                       />
                     </div>
                     <span className="playDataCell">
