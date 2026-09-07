@@ -200,7 +200,11 @@ a {
   position: sticky;
   top: 26px;
   display: grid;
-  gap: 7.5px;
+  gap: 0;
+}
+
+.destinationNav > section + section {
+  margin-top: -8px;
 }
 
 .destinationNav h2 {
@@ -1632,10 +1636,6 @@ h1 {
   .destinationNav {
     position: static;
     display: block;
-  }
-
-  .destinationNav section + section {
-    margin-top: 4.5px;
   }
 
   .navItems {
