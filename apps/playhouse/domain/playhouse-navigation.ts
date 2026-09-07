@@ -17,6 +17,10 @@ export function calendarDateHref(date: string, todayDate: string) {
   return `/?date=${date}`;
 }
 
+export function isSelectableCalendarDate(date: string, todayDate: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= todayDate;
+}
+
 export function friendlyCalendarDate(isoDate: string, abbreviated = false) {
   return new Intl.DateTimeFormat("en-US", {
     day: "numeric",

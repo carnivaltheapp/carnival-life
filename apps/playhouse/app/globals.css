@@ -335,27 +335,38 @@ a {
 .dateHeading {
   display: inline-flex;
   width: fit-content;
+  margin-left: calc(clamp(8px, 1.4vw, 14px) + 5px - clamp(24px, 4vw, 42px));
   gap: 9px;
   align-items: center;
 }
 
-.dateHeading > a {
+.dateHeading > :is(a, button) {
   display: inline-grid;
   width: 42px;
   height: 42px;
+  padding: 0;
   flex: 0 0 42px;
   place-items: center;
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: 11px;
   background: rgba(255, 255, 255, 0.68);
-  font-size: 2rem;
+  cursor: pointer;
+  font: inherit;
+  font-size: 36px;
+  font-weight: 600;
   line-height: 1;
   text-decoration: none;
 }
 
-.dateHeading > a:hover {
+.dateHeading > :is(a, button):hover:not(:disabled) {
   background: var(--surface-soft);
+}
+
+.dateHeading > button:disabled {
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.42;
 }
 
 .playSearch {
@@ -1729,6 +1740,10 @@ h1 {
   .panelHeader {
     min-height: 100px;
     padding: 23px 20px;
+  }
+
+  .dateHeading {
+    margin-left: calc(clamp(8px, 1.4vw, 14px) + 5px - 20px);
   }
 
   .panelActions {

@@ -31,6 +31,7 @@ import {
   addCalendarDays,
   calendarDateHref,
   friendlyCalendarDate,
+  isSelectableCalendarDate,
 } from "../domain/playhouse-navigation";
 import { togglePlaySelection } from "../domain/play-selection";
 import { playVisualForPlay } from "../domain/play-visual";
@@ -257,10 +258,13 @@ function PlayhouseShellView({
                           className="goToDateInput"
                           data-open={datePickerOpen || undefined}
                           id="go-to-date-picker"
+                          min={todayDate}
                           onChange={(event) => {
-                            if (event.target.value) {
+                            if (isSelectableCalendarDate(event.target.value, todayDate)) {
                               setDatePickerOpen(false);
                               router.push(calendarDateHref(event.target.value, todayDate));
+                            } else {
+                              event.target.value = selectedDate;
                             }
                           }}
                           ref={datePickerRef}
@@ -346,15 +350,21 @@ function PlayhouseShellView({
               </p>
               {!searchQuery && selectedView.kind === "calendar" && selectedView.key !== "week" ? (
                 <div className="dateHeading">
-                  <Link
-                    aria-label="Previous day"
-                    href={calendarDateHref(
-                      addCalendarDays(selectedView.startDate, -1),
-                      todayDate,
-                    )}
-                  >
-                    ‹
-                  </Link>
+                  {selectedView.startDate <= todayDate ? (
+                    <button aria-label="Previous day" disabled type="button">
+                      ‹
+                    </button>
+                  ) : (
+                    <Link
+                      aria-label="Previous day"
+                      href={calendarDateHref(
+                        addCalendarDays(selectedView.startDate, -1),
+                        todayDate,
+                      )}
+                    >
+                      ‹
+                    </Link>
+                  )}
                   <h1 id="view-title">{selectedView.label}</h1>
                   <Link
                     aria-label="Next day"

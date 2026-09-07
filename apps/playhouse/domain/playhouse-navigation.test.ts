@@ -5,6 +5,7 @@ import {
   addCalendarDays,
   calendarDateHref,
   friendlyCalendarDate,
+  isSelectableCalendarDate,
 } from "./playhouse-navigation";
 
 describe("PlayHouse calendar navigation", () => {
@@ -30,6 +31,12 @@ describe("PlayHouse calendar navigation", () => {
     expect(calendarDateHref("2026-09-06", "2026-09-06")).toBe("/?view=today");
     expect(calendarDateHref("2026-09-07", "2026-09-06")).toBe("/?view=tomorrow");
     expect(calendarDateHref("2026-09-21", "2026-09-06")).toBe("/?date=2026-09-21");
+  });
+
+  it("allows local Today and future dates but rejects past dates", () => {
+    expect(isSelectableCalendarDate("2026-09-05", "2026-09-06")).toBe(false);
+    expect(isSelectableCalendarDate("2026-09-06", "2026-09-06")).toBe(true);
+    expect(isSelectableCalendarDate("2026-09-08", "2026-09-06")).toBe(true);
   });
 
   it("formats picker and heading labels from date-only calendar values", () => {

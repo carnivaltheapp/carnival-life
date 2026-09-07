@@ -22,9 +22,11 @@ test("disposable authenticated session loads the PlayHouse shell", async ({ auth
 test("Go to Date reuses the single-day view with previous and next navigation", async ({ auth }) => {
   await auth.page.goto("/");
 
+  await expect(auth.page.getByRole("button", { name: "Previous day" })).toBeDisabled();
   await auth.page.getByRole("button", { name: "Go to Date" }).click();
   const datePicker = auth.page.locator('input[type="date"][aria-label="Go to Date"]');
   await expect(datePicker).toBeVisible();
+  await expect(datePicker).toHaveAttribute("min", /^\d{4}-\d{2}-\d{2}$/);
   await datePicker.fill("2026-09-21");
   await expect(auth.page).toHaveURL(/\?date=2026-09-21$/);
   await expect(auth.page.getByRole("heading", { name: "Monday, September 21" })).toBeVisible();
