@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  useRef,
   useState,
   useTransition,
   type CSSProperties,
@@ -85,6 +86,8 @@ function PlayhouseShellView({
 }: PlayhouseShellProps) {
   const router = useRouter();
   const gridFontSize = useGridFontSizePreference();
+  const datePickerRef = useRef<HTMLInputElement>(null);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
   const [draggedIds, setDraggedIds] = useState<string[]>([]);
@@ -224,30 +227,48 @@ function PlayhouseShellView({
                       ? selectedView.startDate
                       : "";
                     return (
-                      <label
-                        aria-current={isActive ? "page" : undefined}
-                        className="destinationLink goToDateLink"
-                        data-active={isActive || undefined}
-                        key={item.key}
-                      >
-                        <span className="destinationIcon" aria-hidden="true">
-                          {item.marker}
-                        </span>
-                        {selectedDate
-                          ? friendlyCalendarDate(selectedDate, true)
-                          : item.label}
+                      <div className="goToDateControl" key={item.key}>
+                        <button
+                          aria-label="Go to Date"
+                          aria-controls="go-to-date-picker"
+                          aria-current={isActive ? "page" : undefined}
+                          aria-expanded={datePickerOpen}
+                          className="destinationLink goToDateLink"
+                          data-active={isActive || undefined}
+                          onClick={() => {
+                            setDatePickerOpen(true);
+                            try {
+                              datePickerRef.current?.showPicker();
+                            } catch {
+                              // The visible native input below remains the fallback.
+                            }
+                          }}
+                          type="button"
+                        >
+                          <span className="destinationIcon" aria-hidden="true">
+                            {item.marker}
+                          </span>
+                          {selectedDate
+                            ? friendlyCalendarDate(selectedDate, true)
+                            : item.label}
+                        </button>
                         <input
                           aria-label="Go to Date"
                           className="goToDateInput"
+                          data-open={datePickerOpen || undefined}
+                          id="go-to-date-picker"
                           onChange={(event) => {
                             if (event.target.value) {
+                              setDatePickerOpen(false);
                               router.push(calendarDateHref(event.target.value, todayDate));
                             }
                           }}
+                          ref={datePickerRef}
+                          tabIndex={datePickerOpen ? 0 : -1}
                           type="date"
                           value={selectedDate}
                         />
-                      </label>
+                      </div>
                     );
                   }
 

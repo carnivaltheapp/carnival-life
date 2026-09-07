@@ -19,6 +19,8 @@ describe("PlayHouse calendar navigation", () => {
   });
 
   it("moves by local calendar days without relying on UTC instants", () => {
+    expect(addCalendarDays("2026-09-08", -1)).toBe("2026-09-07");
+    expect(addCalendarDays("2026-09-08", 1)).toBe("2026-09-09");
     expect(addCalendarDays("2026-03-08", -1)).toBe("2026-03-07");
     expect(addCalendarDays("2026-03-08", 1)).toBe("2026-03-09");
     expect(addCalendarDays("2026-09-30", 1)).toBe("2026-10-01");
