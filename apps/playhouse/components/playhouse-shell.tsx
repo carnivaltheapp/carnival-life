@@ -28,10 +28,10 @@ import {
 } from "../domain/play-display";
 import {
   CALENDAR_VIEWS,
-  addCalendarDays,
   calendarDateHref,
   friendlyCalendarDate,
   isSelectableCalendarDate,
+  rollingCalendarDates,
 } from "../domain/playhouse-navigation";
 import { togglePlaySelection } from "../domain/play-selection";
 import { playVisualForPlay } from "../domain/play-visual";
@@ -98,6 +98,7 @@ function PlayhouseShellView({
   const [movePending, startMove] = useTransition();
   const playCountLabel = `${plays.length} ${plays.length === 1 ? "Play" : "Plays"}`;
   const visibleIds = plays.map((play) => play.id);
+  const sidebarDates = rollingCalendarDates(todayDate);
   const showDateInLeadingColumn = Boolean(searchQuery) || usesDateLeadingColumn(selectedView);
   const defaultPlacement =
     selectedView.kind === "basket"
@@ -216,31 +217,52 @@ function PlayhouseShellView({
             <section aria-labelledby="calendar-heading">
               <h2 id="calendar-heading">Calendar</h2>
               <div className="navItems">
+                {sidebarDates.map((item) => {
+                  const isActive = selectedView.kind === "calendar" &&
+                    selectedView.key !== "week" &&
+                    selectedView.startDate === item.date;
+                  const placement = {
+                    kind: "calendar" as const,
+                    scheduledDate: item.date,
+                  };
+                  return (
+                    <Link
+                      aria-current={isActive ? "page" : undefined}
+                      className="destinationLink"
+                      data-active={isActive || undefined}
+                      href={calendarDateHref(item.date, todayDate)}
+                      key={item.date}
+                      {...destinationDropProps(placement, `calendar:${item.date}`)}
+                    >
+                      <span className="destinationIcon" aria-hidden="true">
+                        {item.marker}
+                      </span>
+                      {item.label}
+                    </Link>
+                  );
+                })}
                 {CALENDAR_VIEWS.map((item) => {
                   const isActive =
                     (selectedView.kind === "calendar" || selectedView.kind === "all") &&
                     selectedView.key === item.key;
-
-                  const dropPlacement = item.key === "today"
-                    ? { kind: "calendar" as const, scheduledDate: todayDate }
-                    : item.key === "tomorrow"
-                      ? { kind: "calendar" as const, scheduledDate: addCalendarDays(todayDate, 1) }
-                      : null;
 
                   if (item.key === "date") {
                     const selectedDate = selectedView.kind === "calendar" &&
                         selectedView.key === "date"
                       ? selectedView.startDate
                       : "";
+                    const isDatePickerActive = Boolean(
+                      selectedDate && !sidebarDates.some(({ date }) => date === selectedDate),
+                    );
                     return (
                       <div className="goToDateControl" key={item.key}>
                         <button
                           aria-label="Go to Date"
                           aria-controls="go-to-date-picker"
-                          aria-current={isActive ? "page" : undefined}
+                          aria-current={isDatePickerActive ? "page" : undefined}
                           aria-expanded={datePickerOpen}
                           className="destinationLink goToDateLink"
-                          data-active={isActive || undefined}
+                          data-active={isDatePickerActive || undefined}
                           onClick={() => {
                             const picker = datePickerRef.current;
                             if (!picker) return;
@@ -259,9 +281,7 @@ function PlayhouseShellView({
                           <span className="destinationIcon" aria-hidden="true">
                             {item.marker}
                           </span>
-                          {selectedDate
-                            ? friendlyCalendarDate(selectedDate, true)
-                            : item.label}
+                          {item.label}
                         </button>
                         <input
                           aria-label="Go to Date"
@@ -293,9 +313,6 @@ function PlayhouseShellView({
                       data-active={isActive || undefined}
                       href={`/?view=${item.key}`}
                       key={item.key}
-                      {...(dropPlacement
-                        ? destinationDropProps(dropPlacement, `calendar:${item.key}`)
-                        : {})}
                     >
                       <span className="destinationIcon" aria-hidden="true">
                         {item.marker}
@@ -349,46 +366,22 @@ function PlayhouseShellView({
         >
           <div className="panelHeader">
             <div>
-              <p className="eyebrow">
-                {searchQuery
-                  ? "Plays"
-                  : selectedView.kind === "calendar"
-                  ? "Calendar"
-                  : selectedView.kind === "basket"
-                    ? "Basket"
-                    : "Plays"}
-              </p>
-              {!searchQuery && selectedView.kind === "calendar" && selectedView.key !== "week" ? (
-                <div className="dateHeading">
-                  {selectedView.startDate <= todayDate ? (
-                    <button aria-label="Previous day" disabled type="button">
-                      ‹
-                    </button>
-                  ) : (
-                    <Link
-                      aria-label="Previous day"
-                      href={calendarDateHref(
-                        addCalendarDays(selectedView.startDate, -1),
-                        todayDate,
-                      )}
-                    >
-                      ‹
-                    </Link>
-                  )}
-                  <h1 id="view-title">{selectedView.label}</h1>
-                  <Link
-                    aria-label="Next day"
-                    href={calendarDateHref(
-                      addCalendarDays(selectedView.startDate, 1),
-                      todayDate,
-                    )}
-                  >
-                    ›
-                  </Link>
-                </div>
-              ) : (
-                <h1 id="view-title">{searchQuery ? "Search Results" : selectedView.label}</h1>
-              )}
+              {searchQuery || selectedView.kind !== "calendar" || selectedView.key === "week" ? (
+                <p className="eyebrow">
+                  {searchQuery
+                    ? "Plays"
+                    : selectedView.kind === "basket"
+                      ? "Basket"
+                      : "Plays"}
+                </p>
+              ) : null}
+              <h1 id="view-title">
+                {!searchQuery && selectedView.kind === "calendar" && selectedView.key !== "week"
+                  ? friendlyCalendarDate(selectedView.startDate)
+                  : searchQuery
+                    ? "Search Results"
+                    : selectedView.label}
+              </h1>
             </div>
             <div className="panelActions">
               <PlaySearch initialQuery={searchQuery} />
