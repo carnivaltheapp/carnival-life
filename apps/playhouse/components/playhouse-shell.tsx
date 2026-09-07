@@ -237,12 +237,17 @@ function PlayhouseShellView({
                           className="destinationLink goToDateLink"
                           data-active={isActive || undefined}
                           onClick={() => {
-                            setDatePickerOpen(true);
+                            const picker = datePickerRef.current;
+                            if (!picker) return;
                             try {
-                              datePickerRef.current?.showPicker();
+                              if (typeof picker.showPicker === "function") {
+                                picker.showPicker();
+                                return;
+                              }
                             } catch {
-                              // The visible native input below remains the fallback.
+                              // Fall through to the visible native-input fallback.
                             }
+                            setDatePickerOpen(true);
                           }}
                           type="button"
                         >

@@ -340,6 +340,12 @@ a {
   align-items: center;
 }
 
+.dateHeading > h1 {
+  width: max-content;
+  max-width: 240px;
+  flex: 0 1 auto;
+}
+
 .dateHeading > :is(a, button) {
   display: inline-grid;
   width: 42px;

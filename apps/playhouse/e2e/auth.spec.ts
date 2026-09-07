@@ -20,14 +20,31 @@ test("disposable authenticated session loads the PlayHouse shell", async ({ auth
 });
 
 test("Go to Date reuses the single-day view with previous and next navigation", async ({ auth }) => {
+  await auth.page.addInitScript(() => {
+    const original = HTMLInputElement.prototype.showPicker;
+    if (!original) return;
+    HTMLInputElement.prototype.showPicker = function showPicker() {
+      this.dataset.showPickerCalls = String(Number(this.dataset.showPickerCalls ?? 0) + 1);
+      return original.call(this);
+    };
+  });
   await auth.page.goto("/");
 
   await expect(auth.page.getByRole("button", { name: "Previous day" })).toBeDisabled();
-  await auth.page.getByRole("button", { name: "Go to Date" }).click();
+  const trigger = auth.page.getByRole("button", { name: "Go to Date" });
   const datePicker = auth.page.locator('input[type="date"][aria-label="Go to Date"]');
-  await expect(datePicker).toBeVisible();
+  await trigger.click();
+  await expect(datePicker).toHaveAttribute("data-show-picker-calls", "1");
+  await auth.page.keyboard.press("Escape");
+  await trigger.click();
+  await expect(datePicker).toHaveAttribute("data-show-picker-calls", "2");
   await expect(datePicker).toHaveAttribute("min", /^\d{4}-\d{2}-\d{2}$/);
-  await datePicker.fill("2026-09-21");
+  await datePicker.evaluate((input, date) => {
+    const picker = input as HTMLInputElement;
+    picker.value = date;
+    picker.dispatchEvent(new Event("input", { bubbles: true }));
+    picker.dispatchEvent(new Event("change", { bubbles: true }));
+  }, "2026-09-21");
   await expect(auth.page).toHaveURL(/\?date=2026-09-21$/);
   await expect(auth.page.getByRole("heading", { name: "Monday, September 21" })).toBeVisible();
 
