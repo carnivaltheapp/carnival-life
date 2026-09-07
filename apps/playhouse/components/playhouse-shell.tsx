@@ -11,7 +11,6 @@ import {
   type MouseEvent,
 } from "react";
 
-import { signOut } from "../app/auth/actions";
 import { repositionPlays } from "../app/plays/actions";
 import type {
   BasketSummary,
@@ -37,8 +36,9 @@ import {
 import { togglePlaySelection } from "../domain/play-selection";
 import { playVisualForPlay } from "../domain/play-visual";
 import { reminderContextDate } from "../domain/reminder";
+import { AccountMenu } from "./account-menu";
 import { BrowserTimeZone } from "./browser-time-zone";
-import { GridSettings, useGridFontSizePreference } from "./grid-settings";
+import { useGridFontSizePreference } from "./grid-settings";
 import { PlayForm } from "./play-form";
 import { PlaySearch } from "./play-search";
 import { PlayStatusActions } from "./play-status-actions";
@@ -101,6 +101,12 @@ function PlayhouseShellView({
   const [moveError, setMoveError] = useState<string | null>(null);
   const [movePending, startMove] = useTransition();
   const playCountLabel = `${plays.length} ${plays.length === 1 ? "Play" : "Plays"}`;
+  const viewTitle = !searchQuery && selectedView.kind === "calendar" &&
+      selectedView.key !== "week"
+    ? friendlyCalendarDate(selectedView.startDate)
+    : searchQuery
+      ? "Search Results"
+      : selectedView.label;
   const visibleIds = plays.map((play) => play.id);
   const sidebarDates = rollingCalendarDates(todayDate);
   const showDateInLeadingColumn = Boolean(searchQuery) || usesDateLeadingColumn(selectedView);
@@ -187,31 +193,46 @@ function PlayhouseShellView({
     <main className="workspace">
       <BrowserTimeZone />
       <header className="appHeader">
-        <Link className="brand" href="/?view=today" aria-label="Carnival PlayHouse home">
-          <span className="brandMark" aria-hidden="true">
-            C
-          </span>
-          <span>
-            <strong>Carnival</strong>
-            <small>PlayHouse</small>
-          </span>
-        </Link>
-
-        <div className="accountArea">
-          <div className="accountIdentity">
-            <span className="accountAvatar" aria-hidden="true">
-              {identity.displayName.slice(0, 1).toUpperCase()}
+        <div className="headerBrandArea">
+          <Link className="brand" href="/?view=today" aria-label="Carnival PlayHouse home">
+            <span className="brandMark" aria-hidden="true">
+              C
             </span>
-            <span className="accountText">
-              <strong>{identity.displayName}</strong>
-              {identity.email ? <small>{identity.email}</small> : null}
+            <span>
+              <strong>Carnival</strong>
+              <small>PlayHouse</small>
             </span>
-          </div>
-          <form action={signOut}>
-            <button className="signOutButton" type="submit">
-              Sign out
-            </button>
-          </form>
+          </Link>
+          <span
+            aria-label={`${playCountLabel} open`}
+            className="countBadge headerPlayCount"
+            data-testid="play-count"
+          >
+            {playCountLabel}
+          </span>
+        </div>
+        <h1 className="headerViewTitle" id="view-title">{viewTitle}</h1>
+        <div className="headerActions">
+          <PlaySearch initialQuery={searchQuery} />
+          {!dataError ? (
+            <PlayForm
+              baskets={baskets}
+              defaultPlacement={defaultPlacement}
+              nextPlayOptions={nextPlayOptions}
+              supportsWorkflows={supportsWorkflows}
+              reminderContextDate={reminderContextDate({
+                displayedDate: displayedReminderDate,
+                todayDate,
+              })}
+            />
+          ) : null}
+          <AccountMenu
+            calendarAccounts={calendarAccounts}
+            calendarSettingsError={calendarSettingsError}
+            displayName={identity.displayName}
+            email={identity.email}
+            fontSize={gridFontSize}
+          />
         </div>
       </header>
 
@@ -395,82 +416,31 @@ function PlayhouseShellView({
           aria-labelledby="view-title"
           style={{ "--play-grid-font-size": `${gridFontSize}px` } as CSSProperties}
         >
-          <div className="panelHeader">
-            <div>
-              {searchQuery || selectedView.kind !== "calendar" || selectedView.key === "week" ? (
-                <p className="eyebrow">
-                  {searchQuery
-                    ? "Plays"
-                    : selectedView.kind === "basket"
-                      ? "Basket"
-                      : "Plays"}
-                </p>
-              ) : null}
-              <h1
-                className={!searchQuery && selectedView.kind === "calendar" &&
-                    selectedView.key !== "week"
-                  ? "calendarDateTitle"
-                  : undefined}
-                id="view-title"
-              >
-                {!searchQuery && selectedView.kind === "calendar" && selectedView.key !== "week"
-                  ? friendlyCalendarDate(selectedView.startDate)
-                  : searchQuery
-                    ? "Search Results"
-                    : selectedView.label}
-              </h1>
+          {selectedIds.size > 0 ? (
+            <div className="selectionPanelHeader">
+              <div className="selectionToolbar" aria-label="Play selection controls">
+                <span>{selectedIds.size} selected</span>
+                <button
+                  disabled={movePending || selectedIds.size === plays.length}
+                  onClick={() => setSelectedIds(new Set(visibleIds))}
+                  type="button"
+                >
+                  Select All
+                </button>
+                <button
+                  aria-label="Clear Selection"
+                  disabled={movePending}
+                  onClick={() => {
+                    setSelectedIds(new Set());
+                    setSelectionAnchor(null);
+                  }}
+                  type="button"
+                >
+                  Clear
+                </button>
+              </div>
             </div>
-            <div className="panelActions">
-              <PlaySearch initialQuery={searchQuery} />
-              {plays.length ? (
-                <div className="selectionToolbar" aria-label="Play selection controls">
-                  <span>{selectedIds.size} selected</span>
-                  <button
-                    disabled={movePending || selectedIds.size === plays.length}
-                    onClick={() => setSelectedIds(new Set(visibleIds))}
-                    type="button"
-                  >
-                    Select All
-                  </button>
-                  <button
-                    aria-label="Clear Selection"
-                    disabled={movePending || selectedIds.size === 0}
-                    onClick={() => {
-                      setSelectedIds(new Set());
-                      setSelectionAnchor(null);
-                    }}
-                    type="button"
-                  >
-                    Clear
-                  </button>
-                </div>
-              ) : null}
-              <span
-                className="countBadge"
-                data-testid="play-count"
-                aria-label={`${playCountLabel} open`}
-              >
-                {playCountLabel}
-              </span>
-              {!dataError ? (
-                <PlayForm
-                  baskets={baskets}
-                  defaultPlacement={defaultPlacement}
-                  nextPlayOptions={nextPlayOptions}
-                  supportsWorkflows={supportsWorkflows}
-                  reminderContextDate={reminderContextDate({
-                    displayedDate: displayedReminderDate,
-                    todayDate,
-                  })}
-                />
-              ) : null}
-              <GridSettings
-                calendarAccounts={calendarAccounts}
-                calendarSettingsError={calendarSettingsError}
-                fontSize={gridFontSize}
-              />
-            </div>
-          </div>
+          ) : null}
 
           {dataError ? (
             <div className="emptyState" role="alert">
@@ -583,14 +553,8 @@ function PlayhouseShellView({
                         })}
                       />
                     </div>
-                    <span className="playDataCell">
-                      {play.durationMinutes ? `${play.durationMinutes}m` : "—"}
-                    </span>
                     <span className="playDataCell" title={play.branch ?? undefined}>
                       {displayBranch(play.branch) ?? "—"}
-                    </span>
-                    <span className="playDataCell playPlaceCell">
-                      {play.place ?? "—"}
                     </span>
                     <PlayStatusActions play={play} />
                   </div>

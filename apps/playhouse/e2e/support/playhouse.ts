@@ -8,7 +8,7 @@ export function playRow(page: Page, title: string): Locator {
 
 export async function openCreatePlay(page: Page) {
   const disclosure = page.getByTestId("create-play");
-  await disclosure.getByText("+ New Play", { exact: true }).click();
+  await disclosure.getByRole("button", { name: "New Play" }).click();
   await expect(disclosure).toHaveAttribute("open", "");
   return disclosure.locator("form.playForm");
 }

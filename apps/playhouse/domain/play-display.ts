@@ -30,6 +30,16 @@ export function gmailThreadUrl(threadId: string) {
   return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}`;
 }
 
+export function usablePlayUrl(value: string | null) {
+  if (!value?.trim()) return null;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export function displayPlayDestination(
   play: Pick<PlayListItem, "basketId" | "scheduledDate">,
   baskets: BasketSummary[],

@@ -113,14 +113,18 @@ test("Edit updates title and URL while preserving Duration and Place", async ({ 
   await createPlay(auth.page, "Before edit", { url: "example.com/original" });
   const compactRow = playRow(auth.page, "Before edit");
   await expect(compactRow.locator(".playTypeMarker--headline")).toBeVisible();
-  await expect(compactRow.locator(".playRowLine")).toContainText("30m");
-  await expect(compactRow.locator(".playRowLine")).toContainText("office");
+  await expect(compactRow.locator(".playRowLine")).not.toContainText("30m");
+  await expect(compactRow.locator(".playRowLine")).not.toContainText("office");
   await expect(
     compactRow.getByRole("button", { exact: true, name: "Done" }),
   ).toBeVisible();
   await expect(compactRow.getByRole("button", { name: "Trash" })).toBeVisible();
   await expect(compactRow.getByRole("button", { name: "Play information" })).toBeVisible();
-  await expect(compactRow.locator(".statusActions > *")).toHaveCount(4);
+  await expect(compactRow.locator(".statusActions > *")).toHaveCount(5);
+  await expect(compactRow.getByRole("link", { name: "Open Play URL" })).toHaveAttribute(
+    "href",
+    "https://example.com/original",
+  );
   const { form } = await openEditPlay(auth.page, "Before edit");
 
   await expect(form.getByLabel("Duration (minutes)")).toHaveValue("30");
@@ -157,6 +161,7 @@ test("Play moves date to Basket and Basket back to date", async ({ auth }) => {
   await edit.form.getByRole("button", { name: "Save changes" }).click();
   await expect(playRow(auth.page, "Move both ways")).toHaveCount(0);
 
+  await auth.page.getByRole("button", { name: "Baskets" }).click();
   await auth.page.getByRole("link", { name: "Backlog" }).click();
   await expect(playRow(auth.page, "Move both ways")).toBeVisible();
   edit = await openEditPlay(auth.page, "Move both ways");
@@ -167,7 +172,8 @@ test("Play moves date to Basket and Basket back to date", async ({ auth }) => {
   await edit.form.getByRole("button", { name: "Save changes" }).click();
   await expect(playRow(auth.page, "Move both ways")).toHaveCount(0);
 
-  await auth.page.getByRole("link", { name: "Today" }).click();
+  await auth.page.getByRole("button", { name: "Calendar" }).click();
+  await auth.page.getByRole("link", { name: /^Today / }).click();
   await expect(playRow(auth.page, "Move both ways")).toBeVisible();
 });
 
@@ -189,7 +195,7 @@ test("global search shows standard rows and clearing restores the current view",
   await search.fill("no matching play text");
   await expect(auth.page.getByRole("heading", { name: "No Plays found" })).toBeVisible();
   await auth.page.getByRole("button", { name: "Clear Play search" }).click();
-  await expect(auth.page.getByRole("heading", { name: "Today" })).toBeVisible();
+  await expect(auth.page.locator(".headerViewTitle")).not.toHaveText("Search Results");
   await expect(playRow(auth.page, "Unique search contract")).toBeVisible();
 });
 
@@ -258,10 +264,8 @@ test("grid font setting updates immediately and persists locally", async ({ auth
   await createPlay(auth.page, "Resizable grid Play");
 
   const row = playRow(auth.page, "Resizable grid Play");
+  await auth.page.getByRole("button", { name: "User menu" }).click();
   const settingsButton = auth.page.getByRole("button", { name: "Settings" });
-  expect(await settingsButton.evaluate(
-    (button) => button.parentElement?.previousElementSibling?.getAttribute("data-testid"),
-  )).toBe("create-play");
   await expect(row).toHaveCSS("font-size", "12px");
   await expect(row.getByTestId("play-title")).toHaveCSS("font-size", "12px");
   await expect(row.locator(".playDataCell").first()).toHaveCSS("font-size", "12px");
@@ -281,10 +285,11 @@ test("grid font setting updates immediately and persists locally", async ({ auth
   await expect(row.getByRole("button", { exact: true, name: "Done" })).toBeVisible();
   await expect(row.getByRole("button", { name: "Trash" })).toBeVisible();
   await expect(row.getByRole("button", { name: "Play information" })).toBeVisible();
-  await expect(row.locator(".statusActions > *")).toHaveCount(4);
+  await expect(row.locator(".statusActions > *")).toHaveCount(5);
 
   await auth.page.reload();
   await expect(playRow(auth.page, "Resizable grid Play")).toHaveCSS("font-size", "13px");
+  await auth.page.getByRole("button", { name: "User menu" }).click();
   await auth.page.getByRole("button", { name: "Settings" }).click();
   await auth.page.getByRole("button", { name: "Decrease font size" }).click();
   const restoredRow = playRow(auth.page, "Resizable grid Play");
@@ -319,7 +324,8 @@ test("Play moved from Backlog to Today remains visible after refresh", async ({ 
   expect(saved.error).toBeNull();
   expect(saved.data).toEqual({ basket_id: null, scheduled_date: today });
 
-  await auth.page.getByRole("link", { name: "Today" }).click();
+  await auth.page.getByRole("button", { name: "Calendar" }).click();
+  await auth.page.getByRole("link", { name: /^Today / }).click();
   await expect(playRow(auth.page, "Backlog to Today")).toBeVisible();
   await auth.page.reload();
   await expect(playRow(auth.page, "Backlog to Today")).toBeVisible();

@@ -62,10 +62,12 @@ export function GridSettings({
   calendarAccounts,
   calendarSettingsError,
   fontSize,
+  trigger = "icon",
 }: {
   calendarAccounts: CalendarSettingsAccount[];
   calendarSettingsError: boolean;
   fontSize: number;
+  trigger?: "icon" | "menu";
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -93,12 +95,12 @@ export function GridSettings({
       <button
         aria-expanded={open}
         aria-label="Settings"
-        className="settingsButton"
+        className={trigger === "menu" ? "accountMenuItem" : "settingsButton"}
         onClick={() => setOpen((current) => !current)}
         title="Settings"
         type="button"
       >
-        <GearIcon />
+        {trigger === "menu" ? "Settings" : <GearIcon />}
       </button>
       {open ? (
         <div aria-label="Settings menu" className="settingsPopover" role="dialog">

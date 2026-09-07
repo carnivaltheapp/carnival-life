@@ -6,6 +6,7 @@ import {
   gmailThreadIdFromMetadata,
   gmailThreadUrl,
   playRowLeadingLabel,
+  usablePlayUrl,
   usesDateLeadingColumn,
 } from "./play-display";
 
@@ -42,6 +43,14 @@ describe("Play row display helpers", () => {
     expect(gmailThreadUrl("thread/123")).toBe(
       "https://mail.google.com/mail/u/0/#all/thread%2F123",
     );
+  });
+
+  it("exposes only usable saved HTTP URLs for the row action", () => {
+    expect(usablePlayUrl("https://example.test/path")).toBe("https://example.test/path");
+    expect(usablePlayUrl("http://example.test")).toBe("http://example.test");
+    expect(usablePlayUrl("javascript:alert(1)")).toBeNull();
+    expect(usablePlayUrl("  ")).toBeNull();
+    expect(usablePlayUrl(null)).toBeNull();
   });
 
   it("formats real scheduled dates from their actual calendar weekday", () => {

@@ -123,10 +123,12 @@ export function PlayForm({
       ref={detailsRef}
     >
       <summary
+        aria-label={isEditing ? undefined : "New Play"}
         className={isEditing ? "playTitleLink" : undefined}
         data-testid={isEditing ? "play-title" : undefined}
+        title={isEditing ? undefined : "New Play"}
       >
-        {isEditing ? play?.title : "+ New Play"}
+        {isEditing ? play?.title : <span aria-hidden="true">+</span>}
       </summary>
       <form action={formAction} className="playForm" noValidate>
         {play ? <input name="playId" type="hidden" value={play.id} /> : null}

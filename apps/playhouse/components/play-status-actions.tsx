@@ -11,7 +11,7 @@ import type {
   PlayPlacement,
 } from "../domain/play";
 import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
-import { gmailThreadUrl } from "../domain/play-display";
+import { gmailThreadUrl, usablePlayUrl } from "../domain/play-display";
 
 function DoneIcon() {
   return <span aria-hidden="true">✓</span>;
@@ -29,6 +29,16 @@ function GmailIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 20 20">
       <path d="M3 5.5 10 11l7-5.5M3 5.5v9h14v-9" />
+    </svg>
+  );
+}
+
+function BrowserIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20">
+      <circle cx="10" cy="10" r="7" />
+      <circle cx="10" cy="10" r="2.4" />
+      <path d="M10 3h6M4 6.2l3 5.2m1.7 5.5 3-5.2" />
     </svg>
   );
 }
@@ -52,6 +62,7 @@ export function PlayStatusActions({ play }: { play: PlayListItem }) {
         ? trashState.message
         : null;
   const playJson = JSON.stringify(play, null, 2);
+  const playUrl = usablePlayUrl(play.url);
 
   async function copyPlayJson() {
     try {
@@ -108,6 +119,20 @@ export function PlayStatusActions({ play }: { play: PlayListItem }) {
             title="Open Gmail thread"
           >
             <GmailIcon />
+          </a>
+        ) : (
+          <span aria-hidden="true" className="rowActionPlaceholder" />
+        )}
+        {playUrl ? (
+          <a
+            aria-label="Open Play URL"
+            className="rowIconButton urlButton"
+            href={playUrl}
+            rel="noopener noreferrer"
+            target="_blank"
+            title="Open Play URL"
+          >
+            <BrowserIcon />
           </a>
         ) : (
           <span aria-hidden="true" className="rowActionPlaceholder" />
