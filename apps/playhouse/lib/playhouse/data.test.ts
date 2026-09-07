@@ -79,7 +79,7 @@ describe("PlayHouse destination resolution", () => {
     ).toMatchObject({
       endDate: "2026-09-14",
       key: "date",
-      label: "September 14, 2026",
+      label: "Monday, September 14",
       startDate: "2026-09-14",
     });
   });

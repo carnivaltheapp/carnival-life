@@ -8,6 +8,7 @@ import type {
 import { isIsoCalendarDate } from "../../domain/play-input";
 import { comparePlayRankAndPriority, sortChronologicalPlays } from "../../domain/play-sort";
 import { searchPlays } from "../../domain/play-search";
+import { friendlyCalendarDate } from "../../domain/playhouse-navigation";
 import type { Database } from "../supabase/database.types";
 import { resolvePlayhouseDataSource } from "./data-source";
 import { createPlayRepository } from "./play-repository";
@@ -115,10 +116,7 @@ export function resolveSelectedView({
       endDate: date,
       key: "date",
       kind: "calendar",
-      label: new Intl.DateTimeFormat("en-US", {
-        dateStyle: "long",
-        timeZone: "UTC",
-      }).format(new Date(`${date}T00:00:00Z`)),
+      label: friendlyCalendarDate(date),
       startDate: date,
     };
   }

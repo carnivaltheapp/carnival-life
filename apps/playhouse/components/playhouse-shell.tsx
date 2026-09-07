@@ -25,7 +25,12 @@ import {
   playRowLeadingLabel,
   usesDateLeadingColumn,
 } from "../domain/play-display";
-import { CALENDAR_VIEWS } from "../domain/playhouse-navigation";
+import {
+  CALENDAR_VIEWS,
+  addCalendarDays,
+  calendarDateHref,
+  friendlyCalendarDate,
+} from "../domain/playhouse-navigation";
 import { togglePlaySelection } from "../domain/play-selection";
 import { playVisualForPlay } from "../domain/play-visual";
 import { BrowserTimeZone } from "./browser-time-zone";
@@ -59,11 +64,6 @@ function selectedViewIdentity(selectedView: SelectedView) {
     : selectedView.kind === "calendar"
       ? `calendar:${selectedView.key}:${selectedView.startDate}`
       : `all:${selectedView.defaultDate}`;
-}
-
-function addCalendarDays(isoDate: string, days: number) {
-  const [year, month, day] = isoDate.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }
 
 export function PlayhouseShell(props: PlayhouseShellProps) {
@@ -218,6 +218,39 @@ function PlayhouseShellView({
                       ? { kind: "calendar" as const, scheduledDate: addCalendarDays(todayDate, 1) }
                       : null;
 
+                  if (item.key === "date") {
+                    const selectedDate = selectedView.kind === "calendar" &&
+                        selectedView.key === "date"
+                      ? selectedView.startDate
+                      : "";
+                    return (
+                      <label
+                        aria-current={isActive ? "page" : undefined}
+                        className="destinationLink goToDateLink"
+                        data-active={isActive || undefined}
+                        key={item.key}
+                      >
+                        <span className="destinationIcon" aria-hidden="true">
+                          {item.marker}
+                        </span>
+                        {selectedDate
+                          ? friendlyCalendarDate(selectedDate, true)
+                          : item.label}
+                        <input
+                          aria-label="Go to Date"
+                          className="goToDateInput"
+                          onChange={(event) => {
+                            if (event.target.value) {
+                              router.push(calendarDateHref(event.target.value, todayDate));
+                            }
+                          }}
+                          type="date"
+                          value={selectedDate}
+                        />
+                      </label>
+                    );
+                  }
+
                   return (
                     <Link
                       aria-current={isActive ? "page" : undefined}
@@ -290,7 +323,31 @@ function PlayhouseShellView({
                     ? "Basket"
                     : "Plays"}
               </p>
-              <h1 id="view-title">{searchQuery ? "Search Results" : selectedView.label}</h1>
+              {!searchQuery && selectedView.kind === "calendar" && selectedView.key !== "week" ? (
+                <div className="dateHeading">
+                  <Link
+                    aria-label="Previous day"
+                    href={calendarDateHref(
+                      addCalendarDays(selectedView.startDate, -1),
+                      todayDate,
+                    )}
+                  >
+                    ‹
+                  </Link>
+                  <h1 id="view-title">{selectedView.label}</h1>
+                  <Link
+                    aria-label="Next day"
+                    href={calendarDateHref(
+                      addCalendarDays(selectedView.startDate, 1),
+                      todayDate,
+                    )}
+                  >
+                    ›
+                  </Link>
+                </div>
+              ) : (
+                <h1 id="view-title">{searchQuery ? "Search Results" : selectedView.label}</h1>
+              )}
             </div>
             <div className="panelActions">
               <PlaySearch initialQuery={searchQuery} />
