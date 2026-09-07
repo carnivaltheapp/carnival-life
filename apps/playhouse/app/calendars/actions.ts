@@ -10,7 +10,11 @@ import {
 import { isUuid } from "../../domain/play-input";
 import { discoverCalendarsForAccount } from "../../lib/google/calendar.server";
 import { GoogleCalendarApiError } from "../../lib/google/calendar";
+import { GoogleCalendarEventsApiError } from "../../lib/google/appointment-events";
+import { syncAppointmentCalendarsForAccount } from "../../lib/google/appointment-sync.server";
 import { GoogleAccountReconnectRequiredError } from "../../lib/google/token-broker";
+import { resolvePlayhouseDataSource } from "../../lib/playhouse/data-source";
+import { resolveTimeZone } from "../../lib/playhouse/time-zone";
 import { createClient } from "../../lib/supabase/server";
 
 async function authenticatedClient() {
@@ -175,4 +179,104 @@ export async function setGoogleCalendarMode(
 
   revalidatePath("/");
   return { status: "success" };
+}
+
+export async function syncGoogleAppointments(
+  _previousState: CalendarSettingsState,
+  formData: FormData,
+): Promise<CalendarSettingsState> {
+  const googleAccountId = formData.get("googleAccountId");
+  if (typeof googleAccountId !== "string" || !isUuid(googleAccountId)) {
+    return errorState("That Google account could not be identified.");
+  }
+
+  const auth = await authenticatedClient();
+  if (!auth) return errorState("Your session expired. Refresh and sign in again.");
+  if (resolvePlayhouseDataSource() !== "mongo") {
+    return errorState("Appointment synchronization is unavailable for the active Play store.");
+  }
+
+  const [accountResult, calendarResult, profileResult] = await Promise.all([
+    auth.supabase
+      .from("google_accounts")
+      .select("id, connection_status")
+      .eq("id", googleAccountId)
+      .eq("owner_user_id", auth.userId)
+      .maybeSingle(),
+    auth.supabase
+      .from("google_calendars")
+      .select("provider_calendar_id, time_zone")
+      .eq("google_account_id", googleAccountId)
+      .eq("owner_user_id", auth.userId)
+      .eq("semantic_role", "appointment"),
+    auth.supabase.from("users").select("timezone").eq("id", auth.userId).maybeSingle(),
+  ]);
+  if (accountResult.error || !accountResult.data) {
+    logCalendarFailure(accountResult.error ? "connected_account_read" : "account_ownership", {
+      code: accountResult.error?.code,
+    });
+    return errorState("That Google account is unavailable.");
+  }
+  if (accountResult.data.connection_status !== "connected") {
+    return errorState("Google authorization must be reconnected before appointments can sync.");
+  }
+  if (calendarResult.error) {
+    logCalendarFailure("appointment_calendar_read", { code: calendarResult.error.code });
+    return errorState("Appointment calendar settings could not be loaded.");
+  }
+  if (!calendarResult.data.length) {
+    return errorState("No AT_Appointments calendar is configured for this account.");
+  }
+
+  try {
+    const result = await syncAppointmentCalendarsForAccount({
+      calendars: calendarResult.data.map((calendar) => ({
+        providerCalendarId: calendar.provider_calendar_id,
+        timeZone: resolveTimeZone(calendar.time_zone, profileResult.data?.timezone),
+      })),
+      googleAccountId,
+      ownerUserId: auth.userId,
+    });
+    if (result.failed) {
+      logCalendarFailure("appointment_event_mapping_or_persistence", {
+        code: String(result.failed),
+      });
+    }
+    const { error: syncStateError } = await auth.supabase
+      .from("google_accounts")
+      .update({
+        last_synced_at: new Date().toISOString(),
+        sync_error: result.failed
+          ? `${result.failed} Google appointment event(s) could not be synchronized.`
+          : null,
+      })
+      .eq("id", googleAccountId)
+      .eq("owner_user_id", auth.userId);
+    if (syncStateError) {
+      logCalendarFailure("appointment_sync_state_persistence", {
+        code: syncStateError.code,
+      });
+    }
+    revalidatePath("/");
+    return {
+      message: `${result.imported} imported, ${result.updated} updated, ${result.inactivated} cancelled${result.failed ? `, ${result.failed} failed` : ""}.`,
+      status: result.failed ? "error" : "success",
+    };
+  } catch (error) {
+    if (error instanceof GoogleAccountReconnectRequiredError) {
+      logCalendarFailure("google_reconnect_required");
+    } else if (error instanceof GoogleCalendarEventsApiError) {
+      logCalendarFailure(
+        error.status === 401 || error.status === 403
+          ? "google_calendar_permission"
+          : "google_calendar_events_api",
+        { status: error.status },
+      );
+    } else {
+      logCalendarFailure("appointment_sync");
+    }
+    return errorState(
+      "Appointments could not be synchronized. Reconnect Google if Calendar access was added recently.",
+    );
+  }
 }

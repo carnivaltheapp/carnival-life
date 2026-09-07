@@ -507,9 +507,15 @@ a {
 
 .calendarDiscoverForm {
   display: grid;
+  justify-items: end;
+}
+
+.calendarAccountActions {
+  display: flex;
   grid-row: 1 / span 2;
   grid-column: 2;
-  justify-items: end;
+  gap: 5px;
+  align-items: start;
 }
 
 .settingsPopover .calendarDiscoverForm button {

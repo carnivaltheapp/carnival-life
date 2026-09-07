@@ -6,6 +6,7 @@ import { useActionState, useEffect } from "react";
 import {
   discoverGoogleCalendars,
   setGoogleCalendarMode,
+  syncGoogleAppointments,
 } from "../app/calendars/actions";
 import {
   INITIAL_CALENDAR_SETTINGS_STATE,
@@ -31,6 +32,32 @@ function DiscoverCalendars({ accountId }: { accountId: string }) {
       <input name="googleAccountId" type="hidden" value={accountId} />
       <button disabled={pending} type="submit">
         {pending ? "Refreshing…" : "Refresh"}
+      </button>
+      {state.message ? (
+        <small data-status={state.status} role={state.status === "error" ? "alert" : undefined}>
+          {state.message}
+        </small>
+      ) : null}
+    </form>
+  );
+}
+
+function SyncAppointments({ accountId }: { accountId: string }) {
+  const router = useRouter();
+  const [state, action, pending] = useActionState(
+    syncGoogleAppointments,
+    INITIAL_CALENDAR_SETTINGS_STATE,
+  );
+
+  useEffect(() => {
+    if (state.status !== "idle") router.refresh();
+  }, [router, state.status]);
+
+  return (
+    <form action={action} className="calendarDiscoverForm">
+      <input name="googleAccountId" type="hidden" value={accountId} />
+      <button disabled={pending} type="submit">
+        {pending ? "Syncing…" : "Sync Appointments"}
       </button>
       {state.message ? (
         <small data-status={state.status} role={state.status === "error" ? "alert" : undefined}>
@@ -108,7 +135,12 @@ export function CalendarSettings({
           <div className="calendarAccountHeader">
             <strong>{account.displayName ?? account.email ?? "Google account"}</strong>
             {account.displayName && account.email ? <small>{account.email}</small> : null}
-            <DiscoverCalendars accountId={account.id} />
+            <div className="calendarAccountActions">
+              <DiscoverCalendars accountId={account.id} />
+              {account.calendars.some((calendar) => calendar.semanticRole === "appointment") ? (
+                <SyncAppointments accountId={account.id} />
+              ) : null}
+            </div>
           </div>
           {account.calendars.length ? (
             <ul>
