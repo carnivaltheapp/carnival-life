@@ -10,6 +10,7 @@ import {
   type CSSProperties,
   type DragEvent,
   type MouseEvent,
+  type PointerEvent,
 } from "react";
 
 import { repositionPlays } from "../app/plays/actions";
@@ -81,6 +82,14 @@ function selectedViewIdentity(selectedView: SelectedView) {
       : `all:${selectedView.defaultDate}`;
 }
 
+function isInteractiveDragOrigin(target: EventTarget | null) {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest(
+    "button, a, input, select, textarea, label, form, [contenteditable='true'], " +
+    "[role='button'], [role='link'], [role='menuitem'], .editDisclosure[open]",
+  ));
+}
+
 function GridSortHeader({
   column,
   label,
@@ -138,6 +147,8 @@ function PlayhouseShellView({
   const router = useRouter();
   const gridFontSize = useGridFontSizePreference();
   const datePickerRef = useRef<HTMLInputElement>(null);
+  const dragOriginAllowedRef = useRef(true);
+  const dragPreviewRef = useRef<HTMLElement | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [sidebarSection, setSidebarSection] = useState(() =>
     sidebarSectionForView(selectedView.kind)
@@ -191,7 +202,44 @@ function PlayhouseShellView({
     setSelectionAnchor(playId);
   }
 
-  function beginDrag(playId: string, event: DragEvent<HTMLButtonElement>) {
+  function rememberDragOrigin(event: PointerEvent<HTMLElement>) {
+    dragOriginAllowedRef.current = !isInteractiveDragOrigin(event.target);
+  }
+
+  function clearDragState() {
+    dragPreviewRef.current?.remove();
+    dragPreviewRef.current = null;
+    setDraggedIds([]);
+    setDropTarget(null);
+  }
+
+  function beginDrag(playId: string, event: DragEvent<HTMLLIElement>) {
+    if (!dragOriginAllowedRef.current) {
+      event.preventDefault();
+      return;
+    }
+
+    const row = event.currentTarget;
+    const bounds = row.getBoundingClientRect();
+    const previewWidth = Math.min(bounds.width, window.innerWidth - 16);
+    const preview = row.cloneNode(true) as HTMLElement;
+    preview.classList.add("playDragPreview");
+    preview.dataset.dragPreview = "true";
+    preview.style.width = `${previewWidth}px`;
+    preview.style.height = `${bounds.height}px`;
+    document.body.append(preview);
+    dragPreviewRef.current?.remove();
+    dragPreviewRef.current = preview;
+    event.dataTransfer.setDragImage(
+      preview,
+      Math.min(Math.max(event.clientX - bounds.left, 0), previewWidth),
+      Math.min(Math.max(event.clientY - bounds.top, 0), bounds.height),
+    );
+    requestAnimationFrame(() => {
+      preview.remove();
+      if (dragPreviewRef.current === preview) dragPreviewRef.current = null;
+    });
+
     const ids = selectedIds.has(playId)
       ? visibleIds.filter((id) => selectedIds.has(id))
       : [playId];
@@ -562,6 +610,10 @@ function PlayhouseShellView({
                   data-selected={selectedIds.has(play.id) || undefined}
                   data-testid="play-row"
                   key={play.id}
+                  draggable={!searchQuery}
+                  onDragEnd={clearDragState}
+                  onDragStart={(event) => beginDrag(play.id, event)}
+                  onPointerDownCapture={rememberDragOrigin}
                   style={{
                     "--play-rank-background": playVisual.backgroundColor,
                     "--play-rank-foreground": playVisual.foregroundColor,
@@ -587,14 +639,8 @@ function PlayhouseShellView({
                         aria-pressed={selectedIds.has(play.id)}
                         className="playSelectControl"
                         disabled={movePending}
-                        draggable={!searchQuery}
                         onClick={(event) => toggleSelection(play.id, event)}
-                        onDragEnd={() => {
-                          setDraggedIds([]);
-                          setDropTarget(null);
-                        }}
-                        onDragStart={(event) => beginDrag(play.id, event)}
-                        title="Select or drag Play"
+                        title="Select Play"
                         type="button"
                       >
                         <span

@@ -224,6 +224,70 @@ test("Play moves date to Basket and Basket back to date", async ({ auth }) => {
   await expect(playRow(auth.page, "Move both ways")).toBeVisible();
 });
 
+test("full-row drag uses a row preview while controls remain non-draggable", async ({ auth }) => {
+  await auth.page.addInitScript(() => {
+    const nativeSetDragImage = DataTransfer.prototype.setDragImage;
+    DataTransfer.prototype.setDragImage = function setDragImage(image, x, y) {
+      sessionStorage.setItem("playhouse-drag-preview", JSON.stringify({
+        height: (image as HTMLElement).offsetHeight,
+        opacity: getComputedStyle(image).opacity,
+        text: image.textContent,
+        width: (image as HTMLElement).offsetWidth,
+        x,
+        y,
+      }));
+      nativeSetDragImage.call(this, image, x, y);
+    };
+  });
+  await auth.page.goto("/");
+  await createPlay(auth.page, "First drag target");
+  await createPlay(auth.page, "Second draggable Play", { url: "https://example.com" });
+
+  const first = playRow(auth.page, "First drag target");
+  const second = playRow(auth.page, "Second draggable Play");
+  await expect(second).toHaveAttribute("draggable", "true");
+  await second.getByTestId("play-title").dragTo(first);
+
+  await expect(auth.page.getByTestId("play-title").first()).toContainText(
+    "Second draggable Play",
+  );
+  const preview = await auth.page.evaluate(() =>
+    JSON.parse(sessionStorage.getItem("playhouse-drag-preview") ?? "null") as {
+      height: number;
+      opacity: string;
+      text: string;
+      width: number;
+    } | null
+  );
+  expect(preview).toMatchObject({ opacity: "0.82" });
+  expect(preview?.text).toContain("Second draggable Play");
+  expect(preview?.height).toBeGreaterThan(0);
+  expect(preview?.width).toBeGreaterThan(0);
+
+  for (const control of [
+    second.getByRole("button", { name: /Select .* Play/ }),
+    second.getByRole("button", { name: "Done" }),
+    second.getByRole("button", { name: "Trash" }),
+    second.getByRole("link", { name: "Open Play URL" }),
+  ]) {
+    expect(await control.evaluate((element) => {
+      element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      const drag = new DragEvent("dragstart", {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: new DataTransfer(),
+      });
+      element.dispatchEvent(drag);
+      return drag.defaultPrevented;
+    })).toBe(true);
+  }
+
+  await auth.page.reload();
+  await expect(auth.page.getByTestId("play-title").first()).toContainText(
+    "Second draggable Play",
+  );
+});
+
 test("global search shows standard rows and clearing restores the current view", async ({ auth }) => {
   await auth.page.goto("/?view=today");
   await createPlay(auth.page, "Unique search contract");
