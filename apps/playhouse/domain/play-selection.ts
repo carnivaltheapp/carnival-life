@@ -52,3 +52,14 @@ export function regionSelectionPlayIdAtPoint(
     ?.closest<HTMLElement>("[data-play-row-id]")
     ?.dataset.playRowId ?? null;
 }
+
+export const REGION_SELECTION_DRAG_THRESHOLD = 5;
+
+export function exceedsRegionSelectionDragThreshold(
+  startX: number,
+  startY: number,
+  clientX: number,
+  clientY: number,
+) {
+  return Math.hypot(clientX - startX, clientY - startY) >= REGION_SELECTION_DRAG_THRESHOLD;
+}

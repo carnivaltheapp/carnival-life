@@ -38,6 +38,7 @@ import {
 } from "../domain/playhouse-navigation";
 import {
   beginRegionSelection,
+  exceedsRegionSelectionDragThreshold,
   regionSelectionPlayIdAtPoint,
   togglePlaySelection,
   touchRegionSelection,
@@ -166,8 +167,11 @@ function PlayhouseShellView({
   const dragPreviewHostRef = useRef<HTMLDivElement>(null);
   const dragPreviewRef = useRef<HTMLElement | null>(null);
   const regionSelectionRef = useRef<(RegionSelectionGesture & {
+    active: boolean;
     owner: HTMLElement;
     pointerId: number;
+    startX: number;
+    startY: number;
   }) | null>(null);
   const eligiblePlayIdsRef = useRef<ReadonlySet<string>>(new Set());
   const [datePickerOpen, setDatePickerOpen] = useState(false);
@@ -309,10 +313,14 @@ function PlayhouseShellView({
     ) return;
     regionSelectionRef.current = {
       ...beginRegionSelection(selectedIds),
+      active: false,
       owner: event.currentTarget,
       pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
     };
     event.currentTarget.dataset.regionSelecting = "true";
+    window.getSelection()?.removeAllRanges();
     event.preventDefault();
   }
 
@@ -320,6 +328,18 @@ function PlayhouseShellView({
     function continueRegionDrag(event: PointerEvent) {
       const gesture = regionSelectionRef.current;
       if (!gesture || gesture.pointerId !== event.pointerId) return;
+      if (!gesture.active) {
+        if (!exceedsRegionSelectionDragThreshold(
+          gesture.startX,
+          gesture.startY,
+          event.clientX,
+          event.clientY,
+        )) {
+          event.preventDefault();
+          return;
+        }
+        gesture.active = true;
+      }
       const playId = regionSelectionPlayIdAtPoint(
         document,
         event.clientX,
@@ -338,6 +358,10 @@ function PlayhouseShellView({
       if (!gesture || gesture.pointerId !== event.pointerId) return;
       regionSelectionRef.current = null;
       delete gesture.owner.dataset.regionSelecting;
+      if (!gesture.active) {
+        setSelectedIds(new Set());
+        setSelectionAnchor(null);
+      }
     }
 
     function endRegionDragOnBlur() {

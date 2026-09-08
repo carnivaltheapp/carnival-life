@@ -171,6 +171,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   blankPoint)).toBe(true);
   await auth.page.mouse.move(blankPoint.x, blankPoint.y);
   await auth.page.mouse.down();
+  await expect(selectionSurface).toHaveAttribute("data-region-selecting", "true");
   await auth.page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + secondBox.height / 2);
   await auth.page.mouse.move(firstBox.x + firstBox.width / 2, firstBox.y + firstBox.height / 2);
   await auth.page.mouse.move(
@@ -179,6 +180,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   );
   await auth.page.mouse.move(firstBox.x + firstBox.width / 2, firstBox.y + firstBox.height / 2);
   await auth.page.mouse.up();
+  await expect(selectionSurface).not.toHaveAttribute("data-region-selecting", "true");
 
   await expect(first).toHaveAttribute("data-selected", "true");
   await expect(second).toHaveAttribute("data-selected", "true");
@@ -188,11 +190,20 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   await expect(appointment.locator(".playSelectControl")).toBeDisabled();
   await expect(first).toHaveAttribute("draggable", "false");
 
+  await auth.page.getByRole("button", { name: "User menu" }).click();
+  await expect(first).toHaveAttribute("data-selected", "true");
+  await expect(second).toHaveAttribute("data-selected", "true");
+  await auth.page.keyboard.press("Escape");
+
   await second.getByTestId("play-title").click({ modifiers: ["Control"] });
   await expect(second).not.toHaveAttribute("data-selected", "true");
   await expect(first).toHaveAttribute("data-selected", "true");
   await appointment.click({ button: "right" });
   await expect(auth.page.getByRole("menu", { name: "Bulk Play actions" })).toHaveCount(0);
+
+  await auth.page.mouse.click(blankPoint.x, blankPoint.y);
+  await expect(first).not.toHaveAttribute("data-selected", "true");
+  await expect(second).not.toHaveAttribute("data-selected", "true");
 
   await auth.page.reload();
   await auth.page.mouse.move(firstBox.x + firstBox.width / 2, firstBox.y + firstBox.height / 2);

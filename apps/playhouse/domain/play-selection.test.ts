@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   beginRegionSelection,
+  exceedsRegionSelectionDragThreshold,
   regionSelectionPlayIdAtPoint,
   togglePlaySelection,
   touchRegionSelection,
@@ -72,5 +73,11 @@ describe("Play multi-selection", () => {
     )).toBe("play-2");
     expect(elementFromPoint).toHaveBeenCalledWith(140, 220);
     expect(closest).toHaveBeenCalledWith("[data-play-row-id]");
+  });
+
+  it("distinguishes a blank click from a region drag at the five-pixel threshold", () => {
+    expect(exceedsRegionSelectionDragThreshold(10, 10, 13, 13)).toBe(false);
+    expect(exceedsRegionSelectionDragThreshold(10, 10, 13, 14)).toBe(true);
+    expect(exceedsRegionSelectionDragThreshold(10, 10, 10, 15)).toBe(true);
   });
 });

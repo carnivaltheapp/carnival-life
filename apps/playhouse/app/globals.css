@@ -368,6 +368,7 @@ a {
 }
 
 .workspaceBody[data-region-selecting="true"] {
+  -webkit-user-select: none;
   user-select: none;
   cursor: crosshair;
 }
