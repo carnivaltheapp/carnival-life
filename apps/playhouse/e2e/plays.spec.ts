@@ -108,6 +108,29 @@ test("successful Create closes, appears immediately, and updates count", async (
   await expect(playRow(auth.page, "Immediately visible")).toBeVisible();
 });
 
+test("multi-select does not insert a selection summary row", async ({ auth }) => {
+  await auth.page.goto("/");
+  await createPlay(auth.page, "First selected Play");
+  await createPlay(auth.page, "Second selected Play");
+  const header = auth.page.locator(".playGridHeader");
+  const initialTop = (await header.boundingBox())?.y;
+  const firstSelect = playRow(auth.page, "First selected Play").locator(".playSelectControl");
+  const secondSelect = playRow(auth.page, "Second selected Play").locator(".playSelectControl");
+
+  await firstSelect.click();
+  await expect(firstSelect).toHaveAttribute("aria-pressed", "true");
+  await secondSelect.click();
+  await expect(secondSelect).toHaveAttribute("aria-pressed", "true");
+  await expect(auth.page.locator(".selectionPanelHeader")).toHaveCount(0);
+  await expect(auth.page.getByText(/\d+ selected/)).toHaveCount(0);
+  await expect(auth.page.getByRole("button", { name: "Clear Selection" })).toHaveCount(0);
+  expect((await header.boundingBox())?.y).toBe(initialTop);
+
+  await firstSelect.click();
+  await expect(firstSelect).toHaveAttribute("aria-pressed", "false");
+  await expect(secondSelect).toHaveAttribute("aria-pressed", "true");
+});
+
 test("Edit updates title and URL while preserving Duration and Place", async ({ auth }) => {
   await auth.page.goto("/");
   await createPlay(auth.page, "Before edit", { url: "example.com/original" });

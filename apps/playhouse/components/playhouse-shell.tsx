@@ -519,32 +519,6 @@ function PlayhouseShellView({
           aria-labelledby="view-title"
           style={{ "--play-grid-font-size": `${gridFontSize}px` } as CSSProperties}
         >
-          {selectedIds.size > 0 ? (
-            <div className="selectionPanelHeader">
-              <div className="selectionToolbar" aria-label="Play selection controls">
-                <span>{selectedIds.size} selected</span>
-                <button
-                  disabled={movePending || selectedIds.size === plays.length}
-                  onClick={() => setSelectedIds(new Set(visibleIds))}
-                  type="button"
-                >
-                  Select All
-                </button>
-                <button
-                  aria-label="Clear Selection"
-                  disabled={movePending}
-                  onClick={() => {
-                    setSelectedIds(new Set());
-                    setSelectionAnchor(null);
-                  }}
-                  type="button"
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-          ) : null}
-
           {dataError ? (
             <div className="emptyState" role="alert">
               <span className="spark errorSpark" aria-hidden="true">
