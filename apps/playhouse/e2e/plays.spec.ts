@@ -131,6 +131,98 @@ test("multi-select does not insert a selection summary row", async ({ auth }) =>
   await expect(secondSelect).toHaveAttribute("aria-pressed", "true");
 });
 
+test("outside-row region selection skips Appointments and locks row reorder", async ({ auth }) => {
+  const today = await browserCalendarDate(auth.page);
+  await auth.page.goto("/");
+  await createPlay(auth.page, "Region Headline One");
+  await createPlay(auth.page, "Region Headline Two");
+  const { error } = await auth.user.from("plays").insert({
+    owner_user_id: auth.userId,
+    play_type: "normal",
+    scheduled_date: today,
+    source_metadata: { legacy_source: { task_type: "A" } },
+    source_type: "user",
+    title: "Region Appointment",
+  });
+  expect(error).toBeNull();
+  await auth.page.reload();
+
+  const panel = auth.page.locator(".playPanel");
+  const panelBox = await panel.boundingBox();
+  const first = playRow(auth.page, "Region Headline One");
+  const second = playRow(auth.page, "Region Headline Two");
+  const appointment = playRow(auth.page, "Region Appointment");
+  const firstBox = await first.boundingBox();
+  const secondBox = await second.boundingBox();
+  if (!panelBox || !firstBox || !secondBox) throw new Error("Play grid was not measurable.");
+
+  await auth.page.mouse.move(panelBox.x + panelBox.width / 2, panelBox.y + panelBox.height - 8);
+  await auth.page.mouse.down();
+  await auth.page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + secondBox.height / 2);
+  await auth.page.mouse.move(firstBox.x + firstBox.width / 2, firstBox.y + firstBox.height / 2);
+  await auth.page.mouse.up();
+
+  await expect(first).toHaveAttribute("data-selected", "true");
+  await expect(second).toHaveAttribute("data-selected", "true");
+  await expect(first).toHaveCSS("background-color", "rgb(18, 58, 99)");
+  await expect(first).toHaveCSS("color", "rgb(255, 255, 255)");
+  await expect(appointment).not.toHaveAttribute("data-selected", "true");
+  await expect(appointment.locator(".playSelectControl")).toBeDisabled();
+  await expect(first).toHaveAttribute("draggable", "false");
+
+  await second.getByTestId("play-title").click({ modifiers: ["Control"] });
+  await expect(second).not.toHaveAttribute("data-selected", "true");
+  await expect(first).toHaveAttribute("data-selected", "true");
+  await appointment.click({ button: "right" });
+  await expect(auth.page.getByRole("menu", { name: "Bulk Play actions" })).toHaveCount(0);
+});
+
+test("right-click bulk menu changes selected eligible Plays without a page refresh", async ({ auth }) => {
+  await auth.page.goto("/");
+  await createPlay(auth.page, "Bulk Change One");
+  await createPlay(auth.page, "Bulk Change Two");
+  const first = playRow(auth.page, "Bulk Change One");
+  const second = playRow(auth.page, "Bulk Change Two");
+  await first.click({ button: "right" });
+  await expect(first).toHaveAttribute("data-selected", "true");
+  await expect(second).not.toHaveAttribute("data-selected", "true");
+  await auth.page.keyboard.press("Escape");
+  await second.getByTestId("play-title").click({ modifiers: ["Control"] });
+  await second.click({ button: "right" });
+
+  const menu = auth.page.getByRole("menu", { name: "Bulk Play actions" });
+  await expect(menu).toBeVisible();
+  await menu.getByRole("menuitem", { name: /Change/ }).click();
+  await menu.getByRole("menuitem", { name: /Duration/ }).click();
+  await menu.getByRole("menuitem", { name: "90", exact: true }).click();
+  await expect(menu).toHaveCount(0);
+  await expect(first).toHaveAttribute("data-selected", "true");
+  await expect(second).toHaveAttribute("data-selected", "true");
+
+  await expect.poll(async () => {
+    const { data } = await auth.user
+      .from("plays")
+      .select("duration_minutes")
+      .eq("owner_user_id", auth.userId)
+      .in("title", ["Bulk Change One", "Bulk Change Two"]);
+    return data?.map(({ duration_minutes }) => duration_minutes);
+  }).toEqual([90, 90]);
+
+  await first.click({ button: "right" });
+  const reopened = auth.page.getByRole("menu", { name: "Bulk Play actions" });
+  await reopened.getByRole("menuitem", { name: /Change/ }).click();
+  await reopened.getByRole("menuitem", { name: /Push/ }).click();
+  await reopened.getByRole("menuitem", { name: "Weekend", exact: true }).click();
+  await expect.poll(async () => {
+    const { data } = await auth.user
+      .from("plays")
+      .select("push_rule")
+      .eq("owner_user_id", auth.userId)
+      .in("title", ["Bulk Change One", "Bulk Change Two"]);
+    return data?.map(({ push_rule }) => push_rule);
+  }).toEqual(["weekends", "weekends"]);
+});
+
 test("Edit updates title and URL while preserving Duration and Place", async ({ auth }) => {
   await auth.page.goto("/");
   await createPlay(auth.page, "Before edit", { url: "example.com/original" });

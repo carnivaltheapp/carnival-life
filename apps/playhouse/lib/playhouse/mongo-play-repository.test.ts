@@ -80,6 +80,62 @@ describe("MongoPlayRepository mutations", () => {
     expect(updateOne).not.toHaveBeenCalled();
   });
 
+  it("bulk-updates only selected non-Appointment Plays with scoped targeted sets", async () => {
+    const first = new ObjectId();
+    const second = new ObjectId();
+    const find = vi.fn().mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([
+        { _id: first, task_type: "H" },
+        { _id: second, task_type: "S" },
+      ]),
+    });
+    const bulkWrite = vi.fn().mockResolvedValue({ matchedCount: 2 });
+
+    expect(await repository({
+      bulkWrite: bulkWrite as never,
+      find: find as never,
+    }).bulkUpdate([first.toHexString(), second.toHexString()], {
+      kind: "push",
+      pushRule: "weekdays",
+    })).toBe(true);
+
+    expect(find.mock.calls[0][0]).toMatchObject({
+      _id: { $in: [first, second] },
+      is_active: true,
+      is_deleted: false,
+      user_id: 43,
+    });
+    for (const operation of bulkWrite.mock.calls[0][0]) {
+      expect(operation.updateOne.filter).toMatchObject({
+        is_active: true,
+        is_deleted: false,
+        task_type: { $ne: "A" },
+        user_id: 43,
+      });
+      expect(operation.updateOne.update.$set).toMatchObject({
+        push_type: "Weekday",
+        updated_date: expect.any(Date),
+      });
+      expect(operation.updateOne.update.$set).not.toHaveProperty("action_type");
+    }
+  });
+
+  it("rejects the entire bulk mutation when an Appointment is present", async () => {
+    const appointment = new ObjectId();
+    const bulkWrite = vi.fn();
+    const find = vi.fn().mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([{ _id: appointment, task_type: "A" }]),
+    });
+    expect(await repository({
+      bulkWrite: bulkWrite as never,
+      find: find as never,
+    }).bulkUpdate([appointment.toHexString()], {
+      durationMinutes: 60,
+      kind: "duration",
+    })).toBe(false);
+    expect(bulkWrite).not.toHaveBeenCalled();
+  });
+
   it("edits with a targeted $set, exact identity/user scope, and preserves U task_type", async () => {
     const id = new ObjectId();
     const findOne = vi.fn().mockResolvedValue({ _id: id, task_type: "U", user_id: 43 });

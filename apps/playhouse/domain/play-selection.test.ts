@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { togglePlaySelection } from "./play-selection";
+import {
+  beginRegionSelection,
+  togglePlaySelection,
+  touchRegionSelection,
+} from "./play-selection";
 
 describe("Play multi-selection", () => {
   const visibleIds = ["a", "b", "c", "d"];
@@ -45,5 +49,15 @@ describe("Play multi-selection", () => {
   it("supports Select All and Clear through ordinary Set state", () => {
     expect([...new Set(visibleIds)]).toEqual(visibleIds);
     expect(new Set<string>().size).toBe(0);
+  });
+
+  it("toggles a crossed row only once in each region gesture", () => {
+    const gesture = beginRegionSelection(new Set(["a"]));
+    expect(touchRegionSelection(gesture, "a")).toBe(true);
+    expect([...gesture.selectedIds]).toEqual([]);
+    expect(touchRegionSelection(gesture, "a")).toBe(false);
+    expect([...gesture.selectedIds]).toEqual([]);
+    expect(touchRegionSelection(gesture, "b")).toBe(true);
+    expect([...gesture.selectedIds]).toEqual(["b"]);
   });
 });

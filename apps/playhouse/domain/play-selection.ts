@@ -25,3 +25,20 @@ export function togglePlaySelection({
   else next.add(clickedId);
   return next;
 }
+
+export type RegionSelectionGesture = {
+  selectedIds: Set<string>;
+  touchedIds: Set<string>;
+};
+
+export function beginRegionSelection(selectedIds: ReadonlySet<string>): RegionSelectionGesture {
+  return { selectedIds: new Set(selectedIds), touchedIds: new Set() };
+}
+
+export function touchRegionSelection(gesture: RegionSelectionGesture, playId: string) {
+  if (gesture.touchedIds.has(playId)) return false;
+  gesture.touchedIds.add(playId);
+  if (gesture.selectedIds.has(playId)) gesture.selectedIds.delete(playId);
+  else gesture.selectedIds.add(playId);
+  return true;
+}

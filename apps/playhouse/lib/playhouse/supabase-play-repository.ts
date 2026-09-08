@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { NextPlayOption, PlayListItem } from "../../domain/play";
+import type { BulkPlayChange } from "../../domain/play-bulk-change";
 import { gmailThreadIdFromMetadata } from "../../domain/play-display";
 import { orderUpdatesForInsertion } from "../../domain/play-order";
 import { searchableMetadataText } from "../../domain/play-search";
@@ -346,6 +347,52 @@ export class SupabasePlayRepository implements PlayRepository {
       ...(reminderSortOrder === undefined ? {} : { sort_order: reminderSortOrder }),
     });
     return !error;
+  }
+
+  async bulkUpdate(playIds: string[], change: BulkPlayChange) {
+    const { data: rows, error: rowsError } = await this.supabase
+      .from("plays")
+      .select("id, scheduled_date, basket_id, source_metadata")
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", "open")
+      .in("id", playIds);
+    if (
+      rowsError ||
+      rows.length !== playIds.length ||
+      rows.some((play) => legacyTaskTypeFromMetadata(play.source_metadata) === "A")
+    ) return false;
+    if (change.kind === "move") {
+      return this.reposition({ beforePlayId: null, placement: change.placement, playIds });
+    }
+
+    const results = await Promise.all(rows.map((play) => {
+      let values: Database["public"]["Tables"]["plays"]["Update"];
+      if (change.kind === "push") {
+        values = { push_rule: change.pushRule };
+      } else if (change.kind === "duration") {
+        values = { duration_minutes: change.durationMinutes };
+      } else if (change.playType === "normal") {
+        values = { play_type: "normal" };
+      } else {
+        const preserveDate = Boolean(
+          play.scheduled_date && play.scheduled_date >= change.reminderDate && !play.basket_id,
+        );
+        values = {
+          basket_id: null,
+          play_type: "reminder",
+          scheduled_date: preserveDate ? play.scheduled_date : change.reminderDate,
+        };
+      }
+      return this.supabase
+        .from("plays")
+        .update(values)
+        .eq("id", play.id)
+        .eq("owner_user_id", this.ownerUserId)
+        .eq("status", "open")
+        .select("id")
+        .maybeSingle();
+    }));
+    return results.every(({ data, error }) => !error && Boolean(data));
   }
 
   async reposition({

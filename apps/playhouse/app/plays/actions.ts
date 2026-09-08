@@ -14,6 +14,7 @@ import {
 } from "../../domain/play-mutation";
 import type { BasketSummary } from "../../domain/play";
 import type { PlayPlacement } from "../../domain/play";
+import type { BulkPlayChange } from "../../domain/play-bulk-change";
 import { reminderContextDate } from "../../domain/reminder";
 import { resolvePlayhouseDataSource } from "../../lib/playhouse/data-source";
 import { dateInTimeZone } from "../../lib/playhouse/data";
@@ -306,6 +307,63 @@ export async function repositionPlays(request: {
     };
   } catch {
     return errorState("PlayHouse could not move these Plays. The previous order was restored.");
+  }
+}
+
+export async function bulkUpdatePlays(request: {
+  change: BulkPlayChange;
+  playIds: string[];
+}): Promise<PlayMutationState> {
+  try {
+    const playIds = Array.from(new Set(request.playIds));
+    const change = request.change;
+    const validChange = change.kind === "duration"
+      ? [15, 30, 45, 60, 90, 120].includes(change.durationMinutes)
+      : change.kind === "push"
+        ? ["everyday", "weekdays", "weekends"].includes(change.pushRule)
+        : change.kind === "rank"
+          ? ["normal", "reminder"].includes(change.playType) &&
+            isIsoCalendarDate(change.reminderDate)
+          : change.placement.kind === "basket" ||
+            isIsoCalendarDate(change.placement.scheduledDate);
+    if (
+      !validChange ||
+      playIds.length === 0 ||
+      playIds.length > 200 ||
+      playIds.some((playId) => !playId || playId.length > 100)
+    ) return errorState("This bulk change is invalid. Please try again.");
+
+    const auth = await authenticatedClient();
+    if (!auth) return errorState("Your session expired. Refresh and sign in again.");
+    const baskets = await loadBaskets(auth.supabase);
+    if (!baskets) return errorState("Your Baskets could not be loaded. Refresh and try again.");
+    const destinationBasketId = change.kind === "move" && change.placement.kind === "basket"
+      ? change.placement.basketId
+      : null;
+    if (
+      destinationBasketId &&
+      !baskets.some((basket) => basket.id === destinationBasketId)
+    ) return errorState("That Basket is no longer available.");
+
+    const source = resolvePlayhouseDataSource();
+    if (source === "supabase" && playIds.some((playId) => !isUuid(playId))) {
+      return errorState("This bulk change is invalid. Please try again.");
+    }
+    const repository = await createPlayRepository({
+      baskets,
+      ownerUserId: auth.userId,
+      source,
+      supabase: auth.supabase,
+    });
+    if (!(await repository.bulkUpdate(playIds, change))) {
+      return errorState("These Plays could not be changed. The previous values were restored.");
+    }
+    return {
+      message: `${playIds.length} ${playIds.length === 1 ? "Play" : "Plays"} changed.`,
+      status: "success",
+    };
+  } catch {
+    return errorState("PlayHouse could not change these Plays. The previous values were restored.");
   }
 }
 

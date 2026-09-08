@@ -7,6 +7,7 @@ import {
 } from "mongodb";
 
 import type { BasketSummary } from "../../domain/play";
+import type { BulkPlayChange } from "../../domain/play-bulk-change";
 import { orderUpdatesForInsertion } from "../../domain/play-order";
 import { promotionOrderUpdates } from "../../domain/reminder";
 import type { Database } from "../supabase/database.types";
@@ -17,6 +18,7 @@ import {
   legacyPlacementDate,
   legacyPriorityNumber,
   legacyPriorityValue,
+  legacyPushType,
   legacyTaskDate,
   mapMongoPlay,
   mongoActiveFilter,
@@ -357,6 +359,59 @@ export class MongoPlayRepository implements PlayRepository {
       }),
     );
     return result.acknowledged;
+  }
+
+  async bulkUpdate(playIds: string[], change: BulkPlayChange) {
+    let objectIds: ObjectId[];
+    try {
+      objectIds = playIds.map((playId) => {
+        if (!ObjectId.isValid(playId)) throw new Error("Invalid Play identifier.");
+        return new ObjectId(playId);
+      });
+    } catch {
+      return false;
+    }
+    const tasks = await this.dependencies.collection.find({
+      ...mongoActiveFilter(),
+      _id: { $in: objectIds },
+    }).toArray();
+    if (tasks.length !== playIds.length || tasks.some((task) => task.task_type === "A")) {
+      return false;
+    }
+    if (change.kind === "move") {
+      return this.reposition({ beforePlayId: null, placement: change.placement, playIds });
+    }
+
+    const updatedAt = new Date();
+    const operations = tasks.map((task) => {
+      let values: Record<string, unknown>;
+      if (change.kind === "push") {
+        values = { push_type: legacyPushType(change.pushRule) };
+      } else if (change.kind === "duration") {
+        values = { duration: change.durationMinutes };
+      } else if (change.playType === "normal") {
+        values = { task_type: "H" };
+      } else {
+        values = {
+          task_type: "S",
+          ...(!isRealScheduledDateOnOrAfter(task.task_date, change.reminderDate)
+            ? { task_date: new Date(`${change.reminderDate}T00:00:00.000Z`) }
+            : {}),
+        };
+      }
+      return {
+        updateOne: {
+          filter: {
+            _id: task._id,
+            ...mongoActiveFilter(),
+            task_type: { $ne: "A" },
+          },
+          update: { $set: { ...values, updated_date: updatedAt } },
+        },
+      };
+    });
+    const result = await this.dependencies.collection.bulkWrite(operations);
+    return result.matchedCount === operations.length;
   }
 
   async reposition({

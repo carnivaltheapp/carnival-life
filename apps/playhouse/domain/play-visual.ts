@@ -46,10 +46,6 @@ export function legacyTaskTypeFromMetadata(sourceMetadata: unknown) {
 
 export function playVisualForType(playType: PlayType, legacyTaskType?: string | null) {
   if (legacyTaskType === "A") return PLAY_VISUALS.appointment;
-  if (legacyTaskType === "S" && playType === "reminder") return PLAY_VISUALS.reminder;
-  if (legacyTaskType !== undefined && legacyTaskType !== null) {
-    return PLAY_VISUALS.headline;
-  }
   return playType === "reminder" ? PLAY_VISUALS.reminder : PLAY_VISUALS.headline;
 }
 

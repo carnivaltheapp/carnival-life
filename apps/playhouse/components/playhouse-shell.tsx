@@ -13,7 +13,7 @@ import {
   type PointerEvent,
 } from "react";
 
-import { repositionPlays } from "../app/plays/actions";
+import { bulkUpdatePlays, repositionPlays } from "../app/plays/actions";
 import type {
   BasketSummary,
   NextPlayOption,
@@ -35,15 +35,27 @@ import {
   rollingCalendarDates,
   sidebarSectionForView,
 } from "../domain/playhouse-navigation";
-import { togglePlaySelection } from "../domain/play-selection";
+import {
+  beginRegionSelection,
+  togglePlaySelection,
+  touchRegionSelection,
+  type RegionSelectionGesture,
+} from "../domain/play-selection";
+import {
+  isBulkSelectablePlay,
+  optimisticallyApplyBulkChange,
+  type BulkPlayChange,
+} from "../domain/play-bulk-change";
 import { optimisticallyRepositionPlays } from "../domain/play-optimistic-reorder";
 import {
   sortPlaysForGrid,
   type PlayGridSort,
 } from "../domain/play-grid-sort";
 import { playVisualForPlay } from "../domain/play-visual";
+import { compareChronologicalPlays, comparePlayRankAndPriority } from "../domain/play-sort";
 import { reminderContextDate } from "../domain/reminder";
 import { AccountMenu } from "./account-menu";
+import { BulkPlayContextMenu } from "./bulk-play-context-menu";
 import { BrowserTimeZone } from "./browser-time-zone";
 import { useGridFontSizePreference } from "./grid-settings";
 import { PlayForm } from "./play-form";
@@ -151,6 +163,7 @@ function PlayhouseShellView({
   const dragOriginAllowedRef = useRef(true);
   const dragPreviewHostRef = useRef<HTMLDivElement>(null);
   const dragPreviewRef = useRef<HTMLElement | null>(null);
+  const regionSelectionRef = useRef<(RegionSelectionGesture & { pointerId: number }) | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [sidebarSection, setSidebarSection] = useState(() =>
     sidebarSectionForView(selectedView.kind)
@@ -161,11 +174,13 @@ function PlayhouseShellView({
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [gridSort, setGridSort] = useState<PlayGridSort | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [optimisticPlays, setOptimisticPlays] = useState<{
     source: PlayListItem[];
     value: PlayListItem[];
   } | null>(null);
   const [movePending, startMove] = useTransition();
+  const [bulkPending, startBulk] = useTransition();
   const localPlays = optimisticPlays?.source === plays ? optimisticPlays.value : plays;
   const playCountLabel = `${localPlays.length} ${localPlays.length === 1 ? "Play" : "Plays"}`;
   const viewTitle = !searchQuery && selectedView.kind === "calendar" &&
@@ -179,6 +194,10 @@ function PlayhouseShellView({
     [gridSort, localPlays],
   );
   const visibleIds = visiblePlays.map((play) => play.id);
+  const eligiblePlayIds = useMemo(() => new Set(
+    localPlays.filter(isBulkSelectablePlay).map((play) => play.id),
+  ), [localPlays]);
+  const eligibleVisibleIds = visibleIds.filter((id) => eligiblePlayIds.has(id));
   const sidebarDates = rollingCalendarDates(todayDate);
   const showDateInLeadingColumn = Boolean(searchQuery) || usesDateLeadingColumn(selectedView);
   const defaultPlacement =
@@ -211,12 +230,13 @@ function PlayhouseShellView({
       placement.basketId === reorderPlacement.basketId;
   }
   function toggleSelection(playId: string, event: MouseEvent<HTMLButtonElement>) {
+    if (!eligiblePlayIds.has(playId)) return;
     setSelectedIds((current) => togglePlaySelection({
       anchorId: selectionAnchor,
       clickedId: playId,
       selectedIds: current,
       shiftKey: event.shiftKey,
-      visibleIds,
+      visibleIds: eligibleVisibleIds,
     }));
     setSelectionAnchor(playId);
   }
@@ -233,7 +253,7 @@ function PlayhouseShellView({
   }
 
   function beginDrag(playId: string, event: DragEvent<HTMLLIElement>) {
-    if (!dragOriginAllowedRef.current) {
+    if (!dragOriginAllowedRef.current || selectedIds.size > 0) {
       event.preventDefault();
       return;
     }
@@ -262,17 +282,104 @@ function PlayhouseShellView({
       Math.min(Math.max(event.clientY - bounds.top, 0), bounds.height),
     );
 
-    const ids = selectedIds.has(playId)
-      ? visibleIds.filter((id) => selectedIds.has(id))
-      : [playId];
-    if (!selectedIds.has(playId)) {
-      setSelectedIds(new Set([playId]));
-      setSelectionAnchor(playId);
-    }
+    const ids = [playId];
     setDraggedIds(ids);
     setMoveError(null);
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", ids.join(","));
+  }
+
+  function beginRegionDrag(event: PointerEvent<HTMLElement>) {
+    if (
+      event.button !== 0 ||
+      !(event.target instanceof Element) ||
+      event.target.closest(
+        ".playRow, .playGridHeader, button, a, input, select, textarea, details, summary",
+      )
+    ) return;
+    regionSelectionRef.current = {
+      ...beginRegionSelection(selectedIds),
+      pointerId: event.pointerId,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  }
+
+  function continueRegionDrag(event: PointerEvent<HTMLElement>) {
+    const gesture = regionSelectionRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    const row = document.elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLElement>("[data-play-id]");
+    const playId = row?.dataset.playId;
+    if (!playId || !eligiblePlayIds.has(playId)) return;
+    if (touchRegionSelection(gesture, playId)) {
+      setSelectedIds(new Set(gesture.selectedIds));
+      setSelectionAnchor(playId);
+    }
+  }
+
+  function endRegionDrag(event: PointerEvent<HTMLElement>) {
+    if (regionSelectionRef.current?.pointerId !== event.pointerId) return;
+    regionSelectionRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function openBulkMenu(playId: string, event: MouseEvent<HTMLLIElement>) {
+    if (!eligiblePlayIds.has(playId)) return;
+    event.preventDefault();
+    if (!selectedIds.has(playId)) {
+      setSelectedIds(new Set([playId]));
+      setSelectionAnchor(playId);
+    }
+    setContextMenu({
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - 230)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 360)),
+    });
+  }
+
+  function applyBulkChange(change: BulkPlayChange) {
+    const playIds = visibleIds.filter((id) => selectedIds.has(id) && eligiblePlayIds.has(id));
+    if (!playIds.length || bulkPending) return;
+    const previousOptimisticPlays = optimisticPlays;
+    const previousSelection = selectedIds;
+    const keepMovedInView = change.kind === "move"
+      ? isCurrentPlacement(change.placement)
+      : change.kind !== "rank" || change.playType !== "reminder" ||
+        selectedView.kind !== "basket";
+    let nextPlays = optimisticallyApplyBulkChange(
+      localPlays,
+      new Set(playIds),
+      change,
+      keepMovedInView,
+    );
+    if (change.kind === "rank") {
+      const multiDate = Boolean(searchQuery) || selectedView.kind === "all" ||
+        (selectedView.kind === "calendar" && selectedView.key === "week");
+      nextPlays = [...nextPlays].sort(
+        multiDate ? compareChronologicalPlays : comparePlayRankAndPriority,
+      );
+    }
+    setOptimisticPlays({ source: plays, value: nextPlays });
+    setSelectedIds(new Set(playIds.filter((id) => nextPlays.some((play) => play.id === id))));
+    setContextMenu(null);
+    startBulk(async () => {
+      try {
+        const result = await bulkUpdatePlays({ change, playIds });
+        if (result.status === "success") {
+          setMoveError(null);
+          return;
+        }
+        setOptimisticPlays(previousOptimisticPlays);
+        setSelectedIds(previousSelection);
+        setMoveError(result.message);
+      } catch {
+        setOptimisticPlays(previousOptimisticPlays);
+        setSelectedIds(previousSelection);
+        setMoveError("PlayHouse could not change these Plays. The previous values were restored.");
+      }
+    });
   }
 
   function persistMove(placement: PlayPlacement, beforePlayId: string | null) {
@@ -551,6 +658,10 @@ function PlayhouseShellView({
           className="playPanel"
           aria-labelledby="view-title"
           style={{ "--play-grid-font-size": `${gridFontSize}px` } as CSSProperties}
+          onPointerCancel={endRegionDrag}
+          onPointerDown={beginRegionDrag}
+          onPointerMove={continueRegionDrag}
+          onPointerUp={endRegionDrag}
         >
           {dataError ? (
             <div className="emptyState" role="alert">
@@ -608,7 +719,7 @@ function PlayhouseShellView({
                 </div>
               </div>
               <ol
-                aria-busy={movePending}
+                aria-busy={movePending || bulkPending}
                 className="playList"
                 aria-label={`Open Plays in ${selectedView.label}`}
               >
@@ -621,8 +732,22 @@ function PlayhouseShellView({
                   data-drop-target={dropTarget === `play:${play.id}` || undefined}
                   data-selected={selectedIds.has(play.id) || undefined}
                   data-testid="play-row"
+                  data-play-id={play.id}
                   key={play.id}
-                  draggable={!searchQuery}
+                  draggable={!searchQuery && selectedIds.size === 0}
+                  onClickCapture={(event) => {
+                    if (!(event.ctrlKey || event.metaKey) || !eligiblePlayIds.has(play.id)) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setSelectedIds((current) => {
+                      const next = new Set(current);
+                      if (next.has(play.id)) next.delete(play.id);
+                      else next.add(play.id);
+                      return next;
+                    });
+                    setSelectionAnchor(play.id);
+                  }}
+                  onContextMenu={(event) => openBulkMenu(play.id, event)}
                   onDragEnd={clearDragState}
                   onDragStart={(event) => beginDrag(play.id, event)}
                   onPointerDownCapture={rememberDragOrigin}
@@ -650,7 +775,7 @@ function PlayhouseShellView({
                         aria-label={`${selectedIds.has(play.id) ? "Deselect" : "Select"} ${playVisual.label} Play ${play.title}`}
                         aria-pressed={selectedIds.has(play.id)}
                         className="playSelectControl"
-                        disabled={movePending}
+                        disabled={movePending || bulkPending || !eligiblePlayIds.has(play.id)}
                         onClick={(event) => toggleSelection(play.id, event)}
                         title="Select Play"
                         type="button"
@@ -699,6 +824,20 @@ function PlayhouseShellView({
                   );
                 })}
               </ol>
+              {contextMenu ? (
+                <BulkPlayContextMenu
+                  baskets={baskets}
+                  onApply={applyBulkChange}
+                  onClose={() => setContextMenu(null)}
+                  reminderDate={reminderContextDate({
+                    displayedDate: displayedReminderDate,
+                    todayDate,
+                  })}
+                  todayDate={todayDate}
+                  x={contextMenu.x}
+                  y={contextMenu.y}
+                />
+              ) : null}
             </>
           )}
         </section>

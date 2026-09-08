@@ -60,6 +60,13 @@ describe("Play visual classification", () => {
     })).toBe(PLAY_VISUALS.headline);
   });
 
+  it("shows an imported Headline changed to Reminder using current Play state", () => {
+    expect(playVisualForPlay({
+      playType: "reminder",
+      sourceMetadata: { legacy_source: { task_type: "H" } },
+    })).toBe(PLAY_VISUALS.reminder);
+  });
+
   it("is deterministic across views and unrelated move/reorder state", () => {
     const visual = playVisualForType("reminder");
     expect(playVisualForType("reminder")).toBe(visual);

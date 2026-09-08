@@ -7,6 +7,7 @@ import type {
   PlayPlacement,
 } from "../../domain/play";
 import type { PlayInput } from "../../domain/play-input";
+import type { BulkPlayChange } from "../../domain/play-bulk-change";
 import type { Database } from "../supabase/database.types";
 import type { SelectedView } from "./data";
 import type { PlayhouseDataSource } from "./data-source";
@@ -34,6 +35,7 @@ export interface PlayRepository {
   get(playId: string): Promise<PlayListItem | null>;
   list(selectedView?: SelectedView): Promise<RepositoryPlayList>;
   reconcileDueReminders(todayDate: string): Promise<boolean>;
+  bulkUpdate(playIds: string[], change: BulkPlayChange): Promise<boolean>;
   reposition(request: RepositionPlaysRequest): Promise<boolean>;
   save(request: SavePlayRequest): Promise<boolean>;
   setStatus(playId: string, status: "done" | "trash"): Promise<boolean>;
