@@ -290,6 +290,7 @@ test("full-row drag uses a row preview while controls remain non-draggable", asy
 
   await expect(auth.page.getByTestId("play-title").first()).toContainText(
     "Second draggable Play",
+    { timeout: 500 },
   );
   const preview = await auth.page.evaluate(() =>
     JSON.parse(sessionStorage.getItem("playhouse-drag-preview") ?? "null") as {

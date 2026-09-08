@@ -297,16 +297,15 @@ export async function repositionPlays(request: {
       playIds,
     });
     if (!moved) {
-      return errorState("These Plays could not be moved. The list has been reloaded.");
+      return errorState("These Plays could not be moved. The previous order was restored.");
     }
 
-    revalidatePath("/");
     return {
       message: playIds.length === 1 ? "Play moved." : `${playIds.length} Plays moved.`,
       status: "success",
     };
   } catch {
-    return errorState("PlayHouse could not move these Plays. The list has been reloaded.");
+    return errorState("PlayHouse could not move these Plays. The previous order was restored.");
   }
 }
 

@@ -36,6 +36,7 @@ import {
   sidebarSectionForView,
 } from "../domain/playhouse-navigation";
 import { togglePlaySelection } from "../domain/play-selection";
+import { optimisticallyRepositionPlays } from "../domain/play-optimistic-reorder";
 import {
   sortPlaysForGrid,
   type PlayGridSort,
@@ -160,15 +161,23 @@ function PlayhouseShellView({
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [gridSort, setGridSort] = useState<PlayGridSort | null>(null);
+  const [optimisticPlays, setOptimisticPlays] = useState<{
+    source: PlayListItem[];
+    value: PlayListItem[];
+  } | null>(null);
   const [movePending, startMove] = useTransition();
-  const playCountLabel = `${plays.length} ${plays.length === 1 ? "Play" : "Plays"}`;
+  const localPlays = optimisticPlays?.source === plays ? optimisticPlays.value : plays;
+  const playCountLabel = `${localPlays.length} ${localPlays.length === 1 ? "Play" : "Plays"}`;
   const viewTitle = !searchQuery && selectedView.kind === "calendar" &&
       selectedView.key !== "week"
     ? friendlyCalendarDate(selectedView.startDate)
     : searchQuery
       ? "Search Results"
       : selectedView.label;
-  const visiblePlays = useMemo(() => sortPlaysForGrid(plays, gridSort), [gridSort, plays]);
+  const visiblePlays = useMemo(
+    () => sortPlaysForGrid(localPlays, gridSort),
+    [gridSort, localPlays],
+  );
   const visibleIds = visiblePlays.map((play) => play.id);
   const sidebarDates = rollingCalendarDates(todayDate);
   const showDateInLeadingColumn = Boolean(searchQuery) || usesDateLeadingColumn(selectedView);
@@ -192,6 +201,15 @@ function PlayhouseShellView({
     : selectedView.kind === "calendar" && selectedView.key !== "week"
       ? { kind: "calendar", scheduledDate: selectedView.startDate }
       : null;
+  function isCurrentPlacement(placement: PlayPlacement) {
+    if (!reorderPlacement) return false;
+    if (placement.kind === "calendar") {
+      return reorderPlacement.kind === "calendar" &&
+        placement.scheduledDate === reorderPlacement.scheduledDate;
+    }
+    return reorderPlacement.kind === "basket" &&
+      placement.basketId === reorderPlacement.basketId;
+  }
   function toggleSelection(playId: string, event: MouseEvent<HTMLButtonElement>) {
     setSelectedIds((current) => togglePlaySelection({
       anchorId: selectionAnchor,
@@ -260,18 +278,33 @@ function PlayhouseShellView({
   function persistMove(placement: PlayPlacement, beforePlayId: string | null) {
     if (!draggedIds.length || movePending) return;
     const playIds = visibleIds.filter((id) => draggedIds.includes(id));
+    const previousOptimisticPlays = optimisticPlays;
+    setOptimisticPlays({
+      source: plays,
+      value: optimisticallyRepositionPlays({
+        beforePlayId,
+        keepInCurrentView: isCurrentPlacement(placement),
+        playIds,
+        plays: localPlays,
+      }),
+    });
+    setDraggedIds([]);
+    setDropTarget(null);
     startMove(async () => {
-      const result = await repositionPlays({ beforePlayId, placement, playIds });
-      setDraggedIds([]);
-      setDropTarget(null);
-      if (result.status === "success") {
+      try {
+        const result = await repositionPlays({ beforePlayId, placement, playIds });
+        if (result.status !== "success") {
+          setOptimisticPlays(previousOptimisticPlays);
+          setMoveError(result.message);
+          return;
+        }
         setSelectedIds(new Set());
         setSelectionAnchor(null);
         setMoveError(null);
-      } else {
-        setMoveError(result.message);
+      } catch {
+        setOptimisticPlays(previousOptimisticPlays);
+        setMoveError("PlayHouse could not move these Plays. The previous order was restored.");
       }
-      router.refresh();
     });
   }
 
@@ -530,7 +563,7 @@ function PlayhouseShellView({
                 try again.
               </p>
             </div>
-          ) : plays.length === 0 ? (
+          ) : localPlays.length === 0 ? (
             <div className="emptyState">
               <span className="spark" aria-hidden="true">
                 ✦
