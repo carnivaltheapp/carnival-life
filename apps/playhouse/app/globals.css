@@ -840,14 +840,91 @@ h1 {
   box-shadow: inset 0 3px 0 var(--play-rank-foreground);
 }
 
-.playRowLine {
+.playRowLine,
+.playGridHeader {
   display: grid;
-  min-height: 38px;
   padding: 3px clamp(8px, 1.4vw, 14px);
   grid-template-columns:
-    minmax(430px, 4fr) minmax(100px, 0.8fr) 143px;
+    minmax(430px, 4fr) minmax(100px, 0.8fr) 114px;
   gap: 6px;
   align-items: center;
+}
+
+.playRowLine {
+  min-height: 38px;
+}
+
+.playGridHeader {
+  min-width: 680px;
+  min-height: 34px;
+  color: #313b49;
+  border-bottom: 1px solid #d6dee8;
+  background: #eef2f7;
+  font-size: var(--play-grid-font-size, 12px);
+  font-weight: 750;
+}
+
+.playGridSortHeader {
+  display: flex;
+  overflow: hidden;
+  min-width: 0;
+  gap: 4px;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.playGridSortHeader > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.playGridSortControls {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.playGridSortControls button {
+  width: 18px;
+  height: 24px;
+  padding: 0;
+  color: #687487;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.playGridSortControls button:hover,
+.playGridSortControls button[aria-pressed="true"] {
+  color: var(--accent-deep);
+  background: rgba(109, 63, 242, 0.1);
+}
+
+.playGridSortControls button:focus-visible {
+  outline: 2px solid rgba(109, 63, 242, 0.45);
+  outline-offset: -2px;
+}
+
+.playGridActionHeaders {
+  color: #4c5869;
+}
+
+.playGridActionHeaders > span {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+}
+
+.playGridActionHeaders svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
 }
 
 .playIdentityCell {
@@ -1027,6 +1104,7 @@ h1 {
   z-index: 7;
   top: 50%;
   left: 50%;
+  display: grid;
   width: min(620px, calc(100vw - 40px));
   max-height: calc(100vh - 32px);
   margin: 0;
@@ -1036,14 +1114,30 @@ h1 {
   border-radius: 18px;
   background: #fffdfa;
   box-shadow: 0 24px 70px rgba(48, 29, 83, 0.22);
+  grid-template-columns: minmax(0, auto) 27px 1fr;
+  align-items: center;
 }
 
 .editDisclosure[open] > summary {
-  width: calc(100% - 24px);
-  margin: 9px 12px 0;
-  padding: 4px 26px 4px 3px;
+  width: auto;
+  margin: 9px 0 0 12px;
+  padding: 4px 3px;
   font-size: 0.82rem;
   text-decoration: none;
+}
+
+.editPlayInfo {
+  display: none;
+}
+
+.editDisclosure[open] > .editPlayInfo {
+  display: grid;
+  margin: 9px 0 0 4px;
+}
+
+.editDisclosure[open] > .playForm,
+.editDisclosure[open] > .editWorkflowArea {
+  grid-column: 1 / -1;
 }
 
 .editDisclosure[open] > summary::after {
@@ -1337,14 +1431,14 @@ h1 {
 .statusActionArea {
   position: relative;
   display: grid;
-  width: 143px;
+  width: 114px;
   justify-items: end;
 }
 
 .statusActions {
   display: grid;
-  width: 143px;
-  grid-template-columns: repeat(5, 27px);
+  width: 114px;
+  grid-template-columns: repeat(4, 27px);
   gap: 2px;
 }
 

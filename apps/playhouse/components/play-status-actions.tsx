@@ -13,11 +13,11 @@ import type {
 import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
 import { gmailThreadUrl, usablePlayUrl } from "../domain/play-display";
 
-function DoneIcon() {
+export function DoneIcon() {
   return <span aria-hidden="true">✓</span>;
 }
 
-function TrashIcon() {
+export function TrashIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 20 20">
       <path d="M6.5 6.5v8m3.5-8v8m3.5-8v8M4.5 4.5h11m-7-2h3m-6 2 .7 12h7.6l.7-12" />
@@ -25,7 +25,7 @@ function TrashIcon() {
   );
 }
 
-function GmailIcon() {
+export function GmailIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 20 20">
       <path d="M3 5.5 10 11l7-5.5M3 5.5v9h14v-9" />
@@ -33,7 +33,7 @@ function GmailIcon() {
   );
 }
 
-function BrowserIcon() {
+export function BrowserIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 20 20">
       <circle cx="10" cy="10" r="7" />
@@ -43,9 +43,62 @@ function BrowserIcon() {
   );
 }
 
-export function PlayStatusActions({ play }: { play: PlayListItem }) {
+export function PlayInfo({ play }: { play: PlayListItem }) {
   const infoDialogRef = useRef<HTMLDialogElement>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
+  const playJson = JSON.stringify(play, null, 2);
+
+  async function copyPlayJson() {
+    try {
+      await navigator.clipboard.writeText(playJson);
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("error");
+    }
+  }
+
+  return (
+    <>
+      <button
+        aria-label="Play information"
+        className="rowIconButton infoButton editPlayInfo"
+        onClick={() => infoDialogRef.current?.showModal()}
+        title="View Play JSON"
+        type="button"
+      >
+        <span aria-hidden="true" className="infoGlyph">i</span>
+      </button>
+      <dialog className="playInfoDialog" ref={infoDialogRef}>
+        <div className="playInfoHeader">
+          <strong>Play JSON</strong>
+          <div className="playInfoHeaderActions">
+            <button className="playInfoTextButton" onClick={copyPlayJson} type="button">
+              {copyStatus === "copied"
+                ? "Copied"
+                : copyStatus === "error"
+                  ? "Copy failed"
+                  : "Copy"}
+            </button>
+            <button
+              aria-label="Close Play information"
+              className="playInfoTextButton"
+              onClick={() => {
+                infoDialogRef.current?.close();
+                setCopyStatus("idle");
+              }}
+              type="button"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+        <pre>{playJson}</pre>
+      </dialog>
+    </>
+  );
+}
+
+export function PlayStatusActions({ play }: { play: PlayListItem }) {
   const [doneState, doneAction, donePending] = useActionState(
     markPlayDone,
     INITIAL_PLAY_MUTATION_STATE,
@@ -61,17 +114,7 @@ export function PlayStatusActions({ play }: { play: PlayListItem }) {
       : trashState.status === "error"
         ? trashState.message
         : null;
-  const playJson = JSON.stringify(play, null, 2);
   const playUrl = usablePlayUrl(play.url);
-
-  async function copyPlayJson() {
-    try {
-      await navigator.clipboard.writeText(playJson);
-      setCopyStatus("copied");
-    } catch {
-      setCopyStatus("error");
-    }
-  }
 
   return (
     <div className="statusActionArea">
@@ -100,15 +143,6 @@ export function PlayStatusActions({ play }: { play: PlayListItem }) {
             {trashPending ? <span aria-hidden="true">…</span> : <TrashIcon />}
           </button>
         </form>
-        <button
-          aria-label="Play information"
-          className="rowIconButton infoButton"
-          onClick={() => infoDialogRef.current?.showModal()}
-          title="View Play JSON"
-          type="button"
-        >
-          <span aria-hidden="true" className="infoGlyph">i</span>
-        </button>
         {play.gmailThreadId ? (
           <a
             aria-label="Open Gmail thread"
@@ -138,36 +172,6 @@ export function PlayStatusActions({ play }: { play: PlayListItem }) {
           <span aria-hidden="true" className="rowActionPlaceholder" />
         )}
       </div>
-      <dialog className="playInfoDialog" ref={infoDialogRef}>
-        <div className="playInfoHeader">
-          <strong>Play JSON</strong>
-          <div className="playInfoHeaderActions">
-            <button
-              className="playInfoTextButton"
-              onClick={copyPlayJson}
-              type="button"
-            >
-              {copyStatus === "copied"
-                ? "Copied"
-                : copyStatus === "error"
-                  ? "Copy failed"
-                  : "Copy"}
-            </button>
-            <button
-              aria-label="Close Play information"
-              className="playInfoTextButton"
-              onClick={() => {
-                infoDialogRef.current?.close();
-                setCopyStatus("idle");
-              }}
-              type="button"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-        <pre>{playJson}</pre>
-      </dialog>
       {errorMessage ? (
         <p className="rowError" role="alert">
           {errorMessage}

@@ -119,13 +119,37 @@ test("Edit updates title and URL while preserving Duration and Place", async ({ 
     compactRow.getByRole("button", { exact: true, name: "Done" }),
   ).toBeVisible();
   await expect(compactRow.getByRole("button", { name: "Trash" })).toBeVisible();
-  await expect(compactRow.getByRole("button", { name: "Play information" })).toBeVisible();
-  await expect(compactRow.locator(".statusActions > *")).toHaveCount(5);
+  await expect(compactRow.getByRole("button", { name: "Play information" })).toHaveCount(0);
+  await expect(compactRow.locator(".statusActions > *")).toHaveCount(4);
   await expect(compactRow.getByRole("link", { name: "Open Play URL" })).toHaveAttribute(
     "href",
     "https://example.com/original",
   );
-  const { form } = await openEditPlay(auth.page, "Before edit");
+  const gridHeader = auth.page.locator(".playGridHeader");
+  await expect(gridHeader.getByText("Assignee", { exact: true })).toBeVisible();
+  await expect(gridHeader.getByText("Description", { exact: true })).toBeVisible();
+  await expect(gridHeader.getByText("Branch", { exact: true })).toBeVisible();
+  await expect(gridHeader.getByRole("columnheader", { name: "Done" })).toBeVisible();
+  await expect(gridHeader.getByRole("columnheader", { name: "Trash" })).toBeVisible();
+  await expect(gridHeader.getByRole("columnheader", { name: "Gmail" })).toBeVisible();
+  await expect(gridHeader.getByRole("columnheader", { name: "URL" })).toBeVisible();
+  expect(await gridHeader.evaluate((header) => getComputedStyle(header).gridTemplateColumns))
+    .toBe(await compactRow.locator(".playRowLine").evaluate(
+      (row) => getComputedStyle(row).gridTemplateColumns,
+    ));
+  const { disclosure, form } = await openEditPlay(auth.page, "Before edit");
+
+  const infoButton = disclosure.getByRole("button", { name: "Play information" });
+  await expect(infoButton).toBeVisible();
+  expect(await infoButton.evaluate((button) =>
+    button.previousElementSibling?.getAttribute("data-testid")
+  )).toBe("play-title");
+  await infoButton.click();
+  const infoDialog = disclosure.locator(".playInfoDialog");
+  await expect(infoDialog).toBeVisible();
+  await expect(infoDialog.locator("pre")).toContainText('"title": "Before edit"');
+  await expect(infoDialog.getByRole("button", { name: "Copy" })).toBeVisible();
+  await infoDialog.getByRole("button", { name: "Close Play information" }).click();
 
   await expect(form.getByLabel("Duration (minutes)")).toHaveValue("30");
   await expect(form.locator('select[name="place"]')).toHaveValue("office");
@@ -189,7 +213,7 @@ test("global search shows standard rows and clearing restores the current view",
   await expect(result.getByTestId("play-destination")).toBeVisible();
   await expect(result.getByRole("button", { name: "Done" })).toBeVisible();
   await expect(result.getByRole("button", { name: "Trash" })).toBeVisible();
-  await expect(result.getByRole("button", { name: "Play information" })).toBeVisible();
+  await expect(result.getByRole("button", { name: "Play information" })).toHaveCount(0);
   await expect(result.locator(".playTypeMarker--headline")).toBeVisible();
 
   await search.fill("no matching play text");
@@ -284,8 +308,8 @@ test("grid font setting updates immediately and persists locally", async ({ auth
   )).toBe("13");
   await expect(row.getByRole("button", { exact: true, name: "Done" })).toBeVisible();
   await expect(row.getByRole("button", { name: "Trash" })).toBeVisible();
-  await expect(row.getByRole("button", { name: "Play information" })).toBeVisible();
-  await expect(row.locator(".statusActions > *")).toHaveCount(5);
+  await expect(row.getByRole("button", { name: "Play information" })).toHaveCount(0);
+  await expect(row.locator(".statusActions > *")).toHaveCount(4);
 
   await auth.page.reload();
   await expect(playRow(auth.page, "Resizable grid Play")).toHaveCSS("font-size", "13px");

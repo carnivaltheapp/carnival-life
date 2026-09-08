@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  useMemo,
   useRef,
   useState,
   useTransition,
@@ -34,6 +35,10 @@ import {
   sidebarSectionForView,
 } from "../domain/playhouse-navigation";
 import { togglePlaySelection } from "../domain/play-selection";
+import {
+  sortPlaysForGrid,
+  type PlayGridSort,
+} from "../domain/play-grid-sort";
 import { playVisualForPlay } from "../domain/play-visual";
 import { reminderContextDate } from "../domain/reminder";
 import { AccountMenu } from "./account-menu";
@@ -41,7 +46,13 @@ import { BrowserTimeZone } from "./browser-time-zone";
 import { useGridFontSizePreference } from "./grid-settings";
 import { PlayForm } from "./play-form";
 import { PlaySearch } from "./play-search";
-import { PlayStatusActions } from "./play-status-actions";
+import {
+  BrowserIcon,
+  DoneIcon,
+  GmailIcon,
+  PlayStatusActions,
+  TrashIcon,
+} from "./play-status-actions";
 
 export type UserIdentity = {
   displayName: string;
@@ -68,6 +79,43 @@ function selectedViewIdentity(selectedView: SelectedView) {
     : selectedView.kind === "calendar"
       ? `calendar:${selectedView.key}:${selectedView.startDate}`
       : `all:${selectedView.defaultDate}`;
+}
+
+function GridSortHeader({
+  column,
+  label,
+  onSort,
+  sort,
+}: {
+  column: PlayGridSort["column"];
+  label: string;
+  onSort: (sort: PlayGridSort) => void;
+  sort: PlayGridSort | null;
+}) {
+  return (
+    <div
+      aria-sort={sort?.column === column
+        ? sort.direction === "asc" ? "ascending" : "descending"
+        : "none"}
+      className="playGridSortHeader"
+      role="columnheader"
+    >
+      <span>{label}</span>
+      <span className="playGridSortControls">
+        {(["asc", "desc"] as const).map((direction) => (
+          <button
+            aria-label={`Sort ${label} ${direction === "asc" ? "ascending" : "descending"}`}
+            aria-pressed={sort?.column === column && sort.direction === direction}
+            key={direction}
+            onClick={() => onSort({ column, direction })}
+            type="button"
+          >
+            {direction === "asc" ? "↑" : "↓"}
+          </button>
+        ))}
+      </span>
+    </div>
+  );
 }
 
 export function PlayhouseShell(props: PlayhouseShellProps) {
@@ -99,6 +147,7 @@ function PlayhouseShellView({
   const [draggedIds, setDraggedIds] = useState<string[]>([]);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [gridSort, setGridSort] = useState<PlayGridSort | null>(null);
   const [movePending, startMove] = useTransition();
   const playCountLabel = `${plays.length} ${plays.length === 1 ? "Play" : "Plays"}`;
   const viewTitle = !searchQuery && selectedView.kind === "calendar" &&
@@ -107,7 +156,8 @@ function PlayhouseShellView({
     : searchQuery
       ? "Search Results"
       : selectedView.label;
-  const visibleIds = plays.map((play) => play.id);
+  const visiblePlays = useMemo(() => sortPlaysForGrid(plays, gridSort), [gridSort, plays]);
+  const visibleIds = visiblePlays.map((play) => play.id);
   const sidebarDates = rollingCalendarDates(todayDate);
   const showDateInLeadingColumn = Boolean(searchQuery) || usesDateLeadingColumn(selectedView);
   const defaultPlacement =
@@ -468,12 +518,41 @@ function PlayhouseShellView({
           ) : (
             <>
               {moveError ? <p className="moveError" role="alert">{moveError}</p> : null}
+              <div className="playGridHeader" role="row">
+                <div className="playIdentityCell">
+                  <span aria-hidden="true" />
+                  <GridSortHeader
+                    column="assignee"
+                    label="Assignee"
+                    onSort={setGridSort}
+                    sort={gridSort}
+                  />
+                  <GridSortHeader
+                    column="description"
+                    label="Description"
+                    onSort={setGridSort}
+                    sort={gridSort}
+                  />
+                </div>
+                <GridSortHeader
+                  column="branch"
+                  label="Branch"
+                  onSort={setGridSort}
+                  sort={gridSort}
+                />
+                <div className="statusActions playGridActionHeaders">
+                  <span aria-label="Done" role="columnheader" title="Done"><DoneIcon /></span>
+                  <span aria-label="Trash" role="columnheader" title="Trash"><TrashIcon /></span>
+                  <span aria-label="Gmail" role="columnheader" title="Gmail"><GmailIcon /></span>
+                  <span aria-label="URL" role="columnheader" title="URL"><BrowserIcon /></span>
+                </div>
+              </div>
               <ol
                 aria-busy={movePending}
                 className="playList"
                 aria-label={`Open Plays in ${selectedView.label}`}
               >
-                {plays.map((play) => {
+                {visiblePlays.map((play) => {
                   const playVisual = playVisualForPlay(play);
                   return (
                 <li

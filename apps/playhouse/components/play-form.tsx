@@ -19,7 +19,7 @@ import { playVisualForPlay } from "../domain/play-visual";
 import { NextPlayRelationshipForm } from "./next-play-relationship-form";
 import { applySuccessfulPlaySave } from "./play-form-success";
 import { PlayerCombobox } from "./player-combobox";
-import { PlayWorkflowActions } from "./play-status-actions";
+import { PlayInfo, PlayWorkflowActions } from "./play-status-actions";
 
 const PLACE_OPTIONS = ["office", "outside", "any"] as const;
 
@@ -130,6 +130,7 @@ export function PlayForm({
       >
         {isEditing ? play?.title : <span aria-hidden="true">+</span>}
       </summary>
+      {play ? <PlayInfo play={play} /> : null}
       <form action={formAction} className="playForm" noValidate>
         {play ? <input name="playId" type="hidden" value={play.id} /> : null}
         <input name="reminderContextDate" type="hidden" value={reminderContextDate} />
