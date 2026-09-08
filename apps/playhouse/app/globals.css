@@ -847,19 +847,23 @@ h1 {
   box-shadow: 0 -4px 0 var(--play-rank-foreground);
 }
 
-.playDragPreview {
+.playDragPreviewHost {
   position: fixed;
   z-index: 9999;
   top: -10000px;
   left: -10000px;
+  pointer-events: none;
+}
+
+.playDragPreview {
+  position: relative;
   overflow: hidden;
-  min-width: 0;
   pointer-events: none;
   opacity: 0.82;
-  border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 8px;
+  outline: 1px solid rgba(255, 255, 255, 0.72);
   box-shadow: 0 14px 32px rgba(33, 25, 47, 0.3);
-  transform: scale(1.01);
+  transform: scale(1.005);
 }
 
 .playDragPreview .playRowLine {

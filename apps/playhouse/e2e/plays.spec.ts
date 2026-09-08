@@ -229,7 +229,11 @@ test("full-row drag uses a row preview while controls remain non-draggable", asy
     const nativeSetDragImage = DataTransfer.prototype.setDragImage;
     DataTransfer.prototype.setDragImage = function setDragImage(image, x, y) {
       sessionStorage.setItem("playhouse-drag-preview", JSON.stringify({
+        columns: getComputedStyle(image.querySelector(".playRowLine")!).gridTemplateColumns,
+        fontSize: getComputedStyle(image).fontSize,
+        fontWeight: getComputedStyle(image).fontWeight,
         height: (image as HTMLElement).offsetHeight,
+        lineHeight: getComputedStyle(image).lineHeight,
         opacity: getComputedStyle(image).opacity,
         text: image.textContent,
         width: (image as HTMLElement).offsetWidth,
@@ -240,11 +244,24 @@ test("full-row drag uses a row preview while controls remain non-draggable", asy
     };
   });
   await auth.page.goto("/");
+  await auth.page.evaluate(
+    (storageKey) => localStorage.setItem(storageKey, "16"),
+    GRID_FONT_SIZE_STORAGE_KEY,
+  );
+  await auth.page.reload();
   await createPlay(auth.page, "First drag target");
   await createPlay(auth.page, "Second draggable Play", { url: "https://example.com" });
 
   const first = playRow(auth.page, "First drag target");
   const second = playRow(auth.page, "Second draggable Play");
+  const source = await second.evaluate((row) => ({
+    columns: getComputedStyle(row.querySelector(".playRowLine")!).gridTemplateColumns,
+    fontSize: getComputedStyle(row).fontSize,
+    fontWeight: getComputedStyle(row).fontWeight,
+    height: (row as HTMLElement).offsetHeight,
+    lineHeight: getComputedStyle(row).lineHeight,
+    width: (row as HTMLElement).offsetWidth,
+  }));
   await expect(second).toHaveAttribute("draggable", "true");
   await second.getByTestId("play-title").dragTo(first);
 
@@ -253,7 +270,11 @@ test("full-row drag uses a row preview while controls remain non-draggable", asy
   );
   const preview = await auth.page.evaluate(() =>
     JSON.parse(sessionStorage.getItem("playhouse-drag-preview") ?? "null") as {
+      columns: string;
+      fontSize: string;
+      fontWeight: string;
       height: number;
+      lineHeight: string;
       opacity: string;
       text: string;
       width: number;
@@ -261,8 +282,14 @@ test("full-row drag uses a row preview while controls remain non-draggable", asy
   );
   expect(preview).toMatchObject({ opacity: "0.82" });
   expect(preview?.text).toContain("Second draggable Play");
-  expect(preview?.height).toBeGreaterThan(0);
-  expect(preview?.width).toBeGreaterThan(0);
+  expect(preview).toMatchObject({
+    columns: source.columns,
+    fontSize: source.fontSize,
+    fontWeight: source.fontWeight,
+    height: source.height,
+    lineHeight: source.lineHeight,
+    width: source.width,
+  });
 
   for (const control of [
     second.getByRole("button", { name: /Select .* Play/ }),

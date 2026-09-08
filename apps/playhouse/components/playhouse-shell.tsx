@@ -148,6 +148,7 @@ function PlayhouseShellView({
   const gridFontSize = useGridFontSizePreference();
   const datePickerRef = useRef<HTMLInputElement>(null);
   const dragOriginAllowedRef = useRef(true);
+  const dragPreviewHostRef = useRef<HTMLDivElement>(null);
   const dragPreviewRef = useRef<HTMLElement | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [sidebarSection, setSidebarSection] = useState(() =>
@@ -220,25 +221,28 @@ function PlayhouseShellView({
     }
 
     const row = event.currentTarget;
+    const previewHost = dragPreviewHostRef.current;
+    if (!previewHost) {
+      event.preventDefault();
+      return;
+    }
     const bounds = row.getBoundingClientRect();
-    const previewWidth = Math.min(bounds.width, window.innerWidth - 16);
+    const rowStyle = getComputedStyle(row);
     const preview = row.cloneNode(true) as HTMLElement;
     preview.classList.add("playDragPreview");
     preview.dataset.dragPreview = "true";
-    preview.style.width = `${previewWidth}px`;
+    preview.style.setProperty("--play-grid-font-size", rowStyle.fontSize);
+    preview.style.width = `${bounds.width}px`;
     preview.style.height = `${bounds.height}px`;
-    document.body.append(preview);
     dragPreviewRef.current?.remove();
+    previewHost.replaceChildren(preview);
     dragPreviewRef.current = preview;
+    preview.getBoundingClientRect();
     event.dataTransfer.setDragImage(
       preview,
-      Math.min(Math.max(event.clientX - bounds.left, 0), previewWidth),
+      Math.min(Math.max(event.clientX - bounds.left, 0), bounds.width),
       Math.min(Math.max(event.clientY - bounds.top, 0), bounds.height),
     );
-    requestAnimationFrame(() => {
-      preview.remove();
-      if (dragPreviewRef.current === preview) dragPreviewRef.current = null;
-    });
 
     const ids = selectedIds.has(playId)
       ? visibleIds.filter((id) => selectedIds.has(id))
@@ -290,6 +294,7 @@ function PlayhouseShellView({
   return (
     <main className="workspace">
       <BrowserTimeZone />
+      <div aria-hidden="true" className="playDragPreviewHost" ref={dragPreviewHostRef} />
       <header className="appHeader">
         <div className="headerBrandArea">
           <Link className="brand" href="/?view=today" aria-label="Carnival PlayHouse home">
