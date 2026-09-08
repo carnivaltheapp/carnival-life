@@ -373,7 +373,7 @@ a {
   cursor: crosshair;
 }
 
-.regionDragBuildMarker {
+.deploymentBuildMarker {
   position: fixed;
   z-index: 1300;
   right: 6px;
