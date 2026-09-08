@@ -1116,16 +1116,24 @@ h1 {
   border-radius: 18px;
   background: #fffdfa;
   box-shadow: 0 24px 70px rgba(48, 29, 83, 0.22);
-  grid-template-columns: minmax(0, auto) 27px 1fr;
+  grid-template-columns: 1fr;
   align-items: center;
 }
 
 .editDisclosure[open] > summary {
-  width: auto;
-  margin: 9px 0 0 12px;
-  padding: 4px 3px;
-  font-size: 0.82rem;
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: 0;
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  padding: 0;
   text-decoration: none;
+}
+
+.editDisclosure[open] > summary .playTitleText {
+  display: none;
 }
 
 .editPlayInfo {
@@ -1134,7 +1142,8 @@ h1 {
 
 .editDisclosure[open] > .editPlayInfo {
   display: grid;
-  margin: 9px 0 0 4px;
+  margin: 7px 0 0 8px;
+  justify-self: start;
 }
 
 .editDisclosure[open] > .playForm,

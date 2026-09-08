@@ -128,7 +128,9 @@ export function PlayForm({
         data-testid={isEditing ? "play-title" : undefined}
         title={isEditing ? undefined : "New Play"}
       >
-        {isEditing ? play?.title : <span aria-hidden="true">+</span>}
+        {isEditing
+          ? <span className="playTitleText">{play?.title}</span>
+          : <span aria-hidden="true">+</span>}
       </summary>
       {play ? <PlayInfo play={play} /> : null}
       <form action={formAction} className="playForm" noValidate>
