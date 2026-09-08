@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   beginRegionSelection,
+  regionSelectionPlayIdAtPoint,
   togglePlaySelection,
   touchRegionSelection,
 } from "./play-selection";
@@ -59,5 +60,17 @@ describe("Play multi-selection", () => {
     expect([...gesture.selectedIds]).toEqual([]);
     expect(touchRegionSelection(gesture, "b")).toBe(true);
     expect([...gesture.selectedIds]).toEqual(["b"]);
+  });
+
+  it("hit-tests the stable Play row ID from pointer viewport coordinates", () => {
+    const closest = vi.fn().mockReturnValue({ dataset: { playRowId: "play-2" } });
+    const elementFromPoint = vi.fn().mockReturnValue({ closest });
+    expect(regionSelectionPlayIdAtPoint(
+      { elementFromPoint } as unknown as Pick<Document, "elementFromPoint">,
+      140,
+      220,
+    )).toBe("play-2");
+    expect(elementFromPoint).toHaveBeenCalledWith(140, 220);
+    expect(closest).toHaveBeenCalledWith("[data-play-row-id]");
   });
 });

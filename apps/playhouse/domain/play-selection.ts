@@ -42,3 +42,13 @@ export function touchRegionSelection(gesture: RegionSelectionGesture, playId: st
   else gesture.selectedIds.add(playId);
   return true;
 }
+
+export function regionSelectionPlayIdAtPoint(
+  documentRoot: Pick<Document, "elementFromPoint">,
+  clientX: number,
+  clientY: number,
+) {
+  return documentRoot.elementFromPoint(clientX, clientY)
+    ?.closest<HTMLElement>("[data-play-row-id]")
+    ?.dataset.playRowId ?? null;
+}

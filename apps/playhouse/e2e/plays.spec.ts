@@ -146,19 +146,37 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
+  await expect(auth.page.getByText("REGION-DRAG-FIX-3", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
+  const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');
+  await expect(selectionSurface).toBeVisible();
   const panelBox = await panel.boundingBox();
   const first = playRow(auth.page, "Region Headline One");
   const second = playRow(auth.page, "Region Headline Two");
   const appointment = playRow(auth.page, "Region Appointment");
   const firstBox = await first.boundingBox();
   const secondBox = await second.boundingBox();
-  if (!panelBox || !firstBox || !secondBox) throw new Error("Play grid was not measurable.");
+  const appointmentBox = await appointment.boundingBox();
+  if (!panelBox || !firstBox || !secondBox || !appointmentBox) {
+    throw new Error("Play grid was not measurable.");
+  }
 
-  await auth.page.mouse.move(panelBox.x + panelBox.width / 2, panelBox.y + panelBox.height - 8);
+  const blankPoint = {
+    x: panelBox.x + panelBox.width / 2,
+    y: panelBox.y + panelBox.height - 8,
+  };
+  expect(await auth.page.evaluate(({ x, y }) =>
+    document.elementFromPoint(x, y)?.closest(".playList, .playRow") === null,
+  blankPoint)).toBe(true);
+  await auth.page.mouse.move(blankPoint.x, blankPoint.y);
   await auth.page.mouse.down();
   await auth.page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + secondBox.height / 2);
+  await auth.page.mouse.move(firstBox.x + firstBox.width / 2, firstBox.y + firstBox.height / 2);
+  await auth.page.mouse.move(
+    appointmentBox.x + appointmentBox.width / 2,
+    appointmentBox.y + appointmentBox.height / 2,
+  );
   await auth.page.mouse.move(firstBox.x + firstBox.width / 2, firstBox.y + firstBox.height / 2);
   await auth.page.mouse.up();
 
@@ -175,6 +193,20 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   await expect(first).toHaveAttribute("data-selected", "true");
   await appointment.click({ button: "right" });
   await expect(auth.page.getByRole("menu", { name: "Bulk Play actions" })).toHaveCount(0);
+
+  await auth.page.reload();
+  await auth.page.mouse.move(firstBox.x + firstBox.width / 2, firstBox.y + firstBox.height / 2);
+  await auth.page.mouse.down();
+  await auth.page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + secondBox.height / 2);
+  await auth.page.mouse.up();
+  await expect(playRow(auth.page, "Region Headline One")).not.toHaveAttribute(
+    "data-selected",
+    "true",
+  );
+  await expect(playRow(auth.page, "Region Headline Two")).not.toHaveAttribute(
+    "data-selected",
+    "true",
+  );
 });
 
 test("right-click bulk menu changes selected eligible Plays without a page refresh", async ({ auth }) => {

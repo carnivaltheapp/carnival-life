@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -10,7 +11,7 @@ import {
   type CSSProperties,
   type DragEvent,
   type MouseEvent,
-  type PointerEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 
 import { bulkUpdatePlays, repositionPlays } from "../app/plays/actions";
@@ -37,6 +38,7 @@ import {
 } from "../domain/playhouse-navigation";
 import {
   beginRegionSelection,
+  regionSelectionPlayIdAtPoint,
   togglePlaySelection,
   touchRegionSelection,
   type RegionSelectionGesture,
@@ -163,7 +165,11 @@ function PlayhouseShellView({
   const dragOriginAllowedRef = useRef(true);
   const dragPreviewHostRef = useRef<HTMLDivElement>(null);
   const dragPreviewRef = useRef<HTMLElement | null>(null);
-  const regionSelectionRef = useRef<(RegionSelectionGesture & { pointerId: number }) | null>(null);
+  const regionSelectionRef = useRef<(RegionSelectionGesture & {
+    owner: HTMLElement;
+    pointerId: number;
+  }) | null>(null);
+  const eligiblePlayIdsRef = useRef<ReadonlySet<string>>(new Set());
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [sidebarSection, setSidebarSection] = useState(() =>
     sidebarSectionForView(selectedView.kind)
@@ -197,6 +203,9 @@ function PlayhouseShellView({
   const eligiblePlayIds = useMemo(() => new Set(
     localPlays.filter(isBulkSelectablePlay).map((play) => play.id),
   ), [localPlays]);
+  useEffect(() => {
+    eligiblePlayIdsRef.current = eligiblePlayIds;
+  }, [eligiblePlayIds]);
   const eligibleVisibleIds = visibleIds.filter((id) => eligiblePlayIds.has(id));
   const sidebarDates = rollingCalendarDates(todayDate);
   const showDateInLeadingColumn = Boolean(searchQuery) || usesDateLeadingColumn(selectedView);
@@ -241,7 +250,7 @@ function PlayhouseShellView({
     setSelectionAnchor(playId);
   }
 
-  function rememberDragOrigin(event: PointerEvent<HTMLElement>) {
+  function rememberDragOrigin(event: ReactPointerEvent<HTMLElement>) {
     dragOriginAllowedRef.current = !isInteractiveDragOrigin(event.target);
   }
 
@@ -289,42 +298,69 @@ function PlayhouseShellView({
     event.dataTransfer.setData("text/plain", ids.join(","));
   }
 
-  function beginRegionDrag(event: PointerEvent<HTMLElement>) {
+  function beginRegionDrag(event: ReactPointerEvent<HTMLElement>) {
     if (
       event.button !== 0 ||
       !(event.target instanceof Element) ||
       event.target.closest(
-        ".playRow, .playGridHeader, button, a, input, select, textarea, details, summary",
+        ".sidebar, .playList, .playGridHeader, .playRow, button, a, input, select, " +
+        "textarea, details, summary, [role='menu']",
       )
     ) return;
     regionSelectionRef.current = {
       ...beginRegionSelection(selectedIds),
+      owner: event.currentTarget,
       pointerId: event.pointerId,
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
+    event.currentTarget.dataset.regionSelecting = "true";
     event.preventDefault();
   }
 
-  function continueRegionDrag(event: PointerEvent<HTMLElement>) {
-    const gesture = regionSelectionRef.current;
-    if (!gesture || gesture.pointerId !== event.pointerId) return;
-    const row = document.elementFromPoint(event.clientX, event.clientY)
-      ?.closest<HTMLElement>("[data-play-id]");
-    const playId = row?.dataset.playId;
-    if (!playId || !eligiblePlayIds.has(playId)) return;
-    if (touchRegionSelection(gesture, playId)) {
-      setSelectedIds(new Set(gesture.selectedIds));
-      setSelectionAnchor(playId);
+  useEffect(() => {
+    function continueRegionDrag(event: PointerEvent) {
+      const gesture = regionSelectionRef.current;
+      if (!gesture || gesture.pointerId !== event.pointerId) return;
+      const playId = regionSelectionPlayIdAtPoint(
+        document,
+        event.clientX,
+        event.clientY,
+      );
+      if (!playId || !eligiblePlayIdsRef.current.has(playId)) return;
+      if (touchRegionSelection(gesture, playId)) {
+        setSelectedIds(new Set(gesture.selectedIds));
+        setSelectionAnchor(playId);
+      }
+      event.preventDefault();
     }
-  }
 
-  function endRegionDrag(event: PointerEvent<HTMLElement>) {
-    if (regionSelectionRef.current?.pointerId !== event.pointerId) return;
-    regionSelectionRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
+    function endRegionDrag(event: PointerEvent) {
+      const gesture = regionSelectionRef.current;
+      if (!gesture || gesture.pointerId !== event.pointerId) return;
+      regionSelectionRef.current = null;
+      delete gesture.owner.dataset.regionSelecting;
     }
-  }
+
+    function endRegionDragOnBlur() {
+      const gesture = regionSelectionRef.current;
+      if (!gesture) return;
+      delete gesture.owner.dataset.regionSelecting;
+      regionSelectionRef.current = null;
+    }
+
+    window.addEventListener("pointermove", continueRegionDrag, { passive: false });
+    window.addEventListener("pointerup", endRegionDrag);
+    window.addEventListener("pointercancel", endRegionDrag);
+    window.addEventListener("blur", endRegionDragOnBlur);
+    return () => {
+      window.removeEventListener("pointermove", continueRegionDrag);
+      window.removeEventListener("pointerup", endRegionDrag);
+      window.removeEventListener("pointercancel", endRegionDrag);
+      window.removeEventListener("blur", endRegionDragOnBlur);
+      const gesture = regionSelectionRef.current;
+      if (gesture) delete gesture.owner.dataset.regionSelecting;
+      regionSelectionRef.current = null;
+    };
+  }, []);
 
   function openBulkMenu(playId: string, event: MouseEvent<HTMLLIElement>) {
     if (!eligiblePlayIds.has(playId)) return;
@@ -435,6 +471,7 @@ function PlayhouseShellView({
     <main className="workspace">
       <BrowserTimeZone />
       <div aria-hidden="true" className="playDragPreviewHost" ref={dragPreviewHostRef} />
+      <span className="regionDragBuildMarker">REGION-DRAG-FIX-3</span>
       <header className="appHeader">
         <div className="headerBrandArea">
           <Link className="brand" href="/?view=today" aria-label="Carnival PlayHouse home">
@@ -479,7 +516,11 @@ function PlayhouseShellView({
         </div>
       </header>
 
-      <div className="workspaceBody">
+      <div
+        className="workspaceBody"
+        data-playhouse-selection-surface="true"
+        onPointerDown={beginRegionDrag}
+      >
         <aside className="sidebar" aria-label="Play destinations">
           <nav className="destinationNav">
             <div aria-label="Navigation section" className="sidebarSectionToggle" role="group">
@@ -658,10 +699,6 @@ function PlayhouseShellView({
           className="playPanel"
           aria-labelledby="view-title"
           style={{ "--play-grid-font-size": `${gridFontSize}px` } as CSSProperties}
-          onPointerCancel={endRegionDrag}
-          onPointerDown={beginRegionDrag}
-          onPointerMove={continueRegionDrag}
-          onPointerUp={endRegionDrag}
         >
           {dataError ? (
             <div className="emptyState" role="alert">
@@ -732,7 +769,7 @@ function PlayhouseShellView({
                   data-drop-target={dropTarget === `play:${play.id}` || undefined}
                   data-selected={selectedIds.has(play.id) || undefined}
                   data-testid="play-row"
-                  data-play-id={play.id}
+                  data-play-row-id={play.id}
                   key={play.id}
                   draggable={!searchQuery && selectedIds.size === 0}
                   onClickCapture={(event) => {
