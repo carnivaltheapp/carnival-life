@@ -181,6 +181,7 @@ export async function listGoogleCalendarEvents({
   const events: GoogleCalendarEvent[] = [];
   const seenPageTokens = new Set<string>();
   let pageToken: string | null = null;
+  let pages = 0;
 
   do {
     const url = new URL(
@@ -203,6 +204,7 @@ export async function listGoogleCalendarEvents({
     if (!response.ok) throw new GoogleCalendarEventsApiError(response.status);
 
     const page = (await response.json()) as GoogleEventsListResponse;
+    pages += 1;
     events.push(...(page.items ?? []));
     pageToken = text(page.nextPageToken);
     if (pageToken && seenPageTokens.has(pageToken)) {
@@ -211,5 +213,5 @@ export async function listGoogleCalendarEvents({
     if (pageToken) seenPageTokens.add(pageToken);
   } while (pageToken);
 
-  return events;
+  return { events, pages };
 }

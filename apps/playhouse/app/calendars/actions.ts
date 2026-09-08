@@ -258,8 +258,11 @@ export async function syncGoogleAppointments(
       });
     }
     revalidatePath("/");
+    const changes = result.imported + result.updated + result.inactivated;
     return {
-      message: `${result.imported} imported, ${result.updated} updated, ${result.inactivated} cancelled${result.failed ? `, ${result.failed} failed` : ""}.`,
+      message: changes === 0 && result.failed === 0
+        ? "Appointments up to date."
+        : `Appointments synced — ${result.imported} new, ${result.updated} updated, ${result.inactivated} removed, ${result.unchanged} unchanged${result.failed ? `, ${result.failed} failed` : ""}.`,
       status: result.failed ? "error" : "success",
     };
   } catch (error) {

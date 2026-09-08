@@ -65,7 +65,7 @@ describe("Google Appointment events", () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ items: [{ id: "event-1" }] })),
     );
-    await listGoogleCalendarEvents({
+    const result = await listGoogleCalendarEvents({
       accessToken: "server-token",
       calendarId: "appointments@example.test",
       endDateExclusive: "2026-12-06",
@@ -82,6 +82,36 @@ describe("Google Appointment events", () => {
     expect(url.searchParams.get("timeMax")).toBe("2026-12-06T08:00:00.000Z");
     expect(url.searchParams.get("showDeleted")).toBe("true");
     expect(url.searchParams.get("singleEvents")).toBe("true");
+    expect(url.searchParams.get("orderBy")).toBe("startTime");
+    expect(result).toEqual({ events: [{ id: "event-1" }], pages: 1 });
+  });
+
+  it("reads every Google page exactly once", async () => {
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [{ id: "instance-1" }],
+        nextPageToken: "page-2",
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [{ id: "instance-2" }],
+      })));
+
+    const result = await listGoogleCalendarEvents({
+      accessToken: "server-token",
+      calendarId: "appointments@example.test",
+      endDateExclusive: "2026-12-06",
+      request,
+      startDate: "2026-09-06",
+      timeZone: "America/Los_Angeles",
+    });
+
+    expect(request).toHaveBeenCalledTimes(2);
+    expect((request.mock.calls[0][0] as URL).searchParams.get("pageToken")).toBeNull();
+    expect((request.mock.calls[1][0] as URL).searchParams.get("pageToken")).toBe("page-2");
+    expect(result).toEqual({
+      events: [{ id: "instance-1" }, { id: "instance-2" }],
+      pages: 2,
+    });
   });
 
   it("isolates malformed events in mapping", () => {
