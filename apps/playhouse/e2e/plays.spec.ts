@@ -176,6 +176,29 @@ test("Edit updates title and URL while preserving Duration and Place", async ({ 
   });
 });
 
+test("Edit popup is compact on desktop and viewport-safe on mobile", async ({ auth }) => {
+  await auth.page.goto("/");
+  await createPlay(auth.page, "Responsive edit popup", {
+    url: "https://example.com/a/very/long/path/that/must/not/widen/the-dialog",
+  });
+  const { disclosure, form } = await openEditPlay(auth.page, "Responsive edit popup");
+
+  const desktopBox = await disclosure.boundingBox();
+  expect(desktopBox?.width).toBeLessThanOrEqual(322);
+  await expect(form.getByLabel("Title")).toHaveCSS("min-height", "31px");
+
+  await auth.page.setViewportSize({ height: 700, width: 390 });
+  const mobileBox = await disclosure.boundingBox();
+  expect(mobileBox).not.toBeNull();
+  expect(mobileBox!.x).toBeGreaterThanOrEqual(11);
+  expect(mobileBox!.x + mobileBox!.width).toBeLessThanOrEqual(379);
+  expect(mobileBox!.y).toBeGreaterThanOrEqual(11);
+  expect(mobileBox!.height).toBeLessThanOrEqual(678);
+  expect(await disclosure.evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth)).toBe(true);
+  await form.getByRole("button", { name: "Save changes" }).scrollIntoViewIfNeeded();
+  await expect(form.getByRole("button", { name: "Save changes" })).toBeInViewport();
+});
+
 test("Play moves date to Basket and Basket back to date", async ({ auth }) => {
   await auth.page.goto("/");
   await createPlay(auth.page, "Move both ways");

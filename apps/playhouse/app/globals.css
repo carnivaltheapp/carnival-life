@@ -1105,9 +1105,11 @@ h1 {
   top: 50%;
   left: 50%;
   display: grid;
-  width: min(620px, calc(100vw - 40px));
-  max-height: calc(100vh - 32px);
+  width: min(320px, calc(100vw - 32px));
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
   margin: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   transform: translate(-50%, -50%);
   border: 1px solid var(--line);
@@ -1155,8 +1157,53 @@ h1 {
   box-shadow: none;
 }
 
+.editDisclosure[open] .playForm {
+  padding: 7px;
+  gap: 4px;
+}
+
+.editDisclosure[open] .field {
+  gap: 2px;
+}
+
+.editDisclosure[open] .formRow {
+  gap: 4px;
+}
+
+.editDisclosure[open] .field input,
+.editDisclosure[open] .field select,
+.editDisclosure[open] .field textarea {
+  min-width: 0;
+  min-height: 31px;
+  max-width: 100%;
+  padding: 4px 7px;
+  border-radius: 8px;
+}
+
+.editDisclosure[open] .dateUrlRow input {
+  height: 31px;
+}
+
+.editDisclosure[open] .field textarea {
+  min-height: 34px;
+}
+
+.editDisclosure[open] .formFooter {
+  min-height: 30px;
+  gap: 5px;
+}
+
+.editDisclosure[open] .primaryButton,
+.editDisclosure[open] .secondaryButton {
+  min-height: 31px;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+
 .editDisclosure .relationshipForm {
-  margin: 0 12px 8px;
+  margin: 0 7px 5px;
+  padding: 6px;
+  gap: 4px;
 }
 
 .playForm {
@@ -1631,7 +1678,7 @@ h1 {
 .workflowActions {
   position: relative;
   min-height: 34px;
-  margin: 0 12px 10px;
+  margin: 0 7px 7px;
 }
 
 .workflowActions > form {
@@ -1907,6 +1954,18 @@ h1 {
     width: calc(100vw - 28px);
   }
 
+  .editDisclosure[open] {
+    top: 12px;
+    right: 12px;
+    bottom: auto;
+    left: 12px;
+    width: auto;
+    max-width: none;
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+    transform: none;
+  }
+
   .statusActionArea .rowError {
     text-align: left;
   }
@@ -1914,6 +1973,10 @@ h1 {
   .playForm {
     padding: 13px;
     grid-template-columns: 1fr;
+  }
+
+  .editDisclosure[open] .playForm {
+    padding: 8px;
   }
 
   .formRow {
