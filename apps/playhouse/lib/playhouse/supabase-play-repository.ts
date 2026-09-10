@@ -83,6 +83,22 @@ export class SupabasePlayRepository implements PlayRepository {
     } satisfies PlayListItem;
   }
 
+  async getLifecycleIdentity(playId: string) {
+    const { data, error } = await this.supabase
+      .from("plays")
+      .select("source_type, source_metadata")
+      .eq("id", playId)
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", "open")
+      .maybeSingle();
+    return error || !data
+      ? null
+      : {
+          gmailThreadId: gmailThreadIdFromMetadata(data.source_metadata),
+          sourceType: data.source_type,
+        };
+  }
+
   async list(selectedView?: SelectedView): Promise<RepositoryPlayList> {
     let playQuery = this.supabase
       .from("plays")

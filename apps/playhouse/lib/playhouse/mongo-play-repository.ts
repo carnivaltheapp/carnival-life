@@ -160,6 +160,28 @@ export class MongoPlayRepository implements PlayRepository {
     return (await this.mapTasks([task]))[0] ?? null;
   }
 
+  async getLifecycleIdentity(playId: string) {
+    let filter: Filter<LegacyTaskDocument>;
+    try {
+      filter = {
+        ...mongoActiveFilter(),
+        ...mongoMutationFilter(playId),
+      };
+    } catch {
+      return null;
+    }
+    const task = await this.dependencies.collection.findOne(filter, {
+      projection: { regarding: 1, thread_id: 1 },
+    });
+    if (!task) return null;
+    return {
+      gmailThreadId: typeof task.thread_id === "string" && task.thread_id.trim()
+        ? task.thread_id.trim()
+        : null,
+      sourceType: task.regarding === "email" ? "gmail" as const : "user" as const,
+    };
+  }
+
   async list(selectedView?: SelectedView): Promise<RepositoryPlayList> {
     const filter = !selectedView
       ? mongoActiveFilter()

@@ -33,6 +33,7 @@ export type RepositionPlaysRequest = {
 export interface PlayRepository {
   readonly supportsWorkflows: boolean;
   get(playId: string): Promise<PlayListItem | null>;
+  getLifecycleIdentity(playId: string): Promise<Pick<PlayListItem, "gmailThreadId" | "sourceType"> | null>;
   list(selectedView?: SelectedView): Promise<RepositoryPlayList>;
   reconcileDueReminders(todayDate: string): Promise<boolean>;
   bulkUpdate(playIds: string[], change: BulkPlayChange): Promise<boolean>;

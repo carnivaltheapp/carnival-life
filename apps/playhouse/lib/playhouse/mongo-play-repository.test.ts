@@ -80,6 +80,30 @@ describe("MongoPlayRepository mutations", () => {
     expect(updateOne).not.toHaveBeenCalled();
   });
 
+  it("reads Gmail lifecycle identity without loading unrelated Play fields", async () => {
+    const id = new ObjectId();
+    const findOne = vi.fn().mockResolvedValue({
+      _id: id,
+      regarding: "email",
+      thread_id: " gmail-thread-1 ",
+    });
+
+    await expect(repository({ findOne: findOne as never }).getLifecycleIdentity(
+      id.toHexString(),
+    )).resolves.toEqual({
+      gmailThreadId: "gmail-thread-1",
+      sourceType: "gmail",
+    });
+    expect(findOne).toHaveBeenCalledWith({
+      _id: id,
+      is_active: true,
+      is_deleted: false,
+      user_id: 43,
+    }, {
+      projection: { regarding: 1, thread_id: 1 },
+    });
+  });
+
   it("bulk-updates only selected non-Appointment Plays with scoped targeted sets", async () => {
     const first = new ObjectId();
     const second = new ObjectId();

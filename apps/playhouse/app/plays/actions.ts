@@ -16,6 +16,8 @@ import type { BasketSummary } from "../../domain/play";
 import type { PlayPlacement } from "../../domain/play";
 import type { BulkPlayChange } from "../../domain/play-bulk-change";
 import { reminderContextDate } from "../../domain/reminder";
+import { applyPlayLifecycle } from "../../lib/google/gmail-lifecycle";
+import { unstarGmailPlayThread } from "../../lib/google/gmail-lifecycle.server";
 import { resolvePlayhouseDataSource } from "../../lib/playhouse/data-source";
 import { dateInTimeZone } from "../../lib/playhouse/data";
 import { createPlayRepository } from "../../lib/playhouse/play-repository";
@@ -199,13 +201,29 @@ async function setPlayStatus(
     source: resolvePlayhouseDataSource(),
     supabase: auth.supabase,
   });
-  const saved = await repository.setStatus(playId, status);
+  const play = await repository.getLifecycleIdentity(playId);
+  if (!play) {
+    return errorState("This Play is no longer active. Refresh and try again.");
+  }
+  const lifecycle = await applyPlayLifecycle({
+    gmailThreadId: play.gmailThreadId,
+    setLocalStatus: (nextStatus) => repository.setStatus(playId, nextStatus),
+    sourceType: play.sourceType,
+    status,
+    unstarThread: (threadId) => unstarGmailPlayThread({
+      ownerUserId: auth.userId,
+      supabase: auth.supabase,
+      threadId,
+    }),
+  });
 
-  if (!saved) {
+  if (!lifecycle.success) {
     return errorState(
-      status === "done"
-        ? "This Play could not be marked done. Refresh and try again."
-        : "This Play could not be moved to Trash. Refresh and try again.",
+      lifecycle.message === "The Play could not be updated. Refresh and try again."
+        ? status === "done"
+          ? "This Play could not be marked done. Refresh and try again."
+          : "This Play could not be moved to Trash. Refresh and try again."
+        : lifecycle.message,
     );
   }
 

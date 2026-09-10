@@ -67,3 +67,27 @@ describe("Supabase Reminder reconciliation", () => {
     expect(due.update).not.toHaveBeenCalled();
   });
 });
+
+describe("Supabase Play lifecycle identity", () => {
+  it("loads the owner-scoped open Gmail source and thread identity", async () => {
+    const play = query({
+      data: {
+        source_metadata: { external_ids: { thread_id: "thread-1" } },
+        source_type: "gmail",
+      },
+      error: null,
+    });
+    const from = vi.fn().mockReturnValue(play);
+
+    await expect(new SupabasePlayRepository(
+      { from } as never,
+      "owner-user",
+    ).getLifecycleIdentity("play-1")).resolves.toEqual({
+      gmailThreadId: "thread-1",
+      sourceType: "gmail",
+    });
+    expect(play.eq).toHaveBeenCalledWith("id", "play-1");
+    expect(play.eq).toHaveBeenCalledWith("owner_user_id", "owner-user");
+    expect(play.eq).toHaveBeenCalledWith("status", "open");
+  });
+});
