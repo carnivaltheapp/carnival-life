@@ -57,7 +57,7 @@ function SyncAppointments({ accountId }: { accountId: string }) {
     <form action={action} className="calendarDiscoverForm">
       <input name="googleAccountId" type="hidden" value={accountId} />
       <button disabled={pending} type="submit">
-        {pending ? "Syncing…" : "Sync Appointments"}
+        {pending ? "Syncing…" : "Sync Calendar Inputs"}
       </button>
       {state.message ? (
         <small data-status={state.status} role={state.status === "error" ? "alert" : undefined}>
@@ -137,7 +137,9 @@ export function CalendarSettings({
             {account.displayName && account.email ? <small>{account.email}</small> : null}
             <div className="calendarAccountActions">
               <DiscoverCalendars accountId={account.id} />
-              {account.calendars.some((calendar) => calendar.semanticRole === "appointment") ? (
+              {account.calendars.some((calendar) =>
+                calendar.semanticRole === "appointment" || calendar.semanticRole === "event"
+              ) ? (
                 <SyncAppointments accountId={account.id} />
               ) : null}
             </div>

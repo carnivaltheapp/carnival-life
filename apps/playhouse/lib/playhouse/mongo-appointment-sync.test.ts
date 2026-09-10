@@ -55,6 +55,7 @@ function syncedDocument(overrides: LegacyTaskDocument = {}) {
       end: "2026-09-08T18:45:00.000Z",
       event_id: "event-1",
       event_updated_at: "2026-09-06T18:00:00Z",
+      semantic_role: "appointment",
       start: "2026-09-08T18:00:00.000Z",
       status: "confirmed",
       time_zone: "America/Los_Angeles",

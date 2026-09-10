@@ -5,7 +5,10 @@ import {
   type WithId,
 } from "mongodb";
 
-import type { MappedGoogleAppointment } from "../google/appointment-events";
+import type {
+  GoogleInputCalendarRole,
+  MappedGoogleAppointment,
+} from "../google/appointment-events";
 import {
   legacyPriorityNumber,
   MONGO_LEGACY_USER_ID,
@@ -16,6 +19,7 @@ import {
 export type GoogleAppointmentIdentity = {
   googleAccountId: string;
   googleCalendarId: string;
+  semanticRole?: GoogleInputCalendarRole;
 };
 
 export type AppointmentSyncResult = {
@@ -52,6 +56,7 @@ function googleMetadataSet(
     "carnival_google.end": event.end,
     "carnival_google.event_id": event.eventId,
     "carnival_google.event_updated_at": event.googleUpdatedAt,
+    "carnival_google.semantic_role": identity.semanticRole ?? "appointment",
     "carnival_google.start": event.start,
     "carnival_google.status": event.status,
     "carnival_google.time_zone": event.timeZone,

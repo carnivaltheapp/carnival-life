@@ -54,6 +54,19 @@ describe("Google Appointment events", () => {
     });
   });
 
+  it("uses the Event fallback title without changing actual-time mapping", () => {
+    expect(mapGoogleAppointmentEvent({
+      end: { dateTime: "2026-09-07T21:00:00-07:00" },
+      id: "event-1",
+      start: { dateTime: "2026-09-07T19:00:00-07:00" },
+    }, "America/Los_Angeles", "Untitled Event")).toMatchObject({
+      durationMinutes: 120,
+      end: "2026-09-08T04:00:00.000Z",
+      start: "2026-09-08T02:00:00.000Z",
+      title: "Untitled Event",
+    });
+  });
+
   it("uses a timezone-correct today-through-90-days inclusive window", () => {
     expect(appointmentSyncWindow({
       now: new Date("2026-09-07T06:30:00Z"),

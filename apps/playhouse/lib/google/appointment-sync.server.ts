@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   appointmentSyncWindow,
+  type GoogleInputCalendarRole,
   listGoogleCalendarEvents,
   mapGoogleAppointmentEvent,
 } from "./appointment-events";
@@ -14,7 +15,11 @@ export async function syncAppointmentCalendarsForAccount({
   googleAccountId,
   ownerUserId,
 }: {
-  calendars: Array<{ providerCalendarId: string; timeZone: string }>;
+  calendars: Array<{
+    providerCalendarId: string;
+    semanticRole: GoogleInputCalendarRole;
+    timeZone: string;
+  }>;
   googleAccountId: string;
   ownerUserId: string;
 }) {
@@ -37,8 +42,9 @@ export async function syncAppointmentCalendarsForAccount({
   for (const calendar of calendars) {
     const window = appointmentSyncWindow({ timeZone: calendar.timeZone });
     const calendarStartedAt = Date.now();
-    console.info("[PlayHouse Appointment Sync] calendar fetch start", {
+    console.info("[PlayHouse Calendar Input Sync] calendar fetch start", {
       endDateExclusive: window.endDateExclusive,
+      semanticRole: calendar.semanticRole,
       startDate: window.startDate,
     });
     const googleResult = await listGoogleCalendarEvents({
@@ -52,10 +58,15 @@ export async function syncAppointmentCalendarsForAccount({
       collection,
       endDateExclusive: window.endDateExclusive,
       events: googleResult.events.map((event) =>
-        mapGoogleAppointmentEvent(event, calendar.timeZone)),
+        mapGoogleAppointmentEvent(
+          event,
+          calendar.timeZone,
+          calendar.semanticRole === "event" ? "Untitled Event" : "Untitled Appointment",
+        )),
       identity: {
         googleAccountId,
         googleCalendarId: calendar.providerCalendarId,
+        semanticRole: calendar.semanticRole,
       },
       startDate: window.startDate,
     });
@@ -69,7 +80,7 @@ export async function syncAppointmentCalendarsForAccount({
     totals.mongoWrites += result.mongoWrites;
     totals.unchanged += result.unchanged;
     totals.updated += result.updated;
-    console.info("[PlayHouse Appointment Sync] calendar complete", {
+    console.info("[PlayHouse Calendar Input Sync] calendar complete", {
       durationMs: Date.now() - calendarStartedAt,
       failed: result.failed.length,
       googleEvents: googleResult.events.length,
@@ -79,12 +90,13 @@ export async function syncAppointmentCalendarsForAccount({
       mongoReads: result.mongoReads,
       mongoWriteBatches: result.mongoWriteBatches,
       mongoWrites: result.mongoWrites,
+      semanticRole: calendar.semanticRole,
       unchanged: result.unchanged,
       updated: result.updated,
     });
   }
 
-  console.info("[PlayHouse Appointment Sync] account complete", {
+  console.info("[PlayHouse Calendar Input Sync] account complete", {
     ...totals,
     durationMs: Date.now() - syncStartedAt,
   });

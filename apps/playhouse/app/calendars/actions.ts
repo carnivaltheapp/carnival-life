@@ -205,10 +205,10 @@ export async function syncGoogleAppointments(
       .maybeSingle(),
     auth.supabase
       .from("google_calendars")
-      .select("provider_calendar_id, time_zone")
+      .select("provider_calendar_id, semantic_role, time_zone")
       .eq("google_account_id", googleAccountId)
       .eq("owner_user_id", auth.userId)
-      .eq("semantic_role", "appointment"),
+      .in("semantic_role", ["appointment", "event"]),
     auth.supabase.from("users").select("timezone").eq("id", auth.userId).maybeSingle(),
   ]);
   if (accountResult.error || !accountResult.data) {
@@ -225,13 +225,14 @@ export async function syncGoogleAppointments(
     return errorState("Appointment calendar settings could not be loaded.");
   }
   if (!calendarResult.data.length) {
-    return errorState("No AT_Appointments calendar is configured for this account.");
+    return errorState("No Google input calendar is configured for this account.");
   }
 
   try {
     const result = await syncAppointmentCalendarsForAccount({
       calendars: calendarResult.data.map((calendar) => ({
         providerCalendarId: calendar.provider_calendar_id,
+        semanticRole: calendar.semantic_role as "appointment" | "event",
         timeZone: resolveTimeZone(calendar.time_zone, profileResult.data?.timezone),
       })),
       googleAccountId,
@@ -247,7 +248,7 @@ export async function syncGoogleAppointments(
       .update({
         last_synced_at: new Date().toISOString(),
         sync_error: result.failed
-          ? `${result.failed} Google appointment event(s) could not be synchronized.`
+          ? `${result.failed} Google calendar event(s) could not be synchronized.`
           : null,
       })
       .eq("id", googleAccountId)
@@ -261,8 +262,8 @@ export async function syncGoogleAppointments(
     const changes = result.imported + result.updated + result.inactivated;
     return {
       message: changes === 0 && result.failed === 0
-        ? "Appointments up to date."
-        : `Appointments synced — ${result.imported} new, ${result.updated} updated, ${result.inactivated} removed, ${result.unchanged} unchanged${result.failed ? `, ${result.failed} failed` : ""}.`,
+        ? "Calendar inputs up to date."
+        : `Calendar inputs synced — ${result.imported} new, ${result.updated} updated, ${result.inactivated} removed, ${result.unchanged} unchanged${result.failed ? `, ${result.failed} failed` : ""}.`,
       status: result.failed ? "error" : "success",
     };
   } catch (error) {
@@ -279,7 +280,7 @@ export async function syncGoogleAppointments(
       logCalendarFailure("appointment_sync");
     }
     return errorState(
-      "Appointments could not be synchronized. Reconnect Google if Calendar access was added recently.",
+      "Calendar inputs could not be synchronized. Reconnect Google if Calendar access was added recently.",
     );
   }
 }

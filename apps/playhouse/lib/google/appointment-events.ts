@@ -11,6 +11,8 @@ export type GoogleCalendarEvent = {
   updated?: unknown;
 };
 
+export type GoogleInputCalendarRole = "appointment" | "event";
+
 export type MappedGoogleAppointment = {
   allDay: boolean;
   durationMinutes: number;
@@ -83,6 +85,7 @@ export function appointmentSyncWindow({
 export function mapGoogleAppointmentEvent(
   event: GoogleCalendarEvent,
   calendarTimeZone: string,
+  untitledTitle = "Untitled Appointment",
 ): MappedGoogleAppointment | null {
   const eventId = text(event.id);
   const status = text(event.status) ?? "confirmed";
@@ -100,7 +103,7 @@ export function mapGoogleAppointmentEvent(
       status,
       taskTime: "",
       timeZone: calendarTimeZone,
-      title: text(event.summary) ?? "Untitled Appointment",
+      title: text(event.summary) ?? untitledTitle,
     };
   }
 
@@ -122,7 +125,7 @@ export function mapGoogleAppointmentEvent(
       status,
       taskTime: "",
       timeZone: text(event.start?.timeZone) ?? calendarTimeZone,
-      title: text(event.summary) ?? "Untitled Appointment",
+      title: text(event.summary) ?? untitledTitle,
     };
   }
 
@@ -152,7 +155,7 @@ export function mapGoogleAppointmentEvent(
     status,
     taskTime: start,
     timeZone,
-    title: text(event.summary) ?? "Untitled Appointment",
+    title: text(event.summary) ?? untitledTitle,
   };
 }
 
