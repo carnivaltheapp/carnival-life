@@ -144,6 +144,49 @@ describe("MongoPlayRepository mutations", () => {
     }
   });
 
+  it("flips one Headline to the top Reminder priority with a scoped targeted set", async () => {
+    const id = new ObjectId();
+    const firstReminder = new ObjectId();
+    const findOne = vi.fn().mockResolvedValue({
+      _id: id,
+      task_date: new Date("2026-09-08T00:00:00.000Z"),
+      task_type: "U",
+    });
+    const toArray = vi.fn().mockResolvedValue([{
+      _id: firstReminder,
+      priority_index: "10-00000500",
+      task_type: "S",
+    }]);
+    const find = vi.fn().mockReturnValue({
+      sort: vi.fn().mockReturnValue({ toArray }),
+    });
+    const updateOne = vi.fn().mockResolvedValue({ matchedCount: 1 });
+
+    expect(await repository({
+      find: find as never,
+      findOne: findOne as never,
+      updateOne: updateOne as never,
+    }).flipRank({
+      playId: id.toHexString(),
+      playType: "reminder",
+      reminderDate: "2026-09-08",
+    })).toBe(true);
+
+    expect(updateOne.mock.calls[0][0]).toEqual({
+      _id: id,
+      is_active: true,
+      is_deleted: false,
+      task_type: { $nin: ["A", "S"] },
+      user_id: 43,
+    });
+    expect(updateOne.mock.calls[0][1].$set).toMatchObject({
+      priority_index: "10-000004FF",
+      task_date: new Date("2026-09-08T00:00:00.000Z"),
+      task_type: "S",
+      updated_date: expect.any(Date),
+    });
+  });
+
   it("rejects the entire bulk mutation when an Appointment is present", async () => {
     const appointment = new ObjectId();
     const bulkWrite = vi.fn();

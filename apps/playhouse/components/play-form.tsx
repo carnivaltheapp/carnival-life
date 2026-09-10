@@ -31,6 +31,50 @@ function FieldError({ field, errors }: {
   return message ? <small className="fieldError">{message}</small> : null;
 }
 
+export function ReminderDatePrompt({
+  dialogId,
+  message,
+  minimumDate,
+  onCancel,
+  onChange,
+  onConfirm,
+  value,
+}: {
+  dialogId: string;
+  message: string | null;
+  minimumDate: string;
+  onCancel: () => void;
+  onChange: (value: string) => void;
+  onConfirm: () => void;
+  value: string;
+}) {
+  if (typeof document === "undefined") return null;
+  return createPortal((
+    <div className="reminderDateOverlay" role="presentation">
+      <section
+        aria-labelledby={dialogId}
+        aria-modal="true"
+        className="reminderDatePrompt"
+        role="dialog"
+      >
+        <h2 id={dialogId}>Reminder Date</h2>
+        <input
+          aria-label="Reminder Date"
+          min={minimumDate}
+          onChange={(event) => onChange(event.target.value)}
+          type="date"
+          value={value}
+        />
+        {message ? <small className="fieldError" role="alert">{message}</small> : null}
+        <div className="reminderDateActions">
+          <button className="secondaryButton" onClick={onCancel} type="button">Cancel</button>
+          <button className="primaryButton" onClick={onConfirm} type="button">Set Reminder</button>
+        </div>
+      </section>
+    </div>
+  ), document.body);
+}
+
 export function PlayForm({
   baskets,
   defaultPlacement,
@@ -340,43 +384,20 @@ export function PlayForm({
           ) : null}
         </div>
       </form>
-      {showReminderDate && typeof document !== "undefined" ? createPortal((
-        <div className="reminderDateOverlay" role="presentation">
-          <section
-            aria-labelledby={`reminder-date-title-${play?.id ?? "new"}`}
-            aria-modal="true"
-            className="reminderDatePrompt"
-            role="dialog"
-          >
-            <h2 id={`reminder-date-title-${play?.id ?? "new"}`}>Reminder Date</h2>
-            <input
-              aria-label="Reminder Date"
-              min={reminderContextDate}
-              onChange={(event) => {
-                setReminderDate(event.target.value);
-                setReminderDateMessage(null);
-              }}
-              type="date"
-              value={reminderDate}
-            />
-            {reminderDateMessage ? (
-              <small className="fieldError" role="alert">{reminderDateMessage}</small>
-            ) : null}
-            <div className="reminderDateActions">
-              <button
-                className="secondaryButton"
-                onClick={() => setShowReminderDate(false)}
-                type="button"
-              >
-                Cancel
-              </button>
-              <button className="primaryButton" onClick={confirmReminder} type="button">
-                Set Reminder
-              </button>
-            </div>
-          </section>
-        </div>
-      ), document.body) : null}
+      {showReminderDate ? (
+        <ReminderDatePrompt
+          dialogId={`reminder-date-title-${play?.id ?? "new"}`}
+          message={reminderDateMessage}
+          minimumDate={reminderContextDate}
+          onCancel={() => setShowReminderDate(false)}
+          onChange={(value) => {
+            setReminderDate(value);
+            setReminderDateMessage(null);
+          }}
+          onConfirm={confirmReminder}
+          value={reminderDate}
+        />
+      ) : null}
       {play && supportsWorkflows ? (
         <div className="editWorkflowArea">
           <NextPlayRelationshipForm

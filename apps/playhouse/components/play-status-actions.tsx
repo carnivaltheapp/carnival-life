@@ -43,6 +43,15 @@ export function BrowserIcon() {
   );
 }
 
+export function FlipRankIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20">
+      <path d="M5 6.5A6 6 0 0 1 15.3 5L17 6.7M15 13.5A6 6 0 0 1 4.7 15L3 13.3" />
+      <path d="M17 3.5v3.2h-3.2M3 16.5v-3.2h3.2" />
+    </svg>
+  );
+}
+
 export function PlayInfo({ play }: { play: PlayListItem }) {
   const infoDialogRef = useRef<HTMLDialogElement>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
@@ -98,7 +107,15 @@ export function PlayInfo({ play }: { play: PlayListItem }) {
   );
 }
 
-export function PlayStatusActions({ play }: { play: PlayListItem }) {
+export function PlayStatusActions({
+  flipPending = false,
+  onFlipRank,
+  play,
+}: {
+  flipPending?: boolean;
+  onFlipRank?: () => void;
+  play: PlayListItem;
+}) {
   const [doneState, doneAction, donePending] = useActionState(
     markPlayDone,
     INITIAL_PLAY_MUTATION_STATE,
@@ -107,7 +124,7 @@ export function PlayStatusActions({ play }: { play: PlayListItem }) {
     trashPlay,
     INITIAL_PLAY_MUTATION_STATE,
   );
-  const anyPending = donePending || trashPending;
+  const anyPending = donePending || trashPending || flipPending;
   const errorMessage =
     doneState.status === "error"
       ? doneState.message
@@ -168,6 +185,23 @@ export function PlayStatusActions({ play }: { play: PlayListItem }) {
           >
             <BrowserIcon />
           </a>
+        ) : (
+          <span aria-hidden="true" className="rowActionPlaceholder" />
+        )}
+        {onFlipRank ? (
+          <button
+            aria-label="Flip rank"
+            className="rowIconButton flipRankButton"
+            disabled={anyPending}
+            onClick={(event) => {
+              event.stopPropagation();
+              onFlipRank();
+            }}
+            title="Flip rank"
+            type="button"
+          >
+            {flipPending ? <span aria-hidden="true">…</span> : <FlipRankIcon />}
+          </button>
         ) : (
           <span aria-hidden="true" className="rowActionPlaceholder" />
         )}

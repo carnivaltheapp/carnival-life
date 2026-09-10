@@ -38,6 +38,7 @@ import {
   type MongoContactDisplay,
 } from "./mongo-play-mapping";
 import type {
+  FlipPlayRankRequest,
   PlayRepository,
   RepositoryPlayList,
   RepositionPlaysRequest,
@@ -381,6 +382,57 @@ export class MongoPlayRepository implements PlayRepository {
       }),
     );
     return result.acknowledged;
+  }
+
+  async flipRank({ playId, playType, reminderDate }: FlipPlayRankRequest) {
+    let objectId: ObjectId;
+    try {
+      objectId = new ObjectId(playId);
+    } catch {
+      return false;
+    }
+    const task = await this.dependencies.collection.findOne({
+      ...mongoActiveFilter(),
+      _id: objectId,
+    });
+    if (!task || task.task_type === "A") return false;
+
+    const currentType = mongoPlayType(task.task_type);
+    if (currentType === playType) return false;
+    const preserveReminderDate = playType === "reminder" &&
+      isRealScheduledDateOnOrAfter(task.task_date, reminderDate);
+    const destinationDate = playType === "reminder" && !preserveReminderDate
+      ? new Date(`${reminderDate}T00:00:00.000Z`)
+      : task.task_date;
+    if (!(destinationDate instanceof Date)) return false;
+
+    const destinationTasks = await this.dependencies.collection.find({
+      ...mongoActiveFilter(),
+      _id: { $ne: objectId },
+      task_date: destinationDate,
+      task_type: playType === "reminder" ? "S" : { $nin: ["A", "S"] },
+    }).sort({ priority_index: 1, created_date: 1, _id: 1 }).toArray();
+    const destination = destinationTasks.map((candidate, index) => ({
+      id: candidate._id.toHexString(),
+      order: legacyPriorityNumber(candidate.priority_index, (index + 1) * 0x100),
+    }));
+    const priority = destination.length
+      ? Math.max(0, destination[0].order - 1)
+      : 10 * 0x100000000 + 0x100;
+
+    const result = await this.dependencies.collection.updateOne({
+      ...mongoActiveFilter(),
+      _id: objectId,
+      task_type: playType === "reminder" ? { $nin: ["A", "S"] } : "S",
+    }, {
+      $set: {
+        priority_index: legacyPriorityValue(priority),
+        task_date: destinationDate,
+        task_type: playType === "reminder" ? "S" : "H",
+        updated_date: new Date(),
+      },
+    });
+    return result.matchedCount === 1;
   }
 
   async bulkUpdate(playIds: string[], change: BulkPlayChange) {

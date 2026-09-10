@@ -10,6 +10,7 @@ import { legacyTaskTypeFromMetadata } from "../../domain/play-visual";
 import type { Database } from "../supabase/database.types";
 import type { SelectedView } from "./data";
 import type {
+  FlipPlayRankRequest,
   PlayRepository,
   RepositoryPlayList,
   RepositionPlaysRequest,
@@ -363,6 +364,68 @@ export class SupabasePlayRepository implements PlayRepository {
       ...(reminderSortOrder === undefined ? {} : { sort_order: reminderSortOrder }),
     });
     return !error;
+  }
+
+  async flipRank({ playId, playType, reminderDate }: FlipPlayRankRequest) {
+    const { data: play, error: playError } = await this.supabase
+      .from("plays")
+      .select("id, play_type, scheduled_date, basket_id, source_metadata")
+      .eq("id", playId)
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", "open")
+      .maybeSingle();
+    if (
+      playError ||
+      !play ||
+      legacyTaskTypeFromMetadata(play.source_metadata) === "A" ||
+      play.play_type === playType
+    ) return false;
+
+    const preserveReminderDate = playType === "reminder" && Boolean(
+      play.scheduled_date && play.scheduled_date >= reminderDate && !play.basket_id,
+    );
+    const scheduledDate = playType === "reminder" && !preserveReminderDate
+      ? reminderDate
+      : play.scheduled_date;
+    const basketId = playType === "reminder" && !preserveReminderDate
+      ? null
+      : play.basket_id;
+    let destinationQuery = this.supabase
+      .from("plays")
+      .select("id, sort_order, source_metadata")
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", "open")
+      .eq("play_type", playType);
+    destinationQuery = basketId
+      ? destinationQuery.eq("basket_id", basketId)
+      : scheduledDate
+        ? destinationQuery.eq("scheduled_date", scheduledDate)
+        : destinationQuery.is("scheduled_date", null);
+    const { data: destination, error: destinationError } = await destinationQuery
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (destinationError) return false;
+
+    const firstOrder = destination.find((candidate) =>
+      candidate.id !== playId &&
+      (playType === "reminder" ||
+        legacyTaskTypeFromMetadata(candidate.source_metadata) !== "A")
+    )?.sort_order;
+    const { data, error } = await this.supabase
+      .from("plays")
+      .update({
+        basket_id: basketId,
+        play_type: playType,
+        scheduled_date: scheduledDate,
+        sort_order: (firstOrder ?? 1000) - 1000,
+      })
+      .eq("id", playId)
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", "open")
+      .eq("play_type", play.play_type)
+      .select("id")
+      .maybeSingle();
+    return !error && Boolean(data);
   }
 
   async bulkUpdate(playIds: string[], change: BulkPlayChange) {

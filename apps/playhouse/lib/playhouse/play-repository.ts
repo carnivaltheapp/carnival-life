@@ -30,12 +30,19 @@ export type RepositionPlaysRequest = {
   playIds: string[];
 };
 
+export type FlipPlayRankRequest = {
+  playId: string;
+  playType: "normal" | "reminder";
+  reminderDate: string;
+};
+
 export interface PlayRepository {
   readonly supportsWorkflows: boolean;
   get(playId: string): Promise<PlayListItem | null>;
   getLifecycleIdentity(playId: string): Promise<Pick<PlayListItem, "gmailThreadId" | "sourceType"> | null>;
   list(selectedView?: SelectedView): Promise<RepositoryPlayList>;
   reconcileDueReminders(todayDate: string): Promise<boolean>;
+  flipRank(request: FlipPlayRankRequest): Promise<boolean>;
   bulkUpdate(playIds: string[], change: BulkPlayChange): Promise<boolean>;
   reposition(request: RepositionPlaysRequest): Promise<boolean>;
   save(request: SavePlayRequest): Promise<boolean>;

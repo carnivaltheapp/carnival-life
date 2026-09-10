@@ -15,7 +15,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { bulkUpdatePlays, repositionPlays } from "../app/plays/actions";
+import { bulkUpdatePlays, flipPlayRank, repositionPlays } from "../app/plays/actions";
 import type {
   BasketSummary,
   NextPlayOption,
@@ -48,6 +48,7 @@ import {
 import {
   isBulkSelectablePlay,
   optimisticallyApplyBulkChange,
+  optimisticallyFlipPlayRank,
   type BulkPlayChange,
 } from "../domain/play-bulk-change";
 import { optimisticallyRepositionPlays } from "../domain/play-optimistic-reorder";
@@ -57,16 +58,17 @@ import {
 } from "../domain/play-grid-sort";
 import { playVisualForPlay } from "../domain/play-visual";
 import { compareChronologicalPlays, comparePlayRankAndPriority } from "../domain/play-sort";
-import { reminderContextDate } from "../domain/reminder";
+import { reminderContextDate, reminderDateError } from "../domain/reminder";
 import { AccountMenu } from "./account-menu";
 import { BulkPlayContextMenu } from "./bulk-play-context-menu";
 import { BrowserTimeZone } from "./browser-time-zone";
 import { useGridFontSizePreference } from "./grid-settings";
-import { PlayForm } from "./play-form";
+import { PlayForm, ReminderDatePrompt } from "./play-form";
 import { PlaySearch } from "./play-search";
 import {
   BrowserIcon,
   DoneIcon,
+  FlipRankIcon,
   GmailIcon,
   PlayStatusActions,
   TrashIcon,
@@ -231,12 +233,19 @@ function PlayhouseShellView({
   const [moveError, setMoveError] = useState<string | null>(null);
   const [gridSort, setGridSort] = useState<PlayGridSort | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [rankFlipPrompt, setRankFlipPrompt] = useState<{
+    date: string;
+    message: string | null;
+    play: PlayListItem;
+  } | null>(null);
+  const [flippingPlayId, setFlippingPlayId] = useState<string | null>(null);
   const [optimisticPlays, setOptimisticPlays] = useState<{
     source: PlayListItem[];
     value: PlayListItem[];
   } | null>(null);
   const [movePending, startMove] = useTransition();
   const [bulkPending, startBulk] = useTransition();
+  const [flipPending, startFlip] = useTransition();
   const localPlays = optimisticPlays?.source === plays ? optimisticPlays.value : plays;
   const playCountLabel = `${localPlays.length} ${localPlays.length === 1 ? "Play" : "Plays"}`;
   const viewTitle = !searchQuery && selectedView.kind === "calendar" &&
@@ -488,6 +497,59 @@ function PlayhouseShellView({
     });
   }
 
+  function applyRankFlip(play: PlayListItem, playType: "normal" | "reminder", date: string) {
+    if (flipPending) return;
+    const previousOptimisticPlays = optimisticPlays;
+    const keepMovedInView = playType !== "reminder" || selectedView.kind !== "basket";
+    let nextPlays = optimisticallyFlipPlayRank(
+      localPlays,
+      play.id,
+      playType,
+      date,
+      keepMovedInView,
+    );
+    const multiDate = Boolean(searchQuery) || selectedView.kind === "all" ||
+      (selectedView.kind === "calendar" && selectedView.key === "week");
+    nextPlays = [...nextPlays].sort(
+      multiDate ? compareChronologicalPlays : comparePlayRankAndPriority,
+    );
+    setOptimisticPlays({ source: plays, value: nextPlays });
+    setFlippingPlayId(play.id);
+    setRankFlipPrompt(null);
+    startFlip(async () => {
+      try {
+        const result = await flipPlayRank({ playId: play.id, playType, reminderDate: date });
+        if (result.status === "success") {
+          setMoveError(null);
+          setFlippingPlayId(null);
+          return;
+        }
+        setOptimisticPlays(previousOptimisticPlays);
+        setFlippingPlayId(null);
+        setMoveError(result.message);
+      } catch {
+        setOptimisticPlays(previousOptimisticPlays);
+        setFlippingPlayId(null);
+        setMoveError("This Play's rank could not be changed. The previous rank was restored.");
+      }
+    });
+  }
+
+  function requestRankFlip(play: PlayListItem) {
+    const visualType = playVisualForPlay(play).visualType;
+    if (visualType === "appointment") return;
+    const date = reminderContextDate({
+      displayedDate: displayedReminderDate,
+      scheduledDate: play.scheduledDate,
+      todayDate,
+    });
+    if (visualType === "reminder") {
+      applyRankFlip(play, "normal", date);
+      return;
+    }
+    setRankFlipPrompt({ date, message: null, play });
+  }
+
   function persistMove(placement: PlayPlacement, beforePlayId: string | null) {
     if (!draggedIds.length || movePending) return;
     const playIds = visibleIds.filter((id) => draggedIds.includes(id));
@@ -541,7 +603,7 @@ function PlayhouseShellView({
     <main className="workspace">
       <BrowserTimeZone />
       <div aria-hidden="true" className="playDragPreviewHost" ref={dragPreviewHostRef} />
-      <span className="deploymentBuildMarker">HEADER-ICON-SORT-1</span>
+      <span className="deploymentBuildMarker">RANK-FLIP-1</span>
       <header className="appHeader">
         <div className="headerBrandArea">
           <Link className="brand" href="/?view=today" aria-label="Carnival PlayHouse home">
@@ -837,6 +899,9 @@ function PlayhouseShellView({
                   >
                     <BrowserIcon />
                   </GridIconSortHeader>
+                  <span aria-label="Flip rank" role="columnheader" title="Flip rank">
+                    <FlipRankIcon />
+                  </span>
                 </div>
               </div>
               <ol
@@ -939,7 +1004,13 @@ function PlayhouseShellView({
                     <span className="playDataCell" title={play.branch ?? undefined}>
                       {displayBranch(play.branch) ?? "—"}
                     </span>
-                    <PlayStatusActions play={play} />
+                    <PlayStatusActions
+                      flipPending={flipPending && flippingPlayId === play.id}
+                      onFlipRank={playVisual.visualType === "appointment"
+                        ? undefined
+                        : () => requestRankFlip(play)}
+                      play={play}
+                    />
                   </div>
                 </li>
                   );
@@ -957,6 +1028,38 @@ function PlayhouseShellView({
                   todayDate={todayDate}
                   x={contextMenu.x}
                   y={contextMenu.y}
+                />
+              ) : null}
+              {rankFlipPrompt ? (
+                <ReminderDatePrompt
+                  dialogId={`flip-reminder-date-${rankFlipPrompt.play.id}`}
+                  message={rankFlipPrompt.message}
+                  minimumDate={reminderContextDate({
+                    displayedDate: displayedReminderDate,
+                    scheduledDate: rankFlipPrompt.play.scheduledDate,
+                    todayDate,
+                  })}
+                  onCancel={() => setRankFlipPrompt(null)}
+                  onChange={(date) => setRankFlipPrompt((current) => current
+                    ? { ...current, date, message: null }
+                    : null)}
+                  onConfirm={() => {
+                    const minimumDate = reminderContextDate({
+                      displayedDate: displayedReminderDate,
+                      scheduledDate: rankFlipPrompt.play.scheduledDate,
+                      todayDate,
+                    });
+                    const message = reminderDateError(
+                      { kind: "calendar", scheduledDate: rankFlipPrompt.date },
+                      minimumDate,
+                    );
+                    if (message) {
+                      setRankFlipPrompt({ ...rankFlipPrompt, message });
+                      return;
+                    }
+                    applyRankFlip(rankFlipPrompt.play, "reminder", rankFlipPrompt.date);
+                  }}
+                  value={rankFlipPrompt.date}
                 />
               ) : null}
             </>

@@ -146,7 +146,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("HEADER-ICON-SORT-1", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("RANK-FLIP-1", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');
@@ -155,6 +155,8 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   const first = playRow(auth.page, "Region Headline One");
   const second = playRow(auth.page, "Region Headline Two");
   const appointment = playRow(auth.page, "Region Appointment");
+  await expect(first.getByRole("button", { name: "Flip rank" })).toBeVisible();
+  await expect(appointment.getByRole("button", { name: "Flip rank" })).toHaveCount(0);
   const firstBox = await first.boundingBox();
   const secondBox = await second.boundingBox();
   const appointmentBox = await appointment.boundingBox();
@@ -278,7 +280,7 @@ test("Edit updates title and URL while preserving Duration and Place", async ({ 
   ).toBeVisible();
   await expect(compactRow.getByRole("button", { name: "Trash" })).toBeVisible();
   await expect(compactRow.getByRole("button", { name: "Play information" })).toHaveCount(0);
-  await expect(compactRow.locator(".statusActions > *")).toHaveCount(4);
+  await expect(compactRow.locator(".statusActions > *")).toHaveCount(5);
   await expect(compactRow.getByRole("link", { name: "Open Play URL" })).toHaveAttribute(
     "href",
     "https://example.com/original",
@@ -564,6 +566,43 @@ test("Headline to Reminder requires a future date and Cancel makes no change", a
   await expect(reminderRow.locator(".playTypeMarker--reminder")).toBeVisible();
 });
 
+test("Flip rank uses the Reminder prompt and moves the Play to each rank's top", async ({ auth }) => {
+  await auth.page.goto("/");
+  const today = await browserCalendarDate(auth.page);
+  await createPlay(auth.page, "Existing Headline");
+  await createPlay(auth.page, "Flip candidate");
+  const { error } = await auth.user.from("plays").insert({
+    owner_user_id: auth.userId,
+    play_type: "reminder",
+    scheduled_date: today,
+    sort_order: 5000,
+    source_type: "user",
+    title: "Existing Reminder",
+  });
+  expect(error).toBeNull();
+  await auth.page.reload();
+
+  const candidate = playRow(auth.page, "Flip candidate");
+  await candidate.getByRole("button", { name: "Flip rank" }).click();
+  let prompt = auth.page.getByRole("dialog", { name: "Reminder Date" });
+  await expect(prompt.getByLabel("Reminder Date")).toHaveValue(today);
+  await prompt.getByRole("button", { name: "Cancel" }).click();
+  await expect(candidate.locator(".playTypeMarker--headline")).toBeVisible();
+  await expect(candidate.getByTestId("edit-play")).not.toHaveAttribute("open", "");
+  await expect(candidate.locator(".playSelectControl")).toHaveAttribute("aria-pressed", "false");
+
+  await candidate.getByRole("button", { name: "Flip rank" }).click();
+  prompt = auth.page.getByRole("dialog", { name: "Reminder Date" });
+  await prompt.getByRole("button", { name: "Set Reminder" }).click();
+  await expect(candidate.locator(".playTypeMarker--reminder")).toBeVisible();
+  await expect(auth.page.locator(".playVisual--reminder").first()).toContainText("Flip candidate");
+
+  await candidate.getByRole("button", { name: "Flip rank" }).click();
+  await expect(auth.page.getByRole("dialog", { name: "Reminder Date" })).toHaveCount(0);
+  await expect(candidate.locator(".playTypeMarker--headline")).toBeVisible();
+  await expect(auth.page.locator(".playVisual--headline").first()).toContainText("Flip candidate");
+});
+
 test("grid font setting updates immediately and persists locally", async ({ auth }) => {
   await auth.page.goto("/");
   await auth.page.evaluate(
@@ -595,7 +634,7 @@ test("grid font setting updates immediately and persists locally", async ({ auth
   await expect(row.getByRole("button", { exact: true, name: "Done" })).toBeVisible();
   await expect(row.getByRole("button", { name: "Trash" })).toBeVisible();
   await expect(row.getByRole("button", { name: "Play information" })).toHaveCount(0);
-  await expect(row.locator(".statusActions > *")).toHaveCount(4);
+  await expect(row.locator(".statusActions > *")).toHaveCount(5);
 
   await auth.page.reload();
   await expect(playRow(auth.page, "Resizable grid Play")).toHaveCSS("font-size", "13px");

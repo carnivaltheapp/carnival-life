@@ -55,3 +55,35 @@ export function optimisticallyApplyBulkChange(
     return [{ ...play, durationMinutes: change.durationMinutes }];
   });
 }
+
+export function optimisticallyFlipPlayRank(
+  plays: PlayListItem[],
+  playId: string,
+  playType: PlayType,
+  reminderDate: string,
+  keepMovedInView: boolean,
+) {
+  const source = plays.find((play) => play.id === playId);
+  if (!source || !isBulkSelectablePlay(source)) return plays;
+  const changed = optimisticallyApplyBulkChange(
+    plays,
+    new Set([playId]),
+    { kind: "rank", playType, reminderDate },
+    keepMovedInView,
+  );
+  const flipped = changed.find((play) => play.id === playId);
+  if (!flipped) return changed;
+  const targetVisualType = playType === "reminder" ? "reminder" : "headline";
+  const peerOrders = changed.flatMap((play) =>
+    play.id !== playId &&
+      playVisualForPlay(play).visualType === targetVisualType &&
+      play.scheduledDate === flipped.scheduledDate &&
+      play.basketId === flipped.basketId
+      ? [play.sortOrder ?? 0]
+      : []
+  );
+  const topOrder = (peerOrders.length ? Math.min(...peerOrders) : 0) - 1;
+  return changed.map((play) => play.id === playId
+    ? { ...play, sortOrder: topOrder }
+    : play);
+}

@@ -1624,7 +1624,7 @@ h1 {
 .statusActions {
   display: grid;
   width: 114px;
-  grid-template-columns: repeat(4, 27px);
+  grid-template-columns: repeat(5, 27px);
   gap: 2px;
 }
 

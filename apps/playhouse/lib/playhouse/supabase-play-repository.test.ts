@@ -91,3 +91,56 @@ describe("Supabase Play lifecycle identity", () => {
     expect(play.eq).toHaveBeenCalledWith("status", "open");
   });
 });
+
+describe("Supabase rank flip", () => {
+  it("owner-scopes the Play and moves it to the top of its new rank", async () => {
+    const play = query({
+      data: {
+        basket_id: null,
+        id: "play-1",
+        play_type: "reminder",
+        scheduled_date: "2026-09-08",
+        source_metadata: {},
+      },
+      error: null,
+    });
+    const headlines = query({
+      data: [
+        {
+          id: "appointment-1",
+          sort_order: 5000,
+          source_metadata: { legacy_source: { task_type: "A" } },
+        },
+        { id: "headline-1", sort_order: 2000, source_metadata: {} },
+      ],
+      error: null,
+    });
+    const update = query({ data: { id: "play-1" }, error: null });
+    const from = vi.fn()
+      .mockReturnValueOnce(play)
+      .mockReturnValueOnce(headlines)
+      .mockReturnValueOnce(update);
+
+    expect(await new SupabasePlayRepository(
+      { from } as never,
+      "owner-user",
+    ).flipRank({
+      playId: "play-1",
+      playType: "normal",
+      reminderDate: "2026-09-08",
+    })).toBe(true);
+
+    expect(play.eq).toHaveBeenCalledWith("owner_user_id", "owner-user");
+    expect(headlines.eq).toHaveBeenCalledWith("play_type", "normal");
+    expect(update.update).toHaveBeenCalledWith({
+      basket_id: null,
+      play_type: "normal",
+      scheduled_date: "2026-09-08",
+      sort_order: 1000,
+    });
+    expect(update.eq).toHaveBeenCalledWith("id", "play-1");
+    expect(update.eq).toHaveBeenCalledWith("owner_user_id", "owner-user");
+    expect(update.eq).toHaveBeenCalledWith("status", "open");
+    expect(update.eq).toHaveBeenCalledWith("play_type", "reminder");
+  });
+});

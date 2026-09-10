@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { PlayListItem } from "./play";
-import { isBulkSelectablePlay, optimisticallyApplyBulkChange } from "./play-bulk-change";
+import {
+  isBulkSelectablePlay,
+  optimisticallyApplyBulkChange,
+  optimisticallyFlipPlayRank,
+} from "./play-bulk-change";
 
 function play(id: string, taskType: string, playType: PlayListItem["playType"]): PlayListItem {
   return {
@@ -110,5 +114,49 @@ describe("bulk Play changes", () => {
       legacyTaskType: "S",
       scheduledDate: "2026-09-12",
     });
+  });
+
+  it("flips legacy Headlines to the top of Reminders and back to the top of Headlines", () => {
+    const appointment = { ...play("a", "A", "normal"), sortOrder: 1 };
+    const headline = { ...play("u", "U", "normal"), sortOrder: 30 };
+    const otherHeadline = { ...play("h", "H", "normal"), sortOrder: 20 };
+    const reminder = { ...play("s", "S", "reminder"), sortOrder: 40 };
+    const reminded = optimisticallyFlipPlayRank(
+      [appointment, otherHeadline, headline, reminder],
+      "u",
+      "reminder",
+      "2026-09-08",
+      true,
+    );
+    expect(reminded.find(({ id }) => id === "u")).toMatchObject({
+      legacyTaskType: "S",
+      playType: "reminder",
+      sortOrder: 39,
+    });
+
+    const restored = optimisticallyFlipPlayRank(
+      reminded,
+      "u",
+      "normal",
+      "2026-09-08",
+      true,
+    );
+    expect(restored.find(({ id }) => id === "u")).toMatchObject({
+      legacyTaskType: "H",
+      playType: "normal",
+      sortOrder: 19,
+    });
+    expect(restored.find(({ id }) => id === "a")).toBe(appointment);
+  });
+
+  it("does not flip an Appointment", () => {
+    const appointment = play("a", "A", "normal");
+    expect(optimisticallyFlipPlayRank(
+      [appointment],
+      "a",
+      "reminder",
+      "2026-09-08",
+      true,
+    )).toEqual([appointment]);
   });
 });

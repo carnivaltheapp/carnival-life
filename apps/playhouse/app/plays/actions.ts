@@ -385,6 +385,42 @@ export async function bulkUpdatePlays(request: {
   }
 }
 
+export async function flipPlayRank(request: {
+  playId: string;
+  playType: "normal" | "reminder";
+  reminderDate: string;
+}): Promise<PlayMutationState> {
+  try {
+    if (
+      !request.playId ||
+      request.playId.length > 100 ||
+      !["normal", "reminder"].includes(request.playType) ||
+      !isIsoCalendarDate(request.reminderDate)
+    ) return errorState("This rank change is invalid. Please try again.");
+
+    const auth = await authenticatedClient();
+    if (!auth) return errorState("Your session expired. Refresh and sign in again.");
+    const baskets = await loadBaskets(auth.supabase);
+    if (!baskets) return errorState("Your Baskets could not be loaded. Refresh and try again.");
+    const source = resolvePlayhouseDataSource();
+    if (source === "supabase" && !isUuid(request.playId)) {
+      return errorState("This rank change is invalid. Please try again.");
+    }
+    const repository = await createPlayRepository({
+      baskets,
+      ownerUserId: auth.userId,
+      source,
+      supabase: auth.supabase,
+    });
+    if (!(await repository.flipRank(request))) {
+      return errorState("This Play's rank could not be changed. The previous rank was restored.");
+    }
+    return { message: "Play rank changed.", status: "success" };
+  } catch {
+    return errorState("This Play's rank could not be changed. The previous rank was restored.");
+  }
+}
+
 export async function setNextPlay(
   _previousState: PlayMutationState,
   formData: FormData,
