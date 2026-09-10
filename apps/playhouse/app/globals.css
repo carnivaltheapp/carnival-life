@@ -942,7 +942,7 @@ h1 {
   display: grid;
   padding: 3px clamp(8px, 1.4vw, 14px);
   grid-template-columns:
-    minmax(430px, 4fr) minmax(100px, 0.8fr) 114px;
+    minmax(330px, 1.2fr) minmax(150px, 0.8fr) 143px;
   gap: 6px;
   align-items: center;
 }
