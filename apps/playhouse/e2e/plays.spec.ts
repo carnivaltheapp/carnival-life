@@ -146,7 +146,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("GMAIL-UNSTAR-FIX-1", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("HEADER-ICON-SORT-1", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');
@@ -289,8 +289,21 @@ test("Edit updates title and URL while preserving Duration and Place", async ({ 
   await expect(gridHeader.getByText("Branch", { exact: true })).toBeVisible();
   await expect(gridHeader.getByRole("columnheader", { name: "Done" })).toBeVisible();
   await expect(gridHeader.getByRole("columnheader", { name: "Trash" })).toBeVisible();
-  await expect(gridHeader.getByRole("columnheader", { name: "Gmail" })).toBeVisible();
-  await expect(gridHeader.getByRole("columnheader", { name: "URL" })).toBeVisible();
+  const gmailSort = gridHeader.getByRole("button", { name: "Sort by Gmail linkage" });
+  const urlSort = gridHeader.getByRole("button", { name: "Sort by URL" });
+  await expect(gmailSort).toBeVisible();
+  await expect(urlSort).toBeVisible();
+  await gmailSort.click();
+  await expect(gridHeader.getByRole("columnheader", { name: "Gmail" }))
+    .toHaveAttribute("aria-sort", "ascending");
+  await urlSort.click();
+  await expect(gridHeader.getByRole("columnheader", { name: "Gmail" }))
+    .toHaveAttribute("aria-sort", "none");
+  await expect(gridHeader.getByRole("columnheader", { name: "URL" }))
+    .toHaveAttribute("aria-sort", "ascending");
+  await urlSort.click();
+  await expect(gridHeader.getByRole("columnheader", { name: "URL" }))
+    .toHaveAttribute("aria-sort", "descending");
   expect(await gridHeader.evaluate((header) => getComputedStyle(header).gridTemplateColumns))
     .toBe(await compactRow.locator(".playRowLine").evaluate(
       (row) => getComputedStyle(row).gridTemplateColumns,

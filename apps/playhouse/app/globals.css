@@ -1014,6 +1014,39 @@ h1 {
   place-items: center;
 }
 
+.playGridIconSortHeader > button {
+  position: relative;
+  display: grid;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  color: inherit;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  place-items: center;
+}
+
+.playGridIconSortHeader > button:hover,
+.playGridIconSortHeader > button[aria-pressed="true"] {
+  color: var(--accent-deep);
+  background: rgba(109, 63, 242, 0.1);
+}
+
+.playGridIconSortHeader > button:focus-visible {
+  outline: 2px solid rgba(109, 63, 242, 0.45);
+  outline-offset: -2px;
+}
+
+.playGridIconSortIndicator {
+  position: absolute;
+  right: 1px;
+  bottom: -1px;
+  font-size: 9px;
+  line-height: 1;
+}
+
 .playGridActionHeaders svg {
   width: 14px;
   height: 14px;

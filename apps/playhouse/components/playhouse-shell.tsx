@@ -12,6 +12,7 @@ import {
   type DragEvent,
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 
 import { bulkUpdatePlays, repositionPlays } from "../app/plays/actions";
@@ -140,6 +141,51 @@ function GridSortHeader({
         ))}
       </span>
     </div>
+  );
+}
+
+function GridIconSortHeader({
+  children,
+  column,
+  label,
+  onSort,
+  sort,
+}: {
+  children: ReactNode;
+  column: "gmail" | "url";
+  label: string;
+  onSort: (sort: PlayGridSort) => void;
+  sort: PlayGridSort | null;
+}) {
+  const active = sort?.column === column;
+  const direction = active ? sort.direction : null;
+  return (
+    <span
+      aria-label={column === "gmail" ? "Gmail" : "URL"}
+      aria-sort={direction === "asc"
+        ? "ascending"
+        : direction === "desc" ? "descending" : "none"}
+      className="playGridIconSortHeader"
+      role="columnheader"
+    >
+      <button
+        aria-label={`Sort by ${label}`}
+        aria-pressed={active}
+        onClick={() => onSort({
+          column,
+          direction: direction === "asc" ? "desc" : "asc",
+        })}
+        title={`Sort by ${label}`}
+        type="button"
+      >
+        {children}
+        {direction ? (
+          <span aria-hidden="true" className="playGridIconSortIndicator">
+            {direction === "asc" ? "↑" : "↓"}
+          </span>
+        ) : null}
+      </button>
+    </span>
   );
 }
 
@@ -495,7 +541,7 @@ function PlayhouseShellView({
     <main className="workspace">
       <BrowserTimeZone />
       <div aria-hidden="true" className="playDragPreviewHost" ref={dragPreviewHostRef} />
-      <span className="deploymentBuildMarker">GMAIL-UNSTAR-FIX-1</span>
+      <span className="deploymentBuildMarker">HEADER-ICON-SORT-1</span>
       <header className="appHeader">
         <div className="headerBrandArea">
           <Link className="brand" href="/?view=today" aria-label="Carnival PlayHouse home">
@@ -775,8 +821,22 @@ function PlayhouseShellView({
                 <div className="statusActions playGridActionHeaders">
                   <span aria-label="Done" role="columnheader" title="Done"><DoneIcon /></span>
                   <span aria-label="Trash" role="columnheader" title="Trash"><TrashIcon /></span>
-                  <span aria-label="Gmail" role="columnheader" title="Gmail"><GmailIcon /></span>
-                  <span aria-label="URL" role="columnheader" title="URL"><BrowserIcon /></span>
+                  <GridIconSortHeader
+                    column="gmail"
+                    label="Gmail linkage"
+                    onSort={setGridSort}
+                    sort={gridSort}
+                  >
+                    <GmailIcon />
+                  </GridIconSortHeader>
+                  <GridIconSortHeader
+                    column="url"
+                    label="URL"
+                    onSort={setGridSort}
+                    sort={gridSort}
+                  >
+                    <BrowserIcon />
+                  </GridIconSortHeader>
                 </div>
               </div>
               <ol
