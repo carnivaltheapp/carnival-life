@@ -28,6 +28,8 @@ jobs:
           $compiler = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
           & $compiler /nologo /target:exe "/out:$output" $source
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $output --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Compile macOS host
         if: runner.os == 'macOS'

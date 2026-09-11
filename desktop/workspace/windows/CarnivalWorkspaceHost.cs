@@ -12,13 +12,17 @@ using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
-    private const string HostMarker = "DRAWER-HOST-4";
+    private const string HostMarker = "DRAWER-HOST-5";
     private const int AnimationFramesPerSecond = 60;
     private const int HotCornerMaximumOffsetPixels = 4;
     private const int DwellMilliseconds = 200;
     private const int PendingSummonTimeoutMilliseconds = 15000;
     private const int RetractOffsetPixels = 100;
     private const int RetractDwellMilliseconds = 150;
+    private const int ResizeEdgeTolerancePixels = 12;
+    private const int MinimumPlayHouseWidth = 400;
+    private const int MinimumContextWidth = 320;
+    private const int VirtualKeyLeftButton = 0x01;
     private const string PlayHouseUrl = "https://carnival-playhouse.vercel.app/";
     private const int MonitorDefaultToNearest = 2;
     private const uint SwpNoActivate = 0x0010;
@@ -38,6 +42,9 @@ internal static class CarnivalWorkspaceHost
     private static int configuredMonitorRight;
     private static int configuredMonitorTop;
     private static int configuredMonitorBottom;
+    private static IntPtr playhouseHandle;
+    private static IntPtr contextHandle;
+    private static ResizeSession resizeSession;
     private static string pendingSummon;
     private static DateTime pendingSummonQueuedAt;
     private static DateTime pendingSummonSentAt;
@@ -72,6 +79,25 @@ internal static class CarnivalWorkspaceHost
         public Rect Rect;
     }
 
+    private sealed class ResizeSession
+    {
+        public IntPtr PlayhouseHandle;
+        public IntPtr ContextHandle;
+        public int WorkspaceLeft;
+        public int Top;
+        public int Height;
+        public int MonitorRight;
+        public double PlayhouseRatio;
+        public WindowBounds PlayhouseBounds;
+        public WindowBounds ContextBounds;
+    }
+
+    private sealed class CoupledBounds
+    {
+        public WindowBounds Playhouse;
+        public WindowBounds Context;
+    }
+
     private delegate bool EnumWindowsCallback(IntPtr window, IntPtr parameter);
 
     [DllImport("user32.dll")]
@@ -98,6 +124,9 @@ internal static class CarnivalWorkspaceHost
 
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out Point point);
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
@@ -135,7 +164,8 @@ internal static class CarnivalWorkspaceHost
 
     private static void Main(string[] args)
     {
-        if (HasArgument(args, "--resident")) RunResident();
+        if (HasArgument(args, "--self-test")) RunSelfTest();
+        else if (HasArgument(args, "--resident")) RunResident();
         else RunNativeMessagingBridge();
     }
 
@@ -379,6 +409,7 @@ internal static class CarnivalWorkspaceHost
         var summonedForCurrentEntry = false;
         var retractCandidateActive = false;
         var firstPointerSampleLogged = false;
+        var leftButtonWasDown = false;
         WriteDiagnostic("resident pointer monitor started");
         try
         {
@@ -426,11 +457,17 @@ internal static class CarnivalWorkspaceHost
                     }
                 }
 
+                var leftButtonDown = (GetAsyncKeyState(VirtualKeyLeftButton) & 0x8000) != 0;
+                var suppressRetract = UpdateCoupledResize(pointer, leftButtonDown,
+                    leftButtonDown && !leftButtonWasDown);
+                leftButtonWasDown = leftButtonDown;
+
                 bool open;
                 int rightEdge;
                 int monitorRight;
                 int monitorTop;
                 int monitorBottom;
+                IntPtr currentContextHandle;
                 lock (StateLock)
                 {
                     open = drawerOpen;
@@ -438,10 +475,18 @@ internal static class CarnivalWorkspaceHost
                     monitorRight = configuredMonitorRight;
                     monitorTop = configuredMonitorTop;
                     monitorBottom = configuredMonitorBottom;
+                    currentContextHandle = contextHandle;
                 }
-                var retractThreshold = Math.Min(rightEdge + RetractOffsetPixels, monitorRight - 1);
-                var inRetractZone = open && pointer.X >= retractThreshold &&
-                                    pointer.Y >= monitorTop && pointer.Y < monitorBottom;
+                Rect liveContextRect;
+                if (open && currentContextHandle != IntPtr.Zero &&
+                    GetWindowRect(currentContextHandle, out liveContextRect))
+                {
+                    rightEdge = liveContextRect.Right;
+                    lock (StateLock) { contextRight = rightEdge; }
+                }
+                var retractThreshold = EffectiveRetractThreshold(rightEdge, monitorRight);
+                var inRetractZone = ShouldEnterRetract(open, suppressRetract, pointer.X,
+                    pointer.Y, retractThreshold, monitorTop, monitorBottom);
                 if (!inRetractZone)
                 {
                     if (retractCandidateActive) WriteDiagnostic("retract zone candidate cancelled");
@@ -665,7 +710,11 @@ internal static class CarnivalWorkspaceHost
     {
         if (Regex.IsMatch(json, "\\\"state\\\"\\s*:\\s*\\\"retracted\\\""))
         {
-            lock (StateLock) { drawerOpen = false; }
+            lock (StateLock)
+            {
+                drawerOpen = false;
+                resizeSession = null;
+            }
             WriteDiagnostic("workspace state received: retracted");
             return;
         }
@@ -674,25 +723,167 @@ internal static class CarnivalWorkspaceHost
         int parsedMonitorRight;
         int parsedMonitorTop;
         int parsedMonitorBottom;
+        var parsedPlayhouse = ReadBounds(json, "playhouse");
+        var parsedContext = ReadBounds(json, "context");
         if (!TryReadInteger(json, "contextRight", out parsedContextRight) ||
             !TryReadInteger(json, "monitorRight", out parsedMonitorRight) ||
             !TryReadInteger(json, "monitorTop", out parsedMonitorTop) ||
             !TryReadInteger(json, "monitorBottom", out parsedMonitorBottom) ||
-            parsedMonitorBottom <= parsedMonitorTop) return;
+            parsedMonitorBottom <= parsedMonitorTop || !ValidBounds(parsedPlayhouse) ||
+            !ValidBounds(parsedContext)) return;
+        var windows = EnumerateChromeWindows();
+        var mappedPlayhouse = ClosestWindow(windows, new[] { parsedPlayhouse }, IntPtr.Zero);
+        var mappedContext = ClosestWindow(windows, new[] { parsedContext }, mappedPlayhouse);
         lock (StateLock)
         {
             contextRight = parsedContextRight;
             configuredMonitorRight = parsedMonitorRight;
             configuredMonitorTop = parsedMonitorTop;
             configuredMonitorBottom = parsedMonitorBottom;
+            playhouseHandle = mappedPlayhouse;
+            contextHandle = mappedContext;
             drawerOpen = true;
         }
-        var retractThreshold = Math.Min(parsedContextRight + RetractOffsetPixels, parsedMonitorRight - 1);
+        var retractThreshold = EffectiveRetractThreshold(parsedContextRight, parsedMonitorRight);
         WriteDiagnostic(string.Format(CultureInfo.InvariantCulture,
             "retract threshold contextRight={0} offset={1} threshold={2}",
             parsedContextRight, RetractOffsetPixels, retractThreshold));
         if (parsedContextRight + RetractOffsetPixels > parsedMonitorRight - 1)
             WriteDiagnostic("retract threshold clamped to reachable monitor edge");
+    }
+
+    private static bool UpdateCoupledResize(Point pointer, bool leftButtonDown, bool justPressed)
+    {
+        if (justPressed) TryStartCoupledResize(pointer);
+        ResizeSession session;
+        lock (StateLock) { session = resizeSession; }
+        if (session == null) return false;
+        if (!leftButtonDown)
+        {
+            ApplyCoupledResize(session, pointer.X);
+            FinishCoupledResize(session);
+            return true;
+        }
+        ApplyCoupledResize(session, pointer.X);
+        return true;
+    }
+
+    private static void TryStartCoupledResize(Point pointer)
+    {
+        bool open;
+        IntPtr playhouse;
+        IntPtr context;
+        int monitorRight;
+        lock (StateLock)
+        {
+            open = drawerOpen;
+            playhouse = playhouseHandle;
+            context = contextHandle;
+            monitorRight = configuredMonitorRight;
+        }
+        Rect playhouseRect;
+        Rect contextRect;
+        if (!open || playhouse == IntPtr.Zero || context == IntPtr.Zero ||
+            !IsWindow(playhouse) || !IsWindow(context) ||
+            !GetWindowRect(playhouse, out playhouseRect) || !GetWindowRect(context, out contextRect) ||
+            Math.Abs(pointer.X - contextRect.Right) > ResizeEdgeTolerancePixels ||
+            pointer.Y < contextRect.Top || pointer.Y >= contextRect.Bottom ||
+            Math.Abs(playhouseRect.Right - contextRect.Left) > ResizeEdgeTolerancePixels) return;
+        var playhouseWidth = playhouseRect.Right - playhouseRect.Left;
+        var contextWidth = contextRect.Right - contextRect.Left;
+        var total = playhouseWidth + contextWidth;
+        if (total <= 0) return;
+        var session = new ResizeSession
+        {
+            ContextHandle = context,
+            Height = playhouseRect.Bottom - playhouseRect.Top,
+            MonitorRight = monitorRight,
+            PlayhouseHandle = playhouse,
+            PlayhouseRatio = playhouseWidth / (double)total,
+            Top = playhouseRect.Top,
+            WorkspaceLeft = playhouseRect.Left,
+        };
+        lock (StateLock) { resizeSession = session; }
+        SendToChrome("{\"type\":\"liveResizeStarted\"}");
+        WriteDiagnostic(string.Format(CultureInfo.InvariantCulture,
+            "live coupled resize started ratio={0:F4}", session.PlayhouseRatio));
+    }
+
+    private static void ApplyCoupledResize(ResizeSession session, int draggedRight)
+    {
+        var bounds = CalculateCoupledBounds(session, draggedRight);
+        if (!MovePair(session.PlayhouseHandle, bounds.Playhouse, session.ContextHandle, bounds.Context)) return;
+        session.PlayhouseBounds = bounds.Playhouse;
+        session.ContextBounds = bounds.Context;
+        lock (StateLock)
+        {
+            contextRight = bounds.Context.Left + bounds.Context.Width;
+        }
+    }
+
+    private static CoupledBounds CalculateCoupledBounds(ResizeSession session, int draggedRight)
+    {
+        var maximumRight = session.MonitorRight - RetractOffsetPixels;
+        var minimumTotal = Math.Max(
+            (int)Math.Ceiling(MinimumPlayHouseWidth / session.PlayhouseRatio),
+            (int)Math.Ceiling(MinimumContextWidth / (1.0 - session.PlayhouseRatio)));
+        var maximumTotal = Math.Max(1, maximumRight - session.WorkspaceLeft);
+        minimumTotal = Math.Min(minimumTotal, maximumTotal);
+        var total = Math.Max(minimumTotal,
+            Math.Min(draggedRight - session.WorkspaceLeft, maximumTotal));
+        var playhouseWidth = (int)Math.Round(total * session.PlayhouseRatio,
+            MidpointRounding.AwayFromZero);
+        return new CoupledBounds
+        {
+            Playhouse = new WindowBounds
+            {
+                Height = session.Height,
+                Left = session.WorkspaceLeft,
+                Top = session.Top,
+                Width = playhouseWidth,
+            },
+            Context = new WindowBounds
+            {
+                Height = session.Height,
+                Left = session.WorkspaceLeft + playhouseWidth,
+                Top = session.Top,
+                Width = total - playhouseWidth,
+            },
+        };
+    }
+
+    private static int EffectiveRetractThreshold(int rightEdge, int monitorRight)
+    {
+        return Math.Min(rightEdge + RetractOffsetPixels, monitorRight - 1);
+    }
+
+    private static bool ShouldEnterRetract(bool open, bool resizing, int pointerX, int pointerY,
+        int threshold, int monitorTop, int monitorBottom)
+    {
+        return open && !resizing && pointerX >= threshold &&
+               pointerY >= monitorTop && pointerY < monitorBottom;
+    }
+
+    private static void FinishCoupledResize(ResizeSession session)
+    {
+        lock (StateLock)
+        {
+            if (!ReferenceEquals(resizeSession, session)) return;
+            resizeSession = null;
+        }
+        if (session.PlayhouseBounds == null || session.ContextBounds == null)
+        {
+            SendToChrome("{\"type\":\"liveResizeComplete\"}");
+            WriteDiagnostic("live coupled resize ended without applied bounds");
+            return;
+        }
+        SendToChrome(string.Format(CultureInfo.InvariantCulture,
+            "{{\"type\":\"liveResizeComplete\",\"playhouse\":{{\"left\":{0},\"top\":{1},\"width\":{2},\"height\":{3}}}," +
+            "\"context\":{{\"left\":{4},\"top\":{5},\"width\":{6},\"height\":{7}}}}}",
+            session.PlayhouseBounds.Left, session.PlayhouseBounds.Top, session.PlayhouseBounds.Width,
+            session.PlayhouseBounds.Height, session.ContextBounds.Left, session.ContextBounds.Top,
+            session.ContextBounds.Width, session.ContextBounds.Height));
+        WriteDiagnostic("live coupled resize complete");
     }
 
     private static void ApplyAnimationRequest(string json)
@@ -909,6 +1100,53 @@ internal static class CarnivalWorkspaceHost
     private static bool SendNative(Stream chromeOutput, string json)
     {
         lock (OutputLock) { return WriteFramedMessage(chromeOutput, json); }
+    }
+
+    private static void RunSelfTest()
+    {
+        var session = new ResizeSession
+        {
+            Height = 900,
+            MonitorRight = 2000,
+            PlayhouseRatio = 0.6,
+            Top = 0,
+            WorkspaceLeft = 0,
+        };
+        var expected = new[]
+        {
+            new[] { 1450, 870, 580 },
+            new[] { 1400, 840, 560 },
+            new[] { 1350, 810, 540 },
+        };
+        foreach (var frame in expected)
+        {
+            var bounds = CalculateCoupledBounds(session, frame[0]);
+            AssertSelfTest(bounds.Playhouse.Width == frame[1] && bounds.Context.Width == frame[2],
+                "frozen ratio must hold through every live frame");
+            AssertSelfTest(bounds.Playhouse.Left + bounds.Playhouse.Width == bounds.Context.Left,
+                "live frame must not contain a PH/Aux gap");
+            AssertSelfTest(bounds.Context.Left + bounds.Context.Width == frame[0],
+                "Aux outer edge must track the dragged edge");
+        }
+        var capped = CalculateCoupledBounds(session, 5000);
+        AssertSelfTest(capped.Context.Left + capped.Context.Width == 1900,
+            "drawer must stop 100px before monitor right");
+        AssertSelfTest(EffectiveRetractThreshold(1500, 2000) == 1600,
+            "initial retract threshold must use current Aux edge");
+        AssertSelfTest(EffectiveRetractThreshold(1650, 2000) == 1750,
+            "expanded retract threshold must use live Aux edge");
+        AssertSelfTest(!ShouldEnterRetract(true, false, 1600, 100, 1750, 0, 900),
+            "stale retract threshold must be ignored after expansion");
+        AssertSelfTest(!ShouldEnterRetract(true, true, 1800, 100, 1750, 0, 900),
+            "retract must be suppressed during live resize");
+        AssertSelfTest(ShouldEnterRetract(true, false, 1800, 100, 1750, 0, 900),
+            "retract must resume after live resize");
+        Console.WriteLine("Carnival Windows live resize self-test passed.");
+    }
+
+    private static void AssertSelfTest(bool condition, string message)
+    {
+        if (!condition) throw new InvalidOperationException(message);
     }
 
     private static void WriteDiagnostic(string detail)

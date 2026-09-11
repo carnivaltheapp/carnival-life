@@ -2,7 +2,7 @@ import { CarnivalWorkspaceController, validWorkArea } from "./workspace-controll
 import { createWorkspaceActions } from "./workspace-summon.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
-const NATIVE_HOST_VERSION = "DRAWER-HOST-4";
+const NATIVE_HOST_VERSION = "DRAWER-HOST-5";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 let nativePort = null;
@@ -116,10 +116,12 @@ function reportDrawerState(state) {
     return;
   }
   nativePort.postMessage({
+    ...flattenBounds("context", state.contextBounds),
     contextRight: state.contextBounds.left + state.contextBounds.width,
     monitorBottom: state.workArea.top + state.workArea.height,
     monitorRight: state.workArea.left + state.workArea.width,
     monitorTop: state.workArea.top,
+    ...flattenBounds("playhouse", state.playhouseBounds),
     state: "open",
     type: "workspaceState",
   });
@@ -169,6 +171,19 @@ function connectNativeHost() {
         const complete = nativeAnimationRequests.get(message.requestId);
         nativeAnimationRequests.delete(message.requestId);
         complete?.(message.ok === true);
+        return;
+      }
+      if (message?.type === "liveResizeStarted") {
+        controller.setNativeResizeInProgress(true);
+        return;
+      }
+      if (message?.type === "liveResizeComplete") {
+        controller.completeNativeResize({
+          context: message.context,
+          playhouse: message.playhouse,
+        }).then((state) => {
+          if (state) reportDrawerState(state);
+        }).catch((error) => console.error("Carnival final resize save failed", error));
         return;
       }
       workspaceActions.handleNativeMessage(message, port)

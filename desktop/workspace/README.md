@@ -34,7 +34,7 @@ The installer compiles the small C# host into the current user's Local AppData,
 stops an older installed companion if necessary, replaces its binary, writes a
 Chrome native-host manifest, registers it under HKCU, configures the resident
 companion in the current user's `Run` key, and starts it. It prints the installed
-path and native-host marker (`DRAWER-HOST-4`). Administrator access is not
+path and native-host marker (`DRAWER-HOST-5`). Administrator access is not
 required. Restart Chrome after installation. Git updates do not update the
 installed native executable automatically, so rerun this command after native
 host source changes.
@@ -72,7 +72,8 @@ saved visible geometry and last Context URL survive stale window IDs. Repeated
 summons do not create duplicate workspace windows or repeated Chrome launches.
 The two windows are a coupled, left-anchored workspace: their edges touch and
 they always share the active monitor's usable top and height. Dragging the Aux
-window's outer right edge proportionally resizes both widths; moving either
+window's outer right edge proportionally resizes both widths continuously
+through one frozen-ratio native resize session; moving either
 window, resizing PlayHouse directly, or moving their internal boundary is
 reconciled through one native paired positioning operation. Persisted widths are
 preserved on another monitor when they fit and proportionally reduced only when
@@ -82,7 +83,7 @@ After each summon, Windows places both Carnival windows together at the front of
 the normal z-order and gives PlayHouse keyboard focus; neither window is made
 permanently topmost.
 
-On normal desktop widths, the open workspace reserves a 101 pixel activation
+On normal desktop widths, the open workspace reserves a 100 pixel activation
 gutter to the right. Moving the pointer 100 pixels beyond the Context window's
 right edge for 150 ms retracts both live windows off the monitor's left edge. On
 an unusually narrow monitor, the gutter shrinks only enough to retain an 800
@@ -98,7 +99,7 @@ are accepted. No PlayHouse bridge invokes that message in this foundation slice.
 After updating the checked-out extension or native-host source, reload the
 extension at `chrome://extensions` and rerun the platform installer before
 manual verification. The extension service-worker console confirms the current
-Windows companion with `Carnival native host: DRAWER-HOST-4`; startup is also
+Windows companion with `Carnival native host: DRAWER-HOST-5`; startup is also
 recorded without credentials in
 `%LOCALAPPDATA%\Carnival\DesktopWorkspace\CarnivalWorkspaceHost.log`. The log
 records pointer-monitor startup, hot-corner entry/cancellation/activation,

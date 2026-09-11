@@ -3,7 +3,7 @@ export const DEFAULT_CONTEXT_URL = "https://calendar.google.com/calendar/u/0/r";
 export const OPEN_ANIMATION_MS = 450;
 export const CLOSE_ANIMATION_MS = 400;
 export const RETRACT_DISTANCE_PX = 100;
-export const DRAWER_RIGHT_GUTTER_PX = RETRACT_DISTANCE_PX + 1;
+export const DRAWER_RIGHT_GUTTER_PX = RETRACT_DISTANCE_PX;
 
 const STORAGE_KEY = "carnivalDesktopWorkspace";
 const LAYOUT_VERSION = 2;
@@ -153,6 +153,7 @@ export class CarnivalWorkspaceController {
     this.nativeSetBounds = options.nativeSetBounds ?? null;
     this.movingWindowIds = new Set();
     this.programmaticBounds = new Map();
+    this.nativeResizeInProgress = false;
     this.reconciling = false;
     this.transitioning = false;
   }
@@ -299,8 +300,45 @@ export class CarnivalWorkspaceController {
     return true;
   }
 
+  setNativeResizeInProgress(inProgress) {
+    this.nativeResizeInProgress = inProgress;
+  }
+
+  async completeNativeResize({ context, playhouse }) {
+    this.nativeResizeInProgress = false;
+    const state = await this.state();
+    const nextBounds = {
+      context: storedBounds(context),
+      playhouse: storedBounds(playhouse),
+    };
+    if (state.drawerState !== "open" || !validWorkArea(state.workArea) ||
+      !nextBounds.playhouse || !nextBounds.context ||
+      !boundsFitWorkArea(nextBounds.playhouse, state.workArea) ||
+      !boundsFitWorkArea(nextBounds.context, state.workArea)) return null;
+    const authoritative = coupledWorkspaceLayout(
+      state.workArea,
+      nextBounds.playhouse.width,
+      nextBounds.context.width,
+      nextBounds.playhouse.width + nextBounds.context.width,
+    );
+    if (!boundsMatch(nextBounds.playhouse, authoritative.playhouse) ||
+      !boundsMatch(nextBounds.context, authoritative.context)) return null;
+    this.programmaticBounds.set(state.playhouseWindowId, authoritative.playhouse);
+    this.programmaticBounds.set(state.contextWindowId, authoritative.context);
+    const nextState = {
+      ...state,
+      contextBounds: authoritative.context,
+      playhouseBounds: authoritative.playhouse,
+      savedVisibleBounds: authoritative,
+    };
+    await this.save(nextState);
+    this.logger.info?.("Carnival: saved final native resize bounds");
+    return nextState;
+  }
+
   async reconcileWorkspace(changedWindow) {
-    if (this.reconciling || this.transitioning || this.movingWindowIds.has(changedWindow.id) ||
+    if (this.nativeResizeInProgress || this.reconciling || this.transitioning ||
+      this.movingWindowIds.has(changedWindow.id) ||
       this.consumeProgrammaticBounds(changedWindow)) return null;
     this.reconciling = true;
     try {
@@ -468,7 +506,7 @@ export class CarnivalWorkspaceController {
   }
 
   async rememberVisibleBounds() {
-    if (this.transitioning || this.movingWindowIds.size > 0) return null;
+    if (this.nativeResizeInProgress || this.transitioning || this.movingWindowIds.size > 0) return null;
     const state = await this.state();
     if (state.drawerState !== "open" || !validWorkArea(state.workArea)) return null;
     const [playhouseWindow, contextWindow] = await Promise.all([
