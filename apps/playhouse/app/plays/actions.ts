@@ -14,7 +14,7 @@ import {
 } from "../../domain/play-mutation";
 import type { BasketSummary } from "../../domain/play";
 import type { PlayPlacement } from "../../domain/play";
-import type { BulkPlayChange } from "../../domain/play-bulk-change";
+import { isBulkSelectablePlay, type BulkPlayChange } from "../../domain/play-bulk-change";
 import { parseGmailAttachmentUrl } from "../../domain/gmail-attachment";
 import { reminderContextDate } from "../../domain/reminder";
 import { applyPlayLifecycle } from "../../lib/google/gmail-lifecycle";
@@ -391,13 +391,10 @@ export async function bulkUpdatePlays(request: {
   try {
     const playIds = Array.from(new Set(request.playIds));
     const change = request.change;
-    const validChange = change.kind === "duration"
-      ? [15, 30, 45, 60, 90, 120].includes(change.durationMinutes)
-      : change.kind === "push"
+    const validChange = change.kind === "push"
         ? ["everyday", "weekdays", "weekends"].includes(change.pushRule)
         : change.kind === "rank"
-          ? ["normal", "reminder"].includes(change.playType) &&
-            isIsoCalendarDate(change.reminderDate)
+          ? ["normal", "reminder"].includes(change.playType)
           : change.placement.kind === "basket" ||
             isIsoCalendarDate(change.placement.scheduledDate);
     if (
@@ -441,17 +438,72 @@ export async function bulkUpdatePlays(request: {
   }
 }
 
+export async function bulkSetPlayStatus(request: {
+  playIds: string[];
+  status: "done" | "trash";
+}): Promise<PlayMutationState> {
+  try {
+    const playIds = Array.from(new Set(request.playIds));
+    if (
+      !["done", "trash"].includes(request.status) ||
+      playIds.length === 0 ||
+      playIds.length > 200 ||
+      playIds.some((playId) => !playId || playId.length > 100)
+    ) return errorState("This bulk status change is invalid. Please try again.");
+
+    const auth = await authenticatedClient();
+    if (!auth) return errorState("Your session expired. Refresh and sign in again.");
+    const source = resolvePlayhouseDataSource();
+    if (source === "supabase" && playIds.some((playId) => !isUuid(playId))) {
+      return errorState("This bulk status change is invalid. Please try again.");
+    }
+    const repository = await createPlayRepository({
+      baskets: [],
+      ownerUserId: auth.userId,
+      source,
+      supabase: auth.supabase,
+    });
+    const plays = await Promise.all(
+      playIds.map((playId) => repository.get(playId)),
+    );
+    if (plays.some((play) => !play || !isBulkSelectablePlay(play))) {
+      return errorState("One or more Plays are no longer active. Refresh and try again.");
+    }
+    const eligiblePlays = plays.filter((play) => play !== null);
+    const results = await Promise.all(eligiblePlays.map((play, index) => applyPlayLifecycle({
+      gmailThreadId: play.gmailThreadId,
+      setLocalStatus: (nextStatus) => repository.setStatus(playIds[index], nextStatus),
+      sourceType: play.sourceType,
+      status: request.status,
+      unstarThread: (threadId) => unstarGmailPlayThread({
+        ownerUserId: auth.userId,
+        supabase: auth.supabase,
+        threadId,
+      }),
+    })));
+    const failed = results.find((result) => !result.success);
+    if (failed) return errorState(failed.message);
+    revalidatePath("/");
+    return {
+      message: `${playIds.length} ${playIds.length === 1 ? "Play" : "Plays"} ${
+        request.status === "done" ? "completed" : "trashed"
+      }.`,
+      status: "success",
+    };
+  } catch {
+    return errorState("PlayHouse could not update these Plays. Please try again.");
+  }
+}
+
 export async function flipPlayRank(request: {
   playId: string;
   playType: "normal" | "reminder";
-  reminderDate: string;
 }): Promise<PlayMutationState> {
   try {
     if (
       !request.playId ||
       request.playId.length > 100 ||
-      !["normal", "reminder"].includes(request.playType) ||
-      !isIsoCalendarDate(request.reminderDate)
+      !["normal", "reminder"].includes(request.playType)
     ) return errorState("This rank change is invalid. Please try again.");
 
     const auth = await authenticatedClient();

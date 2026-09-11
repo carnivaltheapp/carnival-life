@@ -34,6 +34,35 @@ function addIsoDays(date: string, days: number) {
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }
 
+async function dropThroughBullseye(
+  page: Parameters<typeof playRow>[0],
+  title: string,
+  category: "Baskets" | "Rank" | "Push" | null,
+  targetName: string,
+) {
+  const source = playRow(page, title);
+  const transfer = await page.evaluateHandle(() => new DataTransfer());
+  await source.dispatchEvent("dragstart", { dataTransfer: transfer });
+  await expect(source).toHaveAttribute("data-dragging", "true");
+  await page.getByRole("button", { name: "Bullseye drag actions" })
+    .dispatchEvent("dragenter", { dataTransfer: transfer });
+  const categories = page.getByRole("menu", { name: "Bullseye categories" });
+  await expect(categories).toBeVisible();
+  if (category) {
+    await categories.getByRole("menuitem", { name: category, exact: true })
+      .dispatchEvent("dragenter", { dataTransfer: transfer });
+  }
+  const target = category
+    ? page.getByRole(category === "Baskets" ? "link" : "button", {
+        name: targetName,
+        exact: true,
+      })
+    : categories.getByRole("menuitem", { name: targetName, exact: true });
+  await expect(target).toBeVisible();
+  await target.dispatchEvent("dragover", { dataTransfer: transfer });
+  await target.dispatchEvent("drop", { dataTransfer: transfer });
+}
+
 test("new Play defaults Duration to 30 and Place to Office", async ({ auth }) => {
   await auth.page.goto("/");
   const form = await openCreatePlay(auth.page);
@@ -263,7 +292,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-RESTORE-RACE-FIX-30", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-BULLSEYE-31", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');
@@ -339,42 +368,40 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   );
 });
 
-test("right-click bulk menu changes selected eligible Plays without a page refresh", async ({ auth }) => {
+test("Bullseye changes selected Plays and replaces the right-click menu", async ({ auth }) => {
   await auth.page.goto("/");
   await createPlay(auth.page, "Bulk Change One");
   await createPlay(auth.page, "Bulk Change Two");
   const first = playRow(auth.page, "Bulk Change One");
   const second = playRow(auth.page, "Bulk Change Two");
+  await first.locator(".playSelectControl").click();
+  await second.locator(".playSelectControl").click();
   await first.click({ button: "right" });
-  await expect(first).toHaveAttribute("data-selected", "true");
-  await expect(second).not.toHaveAttribute("data-selected", "true");
-  await auth.page.keyboard.press("Escape");
-  await second.getByTestId("play-title").click({ modifiers: ["Control"] });
-  await second.click({ button: "right" });
+  await expect(auth.page.getByRole("menu", { name: "Bulk Play actions" })).toHaveCount(0);
+  await expect(auth.page.getByLabel("Calendar destinations")).toBeVisible();
+  await expect(auth.page.getByText("Duration", { exact: true })).toHaveCount(0);
 
-  const menu = auth.page.getByRole("menu", { name: "Bulk Play actions" });
-  await expect(menu).toBeVisible();
-  await menu.getByRole("menuitem", { name: /Change/ }).click();
-  await menu.getByRole("menuitem", { name: /Duration/ }).click();
-  await menu.getByRole("menuitem", { name: "90", exact: true }).click();
-  await expect(menu).toHaveCount(0);
-  await expect(first).toHaveAttribute("data-selected", "true");
-  await expect(second).toHaveAttribute("data-selected", "true");
+  await dropThroughBullseye(auth.page, "Bulk Change Two", "Rank", "Reminder");
 
   await expect.poll(async () => {
     const { data } = await auth.user
       .from("plays")
-      .select("duration_minutes")
+      .select("basket_id, play_type, scheduled_date")
       .eq("owner_user_id", auth.userId)
       .in("title", ["Bulk Change One", "Bulk Change Two"]);
-    return data?.map(({ duration_minutes }) => duration_minutes);
-  }).toEqual([90, 90]);
+    return data?.map(({ basket_id, play_type, scheduled_date }) => ({
+      basket_id,
+      play_type,
+      scheduled_date,
+    }));
+  }).toEqual([
+    { basket_id: null, play_type: "reminder", scheduled_date: expect.any(String) },
+    { basket_id: null, play_type: "reminder", scheduled_date: expect.any(String) },
+  ]);
+  await expect(auth.page.getByLabel("Calendar destinations")).toBeVisible();
+  await expect(auth.page.getByRole("menu", { name: "Bullseye categories" })).toHaveCount(0);
 
-  await first.click({ button: "right" });
-  const reopened = auth.page.getByRole("menu", { name: "Bulk Play actions" });
-  await reopened.getByRole("menuitem", { name: /Change/ }).click();
-  await reopened.getByRole("menuitem", { name: /Push/ }).click();
-  await reopened.getByRole("menuitem", { name: "Weekend", exact: true }).click();
+  await dropThroughBullseye(auth.page, "Bulk Change Two", "Push", "Weekend");
   await expect.poll(async () => {
     const { data } = await auth.user
       .from("plays")
@@ -383,6 +410,34 @@ test("right-click bulk menu changes selected eligible Plays without a page refre
       .in("title", ["Bulk Change One", "Bulk Change Two"]);
     return data?.map(({ push_rule }) => push_rule);
   }).toEqual(["weekends", "weekends"]);
+
+  await dropThroughBullseye(auth.page, "Bulk Change Two", null, "Done");
+  await expect(first).toHaveCount(0);
+  await expect(second).toHaveCount(0);
+  await expect.poll(async () => {
+    const { data } = await auth.user
+      .from("plays")
+      .select("status")
+      .eq("owner_user_id", auth.userId)
+      .in("title", ["Bulk Change One", "Bulk Change Two"]);
+    return data?.map(({ status }) => status);
+  }).toEqual(["done", "done"]);
+
+  await createPlay(auth.page, "Bulk Trash One");
+  await createPlay(auth.page, "Bulk Trash Two");
+  await playRow(auth.page, "Bulk Trash One").locator(".playSelectControl").click();
+  await playRow(auth.page, "Bulk Trash Two").locator(".playSelectControl").click();
+  await dropThroughBullseye(auth.page, "Bulk Trash Two", null, "Trash");
+  await expect(playRow(auth.page, "Bulk Trash One")).toHaveCount(0);
+  await expect(playRow(auth.page, "Bulk Trash Two")).toHaveCount(0);
+  await expect.poll(async () => {
+    const { data } = await auth.user
+      .from("plays")
+      .select("status")
+      .eq("owner_user_id", auth.userId)
+      .in("title", ["Bulk Trash One", "Bulk Trash Two"]);
+    return data?.map(({ status }) => status);
+  }).toEqual(["trash", "trash"]);
 });
 
 test("Edit updates title and URL while preserving Duration and Place", async ({ auth }) => {
@@ -420,6 +475,16 @@ test("Edit updates title and URL while preserving Duration and Place", async ({ 
   await urlSort.click();
   await expect(gridHeader.getByRole("columnheader", { name: "URL" }))
     .toHaveAttribute("aria-sort", "descending");
+  await expect(gridHeader.getByRole("button", { name: "Return to natural order" })).toBeVisible();
+  await gridHeader.getByRole("button", { name: "Return to natural order" }).click();
+  await expect(gridHeader.getByRole("columnheader", { name: "URL" }))
+    .toHaveAttribute("aria-sort", "none");
+  await gridHeader.getByRole("button", { name: "Sort Branch ascending" }).click();
+  await expect(gridHeader.getByRole("columnheader", { name: "Branch" }))
+    .toHaveAttribute("aria-sort", "ascending");
+  await gridHeader.getByRole("button", { name: "Return to natural order" }).click();
+  await expect(gridHeader.getByRole("columnheader", { name: "Branch" }))
+    .toHaveAttribute("aria-sort", "none");
   expect(await gridHeader.evaluate((header) => getComputedStyle(header).gridTemplateColumns))
     .toBe(await compactRow.locator(".playRowLine").evaluate(
       (row) => getComputedStyle(row).gridTemplateColumns,
@@ -495,8 +560,7 @@ test("Play moves date to Basket and Basket back to date", async ({ auth }) => {
   await edit.form.getByRole("button", { name: "Save changes" }).click();
   await expect(playRow(auth.page, "Move both ways")).toHaveCount(0);
 
-  await auth.page.getByRole("button", { name: "Baskets" }).click();
-  await auth.page.getByRole("link", { name: "Backlog" }).click();
+  await auth.page.goto("/?basket=backlog");
   await expect(playRow(auth.page, "Move both ways")).toBeVisible();
   edit = await openEditPlay(auth.page, "Move both ways");
   await edit.form.locator('select[name="placementKind"]').selectOption("calendar");
@@ -506,8 +570,7 @@ test("Play moves date to Basket and Basket back to date", async ({ auth }) => {
   await edit.form.getByRole("button", { name: "Save changes" }).click();
   await expect(playRow(auth.page, "Move both ways")).toHaveCount(0);
 
-  await auth.page.getByRole("button", { name: "Calendar" }).click();
-  await auth.page.getByRole("link", { name: /^Today / }).click();
+  await auth.page.goto("/?view=today");
   await expect(playRow(auth.page, "Move both ways")).toBeVisible();
 });
 
@@ -622,10 +685,8 @@ test("selected Plays drag together to a Basket and date in relative order", asyn
   for (const title of titles) {
     await playRow(auth.page, title).locator(".playSelectControl").click();
   }
-  await auth.page.getByRole("button", { name: "Baskets" }).click();
-  const backlog = auth.page.getByRole("link", { name: "Backlog" });
   const urlBeforeDrop = auth.page.url();
-  await playRow(auth.page, "Group drag two").dragTo(backlog);
+  await dropThroughBullseye(auth.page, "Group drag two", "Baskets", "Backlog");
 
   await expect.poll(() => auth.page.getByTestId("play-row").count()).toBe(0);
   expect(auth.page.url()).toBe(urlBeforeDrop);
@@ -633,12 +694,11 @@ test("selected Plays drag together to a Basket and date in relative order", asyn
     () => sessionStorage.getItem("playhouse-multi-drag-count"),
   )).toBe("3 Plays");
 
-  await backlog.click();
+  await auth.page.goto("/?basket=backlog");
   await expect(auth.page.getByTestId("play-title")).toHaveText(visibleOrder);
   for (const title of titles) {
     await playRow(auth.page, title).locator(".playSelectControl").click();
   }
-  await auth.page.getByRole("button", { name: "Calendar" }).click();
   const tomorrow = auth.page.getByRole("link", { name: /^Tomorrow / });
   await playRow(auth.page, "Group drag two").dragTo(tomorrow);
 
@@ -724,7 +784,7 @@ test("Headline to Reminder requires a future date and Cancel makes no change", a
   await expect(reminderRow.locator(".playTypeMarker--reminder")).toBeVisible();
 });
 
-test("Flip rank uses the Reminder prompt and moves the Play to each rank's top", async ({ auth }) => {
+test("Flip rank directly preserves placement and moves the Play to each rank's top", async ({ auth }) => {
   await auth.page.goto("/");
   const today = await browserCalendarDate(auth.page);
   await createPlay(auth.page, "Existing Headline");
@@ -742,18 +802,16 @@ test("Flip rank uses the Reminder prompt and moves the Play to each rank's top",
 
   const candidate = playRow(auth.page, "Flip candidate");
   await candidate.getByRole("button", { name: "Flip rank" }).click();
-  let prompt = auth.page.getByRole("dialog", { name: "Reminder Date" });
-  await expect(prompt.getByLabel("Reminder Date")).toHaveValue(today);
-  await prompt.getByRole("button", { name: "Cancel" }).click();
-  await expect(candidate.locator(".playTypeMarker--headline")).toBeVisible();
-  await expect(candidate.getByTestId("edit-play")).not.toHaveAttribute("open", "");
-  await expect(candidate.locator(".playSelectControl")).toHaveAttribute("aria-pressed", "false");
-
-  await candidate.getByRole("button", { name: "Flip rank" }).click();
-  prompt = auth.page.getByRole("dialog", { name: "Reminder Date" });
-  await prompt.getByRole("button", { name: "Set Reminder" }).click();
+  await expect(auth.page.getByRole("dialog", { name: "Reminder Date" })).toHaveCount(0);
   await expect(candidate.locator(".playTypeMarker--reminder")).toBeVisible();
   await expect(auth.page.locator(".playVisual--reminder").first()).toContainText("Flip candidate");
+  const { data: reminded } = await auth.user
+    .from("plays")
+    .select("basket_id, scheduled_date")
+    .eq("owner_user_id", auth.userId)
+    .eq("title", "Flip candidate")
+    .single();
+  expect(reminded).toEqual({ basket_id: null, scheduled_date: today });
 
   await candidate.getByRole("button", { name: "Flip rank" }).click();
   await expect(auth.page.getByRole("dialog", { name: "Reminder Date" })).toHaveCount(0);
@@ -908,8 +966,7 @@ test("Play moved from Backlog to Today remains visible after refresh", async ({ 
   expect(saved.error).toBeNull();
   expect(saved.data).toEqual({ basket_id: null, scheduled_date: today });
 
-  await auth.page.getByRole("button", { name: "Calendar" }).click();
-  await auth.page.getByRole("link", { name: /^Today / }).click();
+  await auth.page.goto("/?view=today");
   await expect(playRow(auth.page, "Backlog to Today")).toBeVisible();
   await auth.page.reload();
   await expect(playRow(auth.page, "Backlog to Today")).toBeVisible();

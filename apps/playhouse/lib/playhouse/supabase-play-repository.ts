@@ -401,7 +401,7 @@ export class SupabasePlayRepository implements PlayRepository {
     return !error;
   }
 
-  async flipRank({ playId, playType, reminderDate }: FlipPlayRankRequest) {
+  async flipRank({ playId, playType }: FlipPlayRankRequest) {
     const { data: play, error: playError } = await this.supabase
       .from("plays")
       .select("id, play_type, scheduled_date, basket_id, source_metadata")
@@ -416,25 +416,16 @@ export class SupabasePlayRepository implements PlayRepository {
       play.play_type === playType
     ) return false;
 
-    const preserveReminderDate = playType === "reminder" && Boolean(
-      play.scheduled_date && play.scheduled_date >= reminderDate && !play.basket_id,
-    );
-    const scheduledDate = playType === "reminder" && !preserveReminderDate
-      ? reminderDate
-      : play.scheduled_date;
-    const basketId = playType === "reminder" && !preserveReminderDate
-      ? null
-      : play.basket_id;
     let destinationQuery = this.supabase
       .from("plays")
       .select("id, sort_order, source_metadata")
       .eq("owner_user_id", this.ownerUserId)
       .eq("status", "open")
       .eq("play_type", playType);
-    destinationQuery = basketId
-      ? destinationQuery.eq("basket_id", basketId)
-      : scheduledDate
-        ? destinationQuery.eq("scheduled_date", scheduledDate)
+    destinationQuery = play.basket_id
+      ? destinationQuery.eq("basket_id", play.basket_id)
+      : play.scheduled_date
+        ? destinationQuery.eq("scheduled_date", play.scheduled_date)
         : destinationQuery.is("scheduled_date", null);
     const { data: destination, error: destinationError } = await destinationQuery
       .order("sort_order", { ascending: true })
@@ -449,9 +440,7 @@ export class SupabasePlayRepository implements PlayRepository {
     const { data, error } = await this.supabase
       .from("plays")
       .update({
-        basket_id: basketId,
         play_type: playType,
-        scheduled_date: scheduledDate,
         sort_order: (firstOrder ?? 1000) - 1000,
       })
       .eq("id", playId)
@@ -483,19 +472,10 @@ export class SupabasePlayRepository implements PlayRepository {
       let values: Database["public"]["Tables"]["plays"]["Update"];
       if (change.kind === "push") {
         values = { push_rule: change.pushRule };
-      } else if (change.kind === "duration") {
-        values = { duration_minutes: change.durationMinutes };
       } else if (change.playType === "normal") {
         values = { play_type: "normal" };
       } else {
-        const preserveDate = Boolean(
-          play.scheduled_date && play.scheduled_date >= change.reminderDate && !play.basket_id,
-        );
-        values = {
-          basket_id: null,
-          play_type: "reminder",
-          scheduled_date: preserveDate ? play.scheduled_date : change.reminderDate,
-        };
+        values = { play_type: "reminder" };
       }
       return this.supabase
         .from("plays")

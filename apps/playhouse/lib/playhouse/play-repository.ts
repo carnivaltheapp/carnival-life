@@ -34,7 +34,6 @@ export type RepositionPlaysRequest = {
 export type FlipPlayRankRequest = {
   playId: string;
   playType: "normal" | "reminder";
-  reminderDate: string;
 };
 
 export type AttachGmailRequest = {

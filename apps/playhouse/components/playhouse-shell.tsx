@@ -18,6 +18,7 @@ import {
 
 import {
   attachGmailToPlay,
+  bulkSetPlayStatus,
   bulkUpdatePlays,
   flipPlayRank,
   repositionPlays,
@@ -49,7 +50,6 @@ import {
   friendlyCalendarDate,
   isSelectableCalendarDate,
   rollingCalendarDates,
-  sidebarSectionForView,
 } from "../domain/playhouse-navigation";
 import {
   beginRegionSelection,
@@ -73,12 +73,11 @@ import {
 } from "../domain/play-grid-sort";
 import { playVisualForPlay } from "../domain/play-visual";
 import { compareChronologicalPlays, comparePlayRankAndPriority } from "../domain/play-sort";
-import { reminderContextDate, reminderDateError } from "../domain/reminder";
+import { reminderContextDate } from "../domain/reminder";
 import { AccountMenu } from "./account-menu";
-import { BulkPlayContextMenu } from "./bulk-play-context-menu";
 import { BrowserTimeZone } from "./browser-time-zone";
 import { useGridFontSizePreference } from "./grid-settings";
-import { PlayForm, ReminderDatePrompt } from "./play-form";
+import { PlayForm } from "./play-form";
 import { PlaySearch } from "./play-search";
 import {
   BrowserIcon,
@@ -107,6 +106,8 @@ type PlayhouseShellProps = {
   supportsWorkflows: boolean;
   todayDate: string;
 };
+
+type BullseyeCategory = "calendar" | "baskets" | "rank" | "push";
 
 function selectedViewIdentity(selectedView: SelectedView) {
   return selectedView.kind === "basket"
@@ -238,24 +239,17 @@ function PlayhouseShellView({
   }) | null>(null);
   const eligiblePlayIdsRef = useRef<ReadonlySet<string>>(new Set());
   const [datePickerOpen, setDatePickerOpen] = useState(false);
-  const [sidebarSection, setSidebarSection] = useState(() =>
-    sidebarSectionForView(selectedView.kind)
-  );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
   const [draggedIds, setDraggedIds] = useState<string[]>([]);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [bullseyeOpen, setBullseyeOpen] = useState(false);
+  const [bullseyeCategory, setBullseyeCategory] = useState<BullseyeCategory>("calendar");
   const gmailCorrelationIdRef = useRef<string | null>(null);
   const gmailDropTargetRef = useRef<string | null>(null);
   const [gmailDropTarget, setGmailDropTarget] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [gridSort, setGridSort] = useState<PlayGridSort | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const [rankFlipPrompt, setRankFlipPrompt] = useState<{
-    date: string;
-    message: string | null;
-    play: PlayListItem;
-  } | null>(null);
   const [flippingPlayId, setFlippingPlayId] = useState<string | null>(null);
   const [optimisticPlays, setOptimisticPlays] = useState<{
     source: PlayListItem[];
@@ -337,6 +331,8 @@ function PlayhouseShellView({
     dragPreviewRef.current = null;
     setDraggedIds([]);
     setDropTarget(null);
+    setBullseyeCategory("calendar");
+    setBullseyeOpen(false);
   }
 
   const persistGmailAttachment = useCallback((
@@ -464,6 +460,8 @@ function PlayhouseShellView({
     );
 
     setDraggedIds(ids);
+    setBullseyeCategory("calendar");
+    setBullseyeOpen(false);
     setMoveError(null);
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", ids.join(","));
@@ -553,28 +551,12 @@ function PlayhouseShellView({
     };
   }, []);
 
-  function openBulkMenu(playId: string, event: MouseEvent<HTMLLIElement>) {
-    if (!eligiblePlayIds.has(playId)) return;
-    event.preventDefault();
-    if (!selectedIds.has(playId)) {
-      setSelectedIds(new Set([playId]));
-      setSelectionAnchor(playId);
-    }
-    setContextMenu({
-      x: Math.max(8, Math.min(event.clientX, window.innerWidth - 230)),
-      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 360)),
-    });
-  }
-
   function applyBulkChange(change: BulkPlayChange) {
-    const playIds = visibleIds.filter((id) => selectedIds.has(id) && eligiblePlayIds.has(id));
+    const playIds = visibleIds.filter((id) => draggedIds.includes(id) && eligiblePlayIds.has(id));
     if (!playIds.length || bulkPending) return;
     const previousOptimisticPlays = optimisticPlays;
     const previousSelection = selectedIds;
-    const keepMovedInView = change.kind === "move"
-      ? isCurrentPlacement(change.placement)
-      : change.kind !== "rank" || change.playType !== "reminder" ||
-        selectedView.kind !== "basket";
+    const keepMovedInView = change.kind !== "move" || isCurrentPlacement(change.placement);
     let nextPlays = optimisticallyApplyBulkChange(
       localPlays,
       new Set(playIds),
@@ -590,35 +572,68 @@ function PlayhouseShellView({
     }
     setOptimisticPlays({ source: plays, value: nextPlays });
     setSelectedIds(new Set(playIds.filter((id) => nextPlays.some((play) => play.id === id))));
-    setContextMenu(null);
+    clearDragState();
     startBulk(async () => {
       try {
         const result = await bulkUpdatePlays({ change, playIds });
         if (result.status === "success") {
           setMoveError(null);
+          console.info("DRAG_ACTION_COMPLETE", { count: playIds.length, kind: change.kind });
           return;
         }
         setOptimisticPlays(previousOptimisticPlays);
         setSelectedIds(previousSelection);
         setMoveError(result.message);
+        console.info("DRAG_ACTION_FAILED", { count: playIds.length, kind: change.kind });
       } catch {
         setOptimisticPlays(previousOptimisticPlays);
         setSelectedIds(previousSelection);
         setMoveError("PlayHouse could not change these Plays. The previous values were restored.");
+        console.info("DRAG_ACTION_FAILED", { count: playIds.length, kind: change.kind });
       }
     });
   }
 
-  function applyRankFlip(play: PlayListItem, playType: "normal" | "reminder", date: string) {
+  function applyBulkStatus(status: "done" | "trash") {
+    const playIds = visibleIds.filter((id) => draggedIds.includes(id) && eligiblePlayIds.has(id));
+    if (!playIds.length || bulkPending) return;
+    const previousOptimisticPlays = optimisticPlays;
+    const previousSelection = selectedIds;
+    setOptimisticPlays({
+      source: plays,
+      value: localPlays.filter((play) => !playIds.includes(play.id)),
+    });
+    setSelectedIds(new Set());
+    clearDragState();
+    startBulk(async () => {
+      try {
+        const result = await bulkSetPlayStatus({ playIds, status });
+        if (result.status === "success") {
+          setMoveError(null);
+          console.info("DRAG_ACTION_COMPLETE", { count: playIds.length, kind: status });
+          return;
+        }
+        setOptimisticPlays(previousOptimisticPlays);
+        setSelectedIds(previousSelection);
+        setMoveError(result.message);
+        console.info("DRAG_ACTION_FAILED", { count: playIds.length, kind: status });
+      } catch {
+        setOptimisticPlays(previousOptimisticPlays);
+        setSelectedIds(previousSelection);
+        setMoveError("PlayHouse could not update these Plays. The previous values were restored.");
+        console.info("DRAG_ACTION_FAILED", { count: playIds.length, kind: status });
+      }
+    });
+  }
+
+  function applyRankFlip(play: PlayListItem, playType: "normal" | "reminder") {
     if (flipPending) return;
     const previousOptimisticPlays = optimisticPlays;
-    const keepMovedInView = playType !== "reminder" || selectedView.kind !== "basket";
     let nextPlays = optimisticallyFlipPlayRank(
       localPlays,
       play.id,
       playType,
-      date,
-      keepMovedInView,
+      true,
     );
     const multiDate = Boolean(searchQuery) || selectedView.kind === "all" ||
       (selectedView.kind === "calendar" && selectedView.key === "week");
@@ -627,10 +642,9 @@ function PlayhouseShellView({
     );
     setOptimisticPlays({ source: plays, value: nextPlays });
     setFlippingPlayId(play.id);
-    setRankFlipPrompt(null);
     startFlip(async () => {
       try {
-        const result = await flipPlayRank({ playId: play.id, playType, reminderDate: date });
+        const result = await flipPlayRank({ playId: play.id, playType });
         if (result.status === "success") {
           setMoveError(null);
           setFlippingPlayId(null);
@@ -650,21 +664,17 @@ function PlayhouseShellView({
   function requestRankFlip(play: PlayListItem) {
     const visualType = playVisualForPlay(play).visualType;
     if (visualType === "appointment") return;
-    const date = reminderContextDate({
-      displayedDate: displayedReminderDate,
-      scheduledDate: play.scheduledDate,
-      todayDate,
-    });
-    if (visualType === "reminder") {
-      applyRankFlip(play, "normal", date);
-      return;
-    }
-    setRankFlipPrompt({ date, message: null, play });
+    applyRankFlip(play, visualType === "reminder" ? "normal" : "reminder");
   }
 
   function persistMove(placement: PlayPlacement, beforePlayId: string | null) {
     if (!draggedIds.length || movePending) return;
     const playIds = visibleIds.filter((id) => draggedIds.includes(id));
+    const kind = placement.kind === "calendar" ? "DATE" : "BASKET";
+    const destination = placement.kind === "calendar"
+      ? placement.scheduledDate
+      : placement.basketId;
+    console.info(`DROP_${kind}`, { count: playIds.length, destination });
     const previousOptimisticPlays = optimisticPlays;
     setOptimisticPlays({
       source: plays,
@@ -675,22 +685,27 @@ function PlayhouseShellView({
         plays: localPlays,
       }),
     });
-    setDraggedIds([]);
-    setDropTarget(null);
+    clearDragState();
     startMove(async () => {
       try {
         const result = await repositionPlays({ beforePlayId, placement, playIds });
         if (result.status !== "success") {
           setOptimisticPlays(previousOptimisticPlays);
           setMoveError(result.message);
+          console.info("DRAG_ACTION_FAILED", {
+            count: playIds.length,
+            kind: kind.toLowerCase(),
+          });
           return;
         }
         setSelectedIds(new Set());
         setSelectionAnchor(null);
         setMoveError(null);
+        console.info("DRAG_ACTION_COMPLETE", { count: playIds.length, kind: kind.toLowerCase() });
       } catch {
         setOptimisticPlays(previousOptimisticPlays);
         setMoveError("PlayHouse could not move these Plays. The previous order was restored.");
+        console.info("DRAG_ACTION_FAILED", { count: playIds.length, kind: kind.toLowerCase() });
       }
     });
   }
@@ -709,6 +724,35 @@ function PlayhouseShellView({
         persistMove(placement, null);
       },
     };
+  }
+
+  function bullseyeCategoryProps(category: BullseyeCategory) {
+    return {
+      onDragEnter: () => {
+        setBullseyeCategory(category);
+        console.info("BULLSEYE_CATEGORY_SELECTED", {
+          category,
+          count: draggedIds.length,
+        });
+      },
+      onDragOver: (event: DragEvent<HTMLButtonElement>) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+      },
+    };
+  }
+
+  function applyBullseyeDrop(
+    event: DragEvent<HTMLButtonElement>,
+    action: { change: BulkPlayChange; kind: "change" } |
+      { kind: "status"; status: "done" | "trash" },
+    eventName: "DROP_DONE" | "DROP_PUSH" | "DROP_RANK" | "DROP_TRASH",
+    value: string,
+  ) {
+    event.preventDefault();
+    console.info(eventName, { count: draggedIds.length, value });
+    if (action.kind === "change") applyBulkChange(action.change);
+    else applyBulkStatus(action.status);
   }
 
   return (
@@ -766,30 +810,77 @@ function PlayhouseShellView({
       >
         <aside className="sidebar" aria-label="Play destinations">
           <nav className="destinationNav">
-            <div aria-label="Navigation section" className="sidebarSectionToggle" role="group">
+            <div className="bullseyeSwitcher">
               <button
-                aria-controls="calendar-navigation"
-                aria-pressed={sidebarSection === "calendar"}
-                data-active={sidebarSection === "calendar" || undefined}
-                onClick={() => setSidebarSection("calendar")}
-                type="button"
-              >
-                Calendar
-              </button>
-              <button
-                aria-controls="basket-navigation"
-                aria-pressed={sidebarSection === "baskets"}
-                data-active={sidebarSection === "baskets" || undefined}
-                onClick={() => {
-                  setDatePickerOpen(false);
-                  setSidebarSection("baskets");
+                aria-expanded={bullseyeOpen}
+                aria-label="Bullseye drag actions"
+                className="bullseyeControl"
+                onDragEnter={() => {
+                  if (!draggedIds.length) return;
+                  setBullseyeOpen(true);
+                  console.info("BULLSEYE_OPENED", { count: draggedIds.length });
+                }}
+                onDragOver={(event) => {
+                  if (!draggedIds.length) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
                 }}
                 type="button"
               >
-                Baskets
+                <span aria-hidden="true" className="bullseyeIcon">◎</span>
+                Bullseye
               </button>
+              {bullseyeOpen && draggedIds.length ? (
+                <div aria-label="Bullseye categories" className="bullseyeCategories" role="menu">
+                  {(["calendar", "baskets", "rank", "push"] as const).map((category) => (
+                    <button
+                      data-active={bullseyeCategory === category || undefined}
+                      key={category}
+                      role="menuitem"
+                      type="button"
+                      {...bullseyeCategoryProps(category)}
+                    >
+                      {category[0].toUpperCase() + category.slice(1)}
+                    </button>
+                  ))}
+                  <button
+                    data-drop-target={dropTarget === "status:done" || undefined}
+                    onDragOver={(event) => {
+                      if (!draggedIds.length) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      setDropTarget("status:done");
+                    }}
+                    onDrop={(event) => applyBullseyeDrop(
+                      event,
+                      { kind: "status", status: "done" },
+                      "DROP_DONE",
+                      "done",
+                    )}
+                    role="menuitem"
+                    type="button"
+                  >Done</button>
+                  <button
+                    data-drop-target={dropTarget === "status:trash" || undefined}
+                    onDragOver={(event) => {
+                      if (!draggedIds.length) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      setDropTarget("status:trash");
+                    }}
+                    onDrop={(event) => applyBullseyeDrop(
+                      event,
+                      { kind: "status", status: "trash" },
+                      "DROP_TRASH",
+                      "trash",
+                    )}
+                    role="menuitem"
+                    type="button"
+                  >Trash</button>
+                </div>
+              ) : null}
             </div>
-            {sidebarSection === "calendar" ? (
+            {bullseyeCategory === "calendar" ? (
               <div
                 aria-label="Calendar destinations"
                 className="navItems"
@@ -900,7 +991,7 @@ function PlayhouseShellView({
                   );
                 })}
               </div>
-            ) : (
+            ) : bullseyeCategory === "baskets" ? (
               <div
                 aria-label="Basket destinations"
                 className="navItems"
@@ -933,6 +1024,70 @@ function PlayhouseShellView({
                 {!dataError && baskets.length === 0 ? (
                   <p className="navEmpty">No Baskets available</p>
                 ) : null}
+              </div>
+            ) : bullseyeCategory === "rank" ? (
+              <div aria-label="Rank destinations" className="navItems bullseyeOptions">
+                <button
+                  className="destinationLink"
+                  data-drop-target={dropTarget === "rank:normal" || undefined}
+                  onDragOver={(event) => {
+                    if (!draggedIds.length) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                    setDropTarget("rank:normal");
+                  }}
+                  onDrop={(event) => applyBullseyeDrop(
+                    event,
+                    { change: { kind: "rank", playType: "normal" }, kind: "change" },
+                    "DROP_RANK",
+                    "headline",
+                  )}
+                  type="button"
+                ><span className="destinationIcon" aria-hidden="true">●</span>Headline</button>
+                <button
+                  className="destinationLink"
+                  data-drop-target={dropTarget === "rank:reminder" || undefined}
+                  onDragOver={(event) => {
+                    if (!draggedIds.length) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                    setDropTarget("rank:reminder");
+                  }}
+                  onDrop={(event) => applyBullseyeDrop(
+                    event,
+                    { change: { kind: "rank", playType: "reminder" }, kind: "change" },
+                    "DROP_RANK",
+                    "reminder",
+                  )}
+                  type="button"
+                ><span className="destinationIcon" aria-hidden="true">●</span>Reminder</button>
+              </div>
+            ) : (
+              <div aria-label="Push destinations" className="navItems bullseyeOptions">
+                {([
+                  ["Everyday", "everyday"],
+                  ["Weekday", "weekdays"],
+                  ["Weekend", "weekends"],
+                ] as const).map(([label, pushRule]) => (
+                  <button
+                    className="destinationLink"
+                    data-drop-target={dropTarget === `push:${pushRule}` || undefined}
+                    key={pushRule}
+                    onDragOver={(event) => {
+                      if (!draggedIds.length) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      setDropTarget(`push:${pushRule}`);
+                    }}
+                    onDrop={(event) => applyBullseyeDrop(
+                      event,
+                      { change: { kind: "push", pushRule }, kind: "change" },
+                      "DROP_PUSH",
+                      pushRule,
+                    )}
+                    type="button"
+                  ><span className="destinationIcon" aria-hidden="true">•</span>{label}</button>
+                ))}
               </div>
             )}
           </nav>
@@ -1010,9 +1165,21 @@ function PlayhouseShellView({
                   >
                     <BrowserIcon />
                   </GridIconSortHeader>
-                  <span aria-label="Flip rank" role="columnheader" title="Flip rank">
-                    <FlipRankIcon />
-                  </span>
+                  {gridSort ? (
+                    <button
+                      aria-label="Return to natural order"
+                      className="playGridNaturalOrderButton"
+                      onClick={() => setGridSort(null)}
+                      title="Return to natural order"
+                      type="button"
+                    >
+                      <FlipRankIcon />
+                    </button>
+                  ) : (
+                    <span aria-label="Flip rank" role="columnheader" title="Flip rank">
+                      <FlipRankIcon />
+                    </span>
+                  )}
                 </div>
               </div>
               <ol
@@ -1046,7 +1213,6 @@ function PlayhouseShellView({
                     });
                     setSelectionAnchor(play.id);
                   }}
-                  onContextMenu={(event) => openBulkMenu(play.id, event)}
                   onDragEnd={clearDragState}
                   onDragLeave={(event) => {
                     if (
@@ -1203,52 +1369,6 @@ function PlayhouseShellView({
                   );
                 })}
               </ol>
-              {contextMenu ? (
-                <BulkPlayContextMenu
-                  baskets={baskets}
-                  onApply={applyBulkChange}
-                  onClose={() => setContextMenu(null)}
-                  reminderDate={reminderContextDate({
-                    displayedDate: displayedReminderDate,
-                    todayDate,
-                  })}
-                  todayDate={todayDate}
-                  x={contextMenu.x}
-                  y={contextMenu.y}
-                />
-              ) : null}
-              {rankFlipPrompt ? (
-                <ReminderDatePrompt
-                  dialogId={`flip-reminder-date-${rankFlipPrompt.play.id}`}
-                  message={rankFlipPrompt.message}
-                  minimumDate={reminderContextDate({
-                    displayedDate: displayedReminderDate,
-                    scheduledDate: rankFlipPrompt.play.scheduledDate,
-                    todayDate,
-                  })}
-                  onCancel={() => setRankFlipPrompt(null)}
-                  onChange={(date) => setRankFlipPrompt((current) => current
-                    ? { ...current, date, message: null }
-                    : null)}
-                  onConfirm={() => {
-                    const minimumDate = reminderContextDate({
-                      displayedDate: displayedReminderDate,
-                      scheduledDate: rankFlipPrompt.play.scheduledDate,
-                      todayDate,
-                    });
-                    const message = reminderDateError(
-                      { kind: "calendar", scheduledDate: rankFlipPrompt.date },
-                      minimumDate,
-                    );
-                    if (message) {
-                      setRankFlipPrompt({ ...rankFlipPrompt, message });
-                      return;
-                    }
-                    applyRankFlip(rankFlipPrompt.play, "reminder", rankFlipPrompt.date);
-                  }}
-                  value={rankFlipPrompt.date}
-                />
-              ) : null}
             </>
           )}
         </section>

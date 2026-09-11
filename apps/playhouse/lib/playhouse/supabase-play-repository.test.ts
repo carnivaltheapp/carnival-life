@@ -192,15 +192,12 @@ describe("Supabase rank flip", () => {
     ).flipRank({
       playId: "play-1",
       playType: "normal",
-      reminderDate: "2026-09-08",
     })).toBe(true);
 
     expect(play.eq).toHaveBeenCalledWith("owner_user_id", "owner-user");
     expect(headlines.eq).toHaveBeenCalledWith("play_type", "normal");
     expect(update.update).toHaveBeenCalledWith({
-      basket_id: null,
       play_type: "normal",
-      scheduled_date: "2026-09-08",
       sort_order: 1000,
     });
     expect(update.eq).toHaveBeenCalledWith("id", "play-1");

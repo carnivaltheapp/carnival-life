@@ -204,7 +204,6 @@ describe("MongoPlayRepository mutations", () => {
     }).flipRank({
       playId: id.toHexString(),
       playType: "reminder",
-      reminderDate: "2026-09-08",
     })).toBe(true);
 
     expect(updateOne.mock.calls[0][0]).toEqual({
@@ -217,10 +216,10 @@ describe("MongoPlayRepository mutations", () => {
     });
     expect(updateOne.mock.calls[0][1].$set).toMatchObject({
       priority_index: "10-000004FF",
-      task_date: new Date("2026-09-08T00:00:00.000Z"),
       task_type: "S",
       updated_date: expect.any(Date),
     });
+    expect(updateOne.mock.calls[0][1].$set).not.toHaveProperty("task_date");
   });
 
   it("rejects the entire bulk mutation when an Appointment is present", async () => {
@@ -233,8 +232,8 @@ describe("MongoPlayRepository mutations", () => {
       bulkWrite: bulkWrite as never,
       find: find as never,
     }).bulkUpdate([appointment.toHexString()], {
-      durationMinutes: 60,
-      kind: "duration",
+      kind: "push",
+      pushRule: "weekdays",
     })).toBe(false);
     expect(bulkWrite).not.toHaveBeenCalled();
   });

@@ -423,7 +423,7 @@ export class MongoPlayRepository implements PlayRepository {
     return result.acknowledged;
   }
 
-  async flipRank({ playId, playType, reminderDate }: FlipPlayRankRequest) {
+  async flipRank({ playId, playType }: FlipPlayRankRequest) {
     let objectId: ObjectId;
     try {
       objectId = new ObjectId(playId);
@@ -438,11 +438,7 @@ export class MongoPlayRepository implements PlayRepository {
 
     const currentType = mongoPlayType(task.task_type);
     if (currentType === playType) return false;
-    const preserveReminderDate = playType === "reminder" &&
-      isRealScheduledDateOnOrAfter(task.task_date, reminderDate);
-    const destinationDate = playType === "reminder" && !preserveReminderDate
-      ? new Date(`${reminderDate}T00:00:00.000Z`)
-      : task.task_date;
+    const destinationDate = task.task_date;
     if (!(destinationDate instanceof Date)) return false;
 
     const destinationTasks = await this.dependencies.collection.find({
@@ -466,7 +462,6 @@ export class MongoPlayRepository implements PlayRepository {
     }, {
       $set: {
         priority_index: legacyPriorityValue(priority),
-        task_date: destinationDate,
         task_type: playType === "reminder" ? "S" : "H",
         updated_date: new Date(),
       },
@@ -500,17 +495,10 @@ export class MongoPlayRepository implements PlayRepository {
       let values: Record<string, unknown>;
       if (change.kind === "push") {
         values = { push_type: legacyPushType(change.pushRule) };
-      } else if (change.kind === "duration") {
-        values = { duration: change.durationMinutes };
       } else if (change.playType === "normal") {
         values = { task_type: "H" };
       } else {
-        values = {
-          task_type: "S",
-          ...(!isRealScheduledDateOnOrAfter(task.task_date, change.reminderDate)
-            ? { task_date: new Date(`${change.reminderDate}T00:00:00.000Z`) }
-            : {}),
-        };
+        values = { task_type: "S" };
       }
       return {
         updateOne: {

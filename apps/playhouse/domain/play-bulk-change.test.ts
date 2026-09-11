@@ -54,7 +54,7 @@ describe("bulk Play changes", () => {
     )).toEqual([place]);
   });
 
-  it("applies canonical Push and Duration values only to selected Plays", () => {
+  it("applies canonical Push values only to selected Plays", () => {
     const plays = [play("one", "H", "normal"), play("two", "S", "reminder")];
     const pushed = optimisticallyApplyBulkChange(
       plays,
@@ -62,14 +62,8 @@ describe("bulk Play changes", () => {
       { kind: "push", pushRule: "weekdays" },
       true,
     );
-    const duration = optimisticallyApplyBulkChange(
-      pushed,
-      new Set(["one"]),
-      { durationMinutes: 90, kind: "duration" },
-      true,
-    );
-    expect(duration[0]).toMatchObject({ durationMinutes: 90, pushRule: "weekdays" });
-    expect(duration[1]).toBe(plays[1]);
+    expect(pushed[0]).toMatchObject({ durationMinutes: 30, pushRule: "weekdays" });
+    expect(pushed[1]).toBe(plays[1]);
   });
 
   it("removes selected rows optimistically when a move leaves the view", () => {
@@ -89,7 +83,7 @@ describe("bulk Play changes", () => {
     const reminded = optimisticallyApplyBulkChange(
       [appointment, headline],
       new Set(["a", "h"]),
-      { kind: "rank", playType: "reminder", reminderDate: "2026-09-08" },
+      { kind: "rank", playType: "reminder" },
       true,
     );
     expect(reminded[0]).toBe(appointment);
@@ -97,13 +91,13 @@ describe("bulk Play changes", () => {
     const restored = optimisticallyApplyBulkChange(
       reminded,
       new Set(["h"]),
-      { kind: "rank", playType: "normal", reminderDate: "2026-09-08" },
+      { kind: "rank", playType: "normal" },
       true,
     );
     expect(restored[1]).toMatchObject({ legacyTaskType: "H", playType: "normal" });
   });
 
-  it("places a Basket Play on the Reminder context date and removes it from that Basket view", () => {
+  it("preserves Basket placement when changing rank", () => {
     const basketPlay = {
       ...play("basket", "H", "normal"),
       basketId: "backlog",
@@ -112,18 +106,12 @@ describe("bulk Play changes", () => {
     expect(optimisticallyApplyBulkChange(
       [basketPlay],
       new Set(["basket"]),
-      { kind: "rank", playType: "reminder", reminderDate: "2026-09-12" },
+      { kind: "rank", playType: "reminder" },
       false,
-    )).toEqual([]);
-    expect(optimisticallyApplyBulkChange(
-      [basketPlay],
-      new Set(["basket"]),
-      { kind: "rank", playType: "reminder", reminderDate: "2026-09-12" },
-      true,
     )[0]).toMatchObject({
-      basketId: null,
+      basketId: "backlog",
       legacyTaskType: "S",
-      scheduledDate: "2026-09-12",
+      scheduledDate: null,
     });
   });
 
@@ -136,12 +124,13 @@ describe("bulk Play changes", () => {
       [appointment, otherHeadline, headline, reminder],
       "u",
       "reminder",
-      "2026-09-08",
       true,
     );
     expect(reminded.find(({ id }) => id === "u")).toMatchObject({
+      basketId: null,
       legacyTaskType: "S",
       playType: "reminder",
+      scheduledDate: "2026-09-08",
       sortOrder: 39,
     });
 
@@ -149,12 +138,13 @@ describe("bulk Play changes", () => {
       reminded,
       "u",
       "normal",
-      "2026-09-08",
       true,
     );
     expect(restored.find(({ id }) => id === "u")).toMatchObject({
+      basketId: null,
       legacyTaskType: "H",
       playType: "normal",
+      scheduledDate: "2026-09-08",
       sortOrder: 19,
     });
     expect(restored.find(({ id }) => id === "a")).toBe(appointment);
@@ -166,7 +156,6 @@ describe("bulk Play changes", () => {
       [appointment],
       "a",
       "reminder",
-      "2026-09-08",
       true,
     )).toEqual([appointment]);
   });

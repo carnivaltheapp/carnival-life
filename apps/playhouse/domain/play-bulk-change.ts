@@ -3,9 +3,8 @@ import { playVisualForPlay } from "./play-visual";
 
 export type BulkPlayChange =
   | { kind: "move"; placement: PlayPlacement }
-  | { kind: "rank"; playType: PlayType; reminderDate: string }
-  | { kind: "push"; pushRule: PushRule }
-  | { durationMinutes: number; kind: "duration" };
+  | { kind: "rank"; playType: PlayType }
+  | { kind: "push"; pushRule: PushRule };
 
 export function isBulkSelectablePlay(
   play: Pick<PlayListItem, "contextType" | "legacyTaskType" | "playType" | "sourceMetadata">,
@@ -33,27 +32,13 @@ export function optimisticallyApplyBulkChange(
       }];
     }
     if (change.kind === "rank") {
-      const preserveReminderDate = Boolean(
-        play.scheduledDate &&
-        play.scheduledDate >= change.reminderDate &&
-        play.scheduledDate < "2200-01-01" &&
-        !play.basketId,
-      );
-      if (change.playType === "reminder" && !preserveReminderDate && !keepMovedInView) return [];
       return [{
         ...play,
         legacyTaskType: change.playType === "reminder" ? "S" : "H",
         playType: change.playType,
-        scheduledDate: change.playType === "reminder" && !preserveReminderDate
-          ? change.reminderDate
-          : play.scheduledDate,
-        basketId: change.playType === "reminder" && !preserveReminderDate
-          ? null
-          : play.basketId,
       }];
     }
-    if (change.kind === "push") return [{ ...play, pushRule: change.pushRule }];
-    return [{ ...play, durationMinutes: change.durationMinutes }];
+    return [{ ...play, pushRule: change.pushRule }];
   });
 }
 
@@ -61,7 +46,6 @@ export function optimisticallyFlipPlayRank(
   plays: PlayListItem[],
   playId: string,
   playType: PlayType,
-  reminderDate: string,
   keepMovedInView: boolean,
 ) {
   const source = plays.find((play) => play.id === playId);
@@ -69,7 +53,7 @@ export function optimisticallyFlipPlayRank(
   const changed = optimisticallyApplyBulkChange(
     plays,
     new Set([playId]),
-    { kind: "rank", playType, reminderDate },
+    { kind: "rank", playType },
     keepMovedInView,
   );
   const flipped = changed.find((play) => play.id === playId);

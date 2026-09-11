@@ -5,7 +5,7 @@ test("unauthenticated screen and build stamp render", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "Carnival PlayHouse" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign in with Google" })).toBeVisible();
-  await expect(page.getByTestId("version-stamp")).toHaveText("P3-RESTORE-RACE-FIX-30");
+  await expect(page.getByTestId("version-stamp")).toHaveText("P3-BULLSEYE-31");
 });
 
 test("disposable authenticated session loads the PlayHouse shell", async ({ auth }) => {
@@ -13,8 +13,8 @@ test("disposable authenticated session loads the PlayHouse shell", async ({ auth
 
   await expect(auth.page.locator(".headerViewTitle")).toContainText(/, /);
   await expect(auth.page.getByRole("button", { name: "User menu" })).toBeVisible();
-  await auth.page.getByRole("button", { name: "Baskets" }).click();
-  await expect(auth.page.getByRole("navigation")).toContainText("Backlog");
+  await expect(auth.page.getByRole("button", { name: "Bullseye drag actions" })).toBeVisible();
+  await expect(auth.page.getByLabel("Calendar destinations")).toBeVisible();
   await expect(auth.page.getByTestId("play-count")).toHaveText("0 Plays");
   await expect(auth.page.getByTestId("version-stamp")).toBeVisible();
 });
