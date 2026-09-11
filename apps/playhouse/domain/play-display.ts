@@ -55,13 +55,13 @@ export function displayPlayDestination(
 }
 
 export function playRowLeadingLabel(
-  play: Pick<PlayListItem, "basketId" | "playerDisplayName" | "scheduledDate">,
+  play: Pick<PlayListItem, "basketId" | "contextType" | "playerDisplayName" | "scheduledDate">,
   baskets: BasketSummary[],
   showDestination: boolean,
 ) {
-  return showDestination
-    ? displayPlayDestination(play, baskets)
-    : (play.playerDisplayName ?? "");
+  if (showDestination) return displayPlayDestination(play, baskets);
+  if (play.contextType === "place") return "Place";
+  return play.playerDisplayName ?? "";
 }
 
 export function usesDateLeadingColumn(view: { kind: string; key?: string }) {

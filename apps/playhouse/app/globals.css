@@ -1171,6 +1171,18 @@ h1 {
   min-width: 0;
 }
 
+.playContextTitle {
+  overflow: hidden;
+  min-width: 0;
+  padding: 5px 3px;
+  color: var(--play-rank-foreground);
+  font: inherit;
+  font-weight: 500;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .playPlayerCell {
   overflow: hidden;
   min-width: 0;

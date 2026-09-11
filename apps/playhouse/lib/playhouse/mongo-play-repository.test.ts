@@ -96,6 +96,7 @@ describe("MongoPlayRepository mutations", () => {
     });
     expect(findOne).toHaveBeenCalledWith({
       _id: id,
+      "carnival_google.semantic_role": { $ne: "place" },
       is_active: true,
       is_deleted: false,
       user_id: 43,
@@ -174,6 +175,7 @@ describe("MongoPlayRepository mutations", () => {
 
     expect(updateOne.mock.calls[0][0]).toEqual({
       _id: id,
+      "carnival_google.semantic_role": { $ne: "place" },
       is_active: true,
       is_deleted: false,
       task_type: { $nin: ["A", "S"] },
@@ -351,6 +353,7 @@ describe("MongoPlayRepository mutations", () => {
     expect(result.plays).toEqual([]);
     expect(find).toHaveBeenCalledOnce();
     expect(find).toHaveBeenCalledWith({
+      "carnival_google.semantic_role": { $ne: "place" },
       is_active: true,
       is_deleted: false,
       user_id: 43,
@@ -484,6 +487,7 @@ describe("MongoPlayRepository mutations", () => {
     });
 
     expect(find).toHaveBeenCalledWith({
+      "carnival_google.semantic_role": { $ne: "place" },
       is_active: true,
       is_deleted: false,
       task_date: {
@@ -652,6 +656,7 @@ describe("MongoPlayRepository mutations", () => {
     }).reconcileDueReminders("2026-09-06")).toBe(true);
 
     expect(find.mock.calls[0][0]).toEqual({
+      "carnival_google.semantic_role": { $ne: "place" },
       is_active: true,
       is_deleted: false,
       task_date: { $lt: new Date("2026-09-06T00:00:00.000Z"), $type: "date" },

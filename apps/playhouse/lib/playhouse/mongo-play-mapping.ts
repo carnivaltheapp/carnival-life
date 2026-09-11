@@ -106,8 +106,21 @@ function utcDayRange(startDate: string, endDate = startDate) {
 
 export function mongoDateFilter(startDate: string, endDate = startDate) {
   return {
-    ...mongoActiveFilter(),
-    task_date: utcDayRange(startDate, endDate),
+    is_active: true,
+    is_deleted: false,
+    user_id: MONGO_LEGACY_USER_ID,
+    $or: [
+      {
+        "carnival_google.semantic_role": { $ne: "place" },
+        task_date: utcDayRange(startDate, endDate),
+      },
+      {
+        "carnival_google.blocked_dates": {
+          $elemMatch: { $gte: startDate, $lte: endDate },
+        },
+        "carnival_google.semantic_role": "place",
+      },
+    ],
   } satisfies Filter<LegacyTaskDocument>;
 }
 
@@ -315,10 +328,12 @@ export function mapMongoPlay(
     : undefined;
   const sourceType: PlaySourceType = task.regarding === "email" ? "gmail" : "user";
   const resourceName = mongoContactResourceName(task);
+  const contextType = mongoPlaceBlockedDates(task).length ? "place" as const : null;
 
   return {
     basketId: basket?.id ?? null,
     branch: text(task.branch),
+    contextType,
     durationMinutes: number(task.duration),
     gmailThreadId: text(task.thread_id),
     id: task._id.toHexString(),
@@ -340,4 +355,37 @@ export function mapMongoPlay(
     title: text(task.action_type) ?? "Untitled Play",
     url: text(task.url),
   };
+}
+
+export function mongoPlaceBlockedDates(task: LegacyTaskDocument) {
+  const google = task.carnival_google;
+  if (
+    !google ||
+    typeof google !== "object" ||
+    Array.isArray(google) ||
+    (google as Record<string, unknown>).semantic_role !== "place"
+  ) {
+    return [];
+  }
+  const blockedDates = (google as Record<string, unknown>).blocked_dates;
+  return Array.isArray(blockedDates)
+    ? blockedDates.filter((date): date is string => typeof date === "string")
+    : [];
+}
+
+export function expandMongoPlaceRows(
+  play: PlayListItem,
+  task: LegacyTaskDocument,
+  startDate: string,
+  endDate: string,
+) {
+  const blockedDates = mongoPlaceBlockedDates(task);
+  if (!blockedDates.length) return [play];
+  return blockedDates
+    .filter((date) => date >= startDate && date <= endDate)
+    .map((date) => ({
+      ...play,
+      id: `${play.id}:place:${date}`,
+      scheduledDate: date,
+    }));
 }

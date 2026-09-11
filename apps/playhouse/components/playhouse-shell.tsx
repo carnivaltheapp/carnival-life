@@ -603,7 +603,7 @@ function PlayhouseShellView({
     <main className="workspace">
       <BrowserTimeZone />
       <div aria-hidden="true" className="playDragPreviewHost" ref={dragPreviewHostRef} />
-      <span className="deploymentBuildMarker">P2-PLACES-1</span>
+      <span className="deploymentBuildMarker">PLACES-VISIBLE-1</span>
       <header className="appHeader">
         <div className="headerBrandArea">
           <Link className="brand" href="/?view=today" aria-label="Carnival PlayHouse home">
@@ -911,6 +911,7 @@ function PlayhouseShellView({
               >
                 {visiblePlays.map((play) => {
                   const playVisual = playVisualForPlay(play);
+                  const isPlaceContext = play.contextType === "place";
                   return (
                 <li
                   className={`playRow ${playVisual.className}`}
@@ -920,7 +921,7 @@ function PlayhouseShellView({
                   data-testid="play-row"
                   data-play-row-id={play.id}
                   key={play.id}
-                  draggable={!searchQuery && selectedIds.size === 0}
+                  draggable={!isPlaceContext && !searchQuery && selectedIds.size === 0}
                   onClickCapture={(event) => {
                     if (!(event.ctrlKey || event.metaKey) || !eligiblePlayIds.has(play.id)) return;
                     event.preventDefault();
@@ -942,7 +943,12 @@ function PlayhouseShellView({
                     "--play-rank-foreground": playVisual.foregroundColor,
                   } as CSSProperties}
                   onDragOver={(event) => {
-                    if (!reorderPlacement || !draggedIds.length || draggedIds.includes(play.id)) {
+                    if (
+                      isPlaceContext ||
+                      !reorderPlacement ||
+                      !draggedIds.length ||
+                      draggedIds.includes(play.id)
+                    ) {
                       return;
                     }
                     event.preventDefault();
@@ -950,7 +956,7 @@ function PlayhouseShellView({
                     setDropTarget(`play:${play.id}`);
                   }}
                   onDrop={(event) => {
-                    if (!reorderPlacement || draggedIds.includes(play.id)) return;
+                    if (isPlaceContext || !reorderPlacement || draggedIds.includes(play.id)) return;
                     event.preventDefault();
                     persistMove(reorderPlacement, play.id);
                   }}
@@ -958,12 +964,14 @@ function PlayhouseShellView({
                   <div className="playRowLine">
                     <div className="playIdentityCell">
                       <button
-                        aria-label={`${selectedIds.has(play.id) ? "Deselect" : "Select"} ${playVisual.label} Play ${play.title}`}
+                        aria-label={isPlaceContext
+                          ? `Place context ${play.title}`
+                          : `${selectedIds.has(play.id) ? "Deselect" : "Select"} ${playVisual.label} Play ${play.title}`}
                         aria-pressed={selectedIds.has(play.id)}
                         className="playSelectControl"
                         disabled={movePending || bulkPending || !eligiblePlayIds.has(play.id)}
                         onClick={(event) => toggleSelection(play.id, event)}
-                        title="Select Play"
+                        title={isPlaceContext ? "Whole-day Place context" : "Select Play"}
                         type="button"
                       >
                         <span
@@ -988,29 +996,45 @@ function PlayhouseShellView({
                       >
                         {playRowLeadingLabel(play, baskets, showDateInLeadingColumn)}
                       </span>
-                      <PlayForm
-                        baskets={baskets}
-                        defaultPlacement={defaultPlacement}
-                        nextPlayOptions={nextPlayOptions}
-                        play={play}
-                        supportsWorkflows={supportsWorkflows}
-                        reminderContextDate={reminderContextDate({
-                          displayedDate: displayedReminderDate,
-                          scheduledDate: play.scheduledDate,
-                          todayDate,
-                        })}
-                      />
+                      {isPlaceContext ? (
+                        <span className="playContextTitle" data-testid="place-title" title={play.title}>
+                          {play.title}
+                        </span>
+                      ) : (
+                        <PlayForm
+                          baskets={baskets}
+                          defaultPlacement={defaultPlacement}
+                          nextPlayOptions={nextPlayOptions}
+                          play={play}
+                          supportsWorkflows={supportsWorkflows}
+                          reminderContextDate={reminderContextDate({
+                            displayedDate: displayedReminderDate,
+                            scheduledDate: play.scheduledDate,
+                            todayDate,
+                          })}
+                        />
+                      )}
                     </div>
                     <span className="playDataCell" title={play.branch ?? undefined}>
                       {displayBranch(play.branch) ?? "—"}
                     </span>
-                    <PlayStatusActions
-                      flipPending={flipPending && flippingPlayId === play.id}
-                      onFlipRank={playVisual.visualType === "appointment"
-                        ? undefined
-                        : () => requestRankFlip(play)}
-                      play={play}
-                    />
+                    {isPlaceContext ? (
+                      <div aria-label="Place context" className="statusActionArea">
+                        <div aria-hidden="true" className="statusActions">
+                          {Array.from({ length: 5 }, (_, index) => (
+                            <span className="rowActionPlaceholder" key={index} />
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <PlayStatusActions
+                        flipPending={flipPending && flippingPlayId === play.id}
+                        onFlipRank={playVisual.visualType === "appointment"
+                          ? undefined
+                          : () => requestRankFlip(play)}
+                        play={play}
+                      />
+                    )}
                   </div>
                 </li>
                   );

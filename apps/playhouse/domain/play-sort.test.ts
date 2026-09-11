@@ -47,6 +47,16 @@ describe("chronological Play sorting", () => {
     ]);
   });
 
+  it("places whole-day Place context before Appointment, Headline, and Reminder", () => {
+    const place = { ...play({ id: "place", order: 999, taskType: "" }), contextType: "place" as const };
+    expect(sortChronologicalPlays([
+      play({ id: "headline", order: 1, taskType: "H" }),
+      play({ id: "appointment", order: 1, taskType: "A" }),
+      play({ id: "reminder", order: 1, taskType: "S" }),
+      place,
+    ]).map(({ id }) => id)).toEqual(["place", "appointment", "headline", "reminder"]);
+  });
+
   it("groups legacy U/H/P as Headlines and preserves priority within every rank", () => {
     const result = sortChronologicalPlays([
       play({ id: "s-later", order: 300, taskType: "S" }),

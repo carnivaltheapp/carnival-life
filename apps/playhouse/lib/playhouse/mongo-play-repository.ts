@@ -14,6 +14,7 @@ import type { Database } from "../supabase/database.types";
 import type { SelectedView } from "./data";
 import {
   assertMongoUserMapping,
+  expandMongoPlaceRows,
   isRealScheduledDateOnOrAfter,
   legacyPlacementDate,
   legacyPriorityNumber,
@@ -227,10 +228,22 @@ export class MongoPlayRepository implements PlayRepository {
       throw error;
     }
 
+    let mappedPlays = await this.mapTasks(tasks, Boolean(selectedView));
+    if (selectedView?.kind === "calendar") {
+      mappedPlays = mappedPlays.flatMap((play, index) => {
+        return expandMongoPlaceRows(
+          play,
+          tasks[index],
+          selectedView.startDate,
+          selectedView.endDate,
+        );
+      });
+    }
+
     return {
       error: false,
       nextPlayOptions: [],
-      plays: await this.mapTasks(tasks, Boolean(selectedView)),
+      plays: mappedPlays,
     };
   }
 

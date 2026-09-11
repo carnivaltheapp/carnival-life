@@ -43,6 +43,17 @@ describe("bulk Play changes", () => {
     expect(changed.map(({ pushRule }) => pushRule)).toEqual(["everyday", "weekends"]);
   });
 
+  it("excludes Place context from Play selection and mutations", () => {
+    const place = { ...play("place", "", "normal"), contextType: "place" as const };
+    expect(isBulkSelectablePlay(place)).toBe(false);
+    expect(optimisticallyApplyBulkChange(
+      [place],
+      new Set([place.id]),
+      { kind: "push", pushRule: "weekends" },
+      true,
+    )).toEqual([place]);
+  });
+
   it("applies canonical Push and Duration values only to selected Plays", () => {
     const plays = [play("one", "H", "normal"), play("two", "S", "reminder")];
     const pushed = optimisticallyApplyBulkChange(

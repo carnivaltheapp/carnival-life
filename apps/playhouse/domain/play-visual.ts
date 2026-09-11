@@ -1,6 +1,6 @@
 import type { PlayListItem, PlayType } from "./play";
 
-export type PlayVisualType = "appointment" | "headline" | "reminder";
+export type PlayVisualType = "appointment" | "headline" | "place" | "reminder";
 
 export const PLAY_VISUALS = {
   appointment: {
@@ -18,6 +18,14 @@ export const PLAY_VISUALS = {
     label: "Headline",
     markerClassName: "playTypeMarker--headline",
     visualType: "headline",
+  },
+  place: {
+    backgroundColor: "#DCECF7",
+    className: "playVisual--place",
+    foregroundColor: "#173A52",
+    label: "Place",
+    markerClassName: "playTypeMarker--place",
+    visualType: "place",
   },
   reminder: {
     backgroundColor: "#55F238",
@@ -50,8 +58,9 @@ export function playVisualForType(playType: PlayType, legacyTaskType?: string | 
 }
 
 export function playVisualForPlay(
-  play: Pick<PlayListItem, "legacyTaskType" | "playType" | "sourceMetadata">,
+  play: Pick<PlayListItem, "contextType" | "legacyTaskType" | "playType" | "sourceMetadata">,
 ) {
+  if (play.contextType === "place") return PLAY_VISUALS.place;
   return playVisualForType(
     play.playType,
     play.legacyTaskType ?? legacyTaskTypeFromMetadata(play.sourceMetadata),
@@ -59,9 +68,10 @@ export function playVisualForPlay(
 }
 
 export function playRankSortValue(
-  play: Pick<PlayListItem, "legacyTaskType" | "playType" | "sourceMetadata">,
+  play: Pick<PlayListItem, "contextType" | "legacyTaskType" | "playType" | "sourceMetadata">,
 ) {
   const visualType = playVisualForPlay(play).visualType;
+  if (visualType === "place") return -1;
   if (visualType === "appointment") return 0;
   return visualType === "reminder" ? 2 : 1;
 }

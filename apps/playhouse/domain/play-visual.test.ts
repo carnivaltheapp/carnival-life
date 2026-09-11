@@ -46,6 +46,19 @@ describe("Play visual classification", () => {
     });
   });
 
+  it("classifies Place context independently from every Play rank", () => {
+    expect(playVisualForPlay({
+      contextType: "place",
+      legacyTaskType: null,
+      playType: "normal",
+      sourceMetadata: null,
+    })).toMatchObject({
+      backgroundColor: "#DCECF7",
+      label: "Place",
+      visualType: "place",
+    });
+  });
+
   it("recognizes an imported Appointment from Supabase source metadata", () => {
     expect(playVisualForPlay({
       playType: "normal",

@@ -8,9 +8,10 @@ export type BulkPlayChange =
   | { durationMinutes: number; kind: "duration" };
 
 export function isBulkSelectablePlay(
-  play: Pick<PlayListItem, "legacyTaskType" | "playType" | "sourceMetadata">,
+  play: Pick<PlayListItem, "contextType" | "legacyTaskType" | "playType" | "sourceMetadata">,
 ) {
-  return playVisualForPlay(play).visualType !== "appointment";
+  const visualType = playVisualForPlay(play).visualType;
+  return visualType !== "appointment" && visualType !== "place";
 }
 
 export function optimisticallyApplyBulkChange(

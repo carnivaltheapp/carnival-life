@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { BasketSummary } from "../../domain/play";
 import type { PlayInput } from "../../domain/play-input";
 import {
+  expandMongoPlaceRows,
   legacyTaskTypeForSave,
   mapMongoPlay,
   mongoActiveFilter,
@@ -75,10 +76,21 @@ describe("Mongo Play mapping", () => {
       is_active: true,
       is_deleted: false,
       user_id: 43,
-      task_date: {
-        $gte: new Date("2026-08-27T00:00:00.000Z"),
-        $lt: new Date("2026-08-28T00:00:00.000Z"),
-      },
+      $or: [
+        {
+          "carnival_google.semantic_role": { $ne: "place" },
+          task_date: {
+            $gte: new Date("2026-08-27T00:00:00.000Z"),
+            $lt: new Date("2026-08-28T00:00:00.000Z"),
+          },
+        },
+        {
+          "carnival_google.blocked_dates": {
+            $elemMatch: { $gte: "2026-08-27", $lte: "2026-08-27" },
+          },
+          "carnival_google.semantic_role": "place",
+        },
+      ],
     });
     expect(mongoBasketFilter("backlog")).toMatchObject({
       task_date: {
@@ -87,6 +99,35 @@ describe("Mongo Play mapping", () => {
       },
       user_id: 43,
     });
+  });
+
+  it("maps one Place source event to every applicable visible date without a Play rank", () => {
+    const task = {
+      _id: new ObjectId(),
+      action_type: "Japan Cruise",
+      carnival_google: {
+        blocked_dates: ["2026-09-26", "2026-09-27", "2026-09-28"],
+        semantic_role: "place",
+      },
+      is_active: true,
+      is_deleted: false,
+      task_date: new Date("2026-09-26T00:00:00.000Z"),
+      user_id: 43,
+    };
+    const mapped = mapMongoPlay(task, baskets);
+    expect(mapped).toMatchObject({
+      contextType: "place",
+      legacyTaskType: null,
+      title: "Japan Cruise",
+    });
+    expect(expandMongoPlaceRows(mapped, task, "2026-09-26", "2026-09-28").map((row) => ({
+      id: row.id,
+      scheduledDate: row.scheduledDate,
+    }))).toEqual([
+      { id: `${task._id}:place:2026-09-26`, scheduledDate: "2026-09-26" },
+      { id: `${task._id}:place:2026-09-27`, scheduledDate: "2026-09-27" },
+      { id: `${task._id}:place:2026-09-28`, scheduledDate: "2026-09-28" },
+    ]);
   });
 
   it("requires exact ObjectId and user scope for mutations", () => {

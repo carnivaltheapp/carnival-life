@@ -43,6 +43,7 @@ export interface BasketSummary {
 export interface PlayListItem {
   basketId: string | null;
   branch: string | null;
+  contextType?: "place" | null;
   durationMinutes: number | null;
   gmailThreadId?: string | null;
   id: string;
