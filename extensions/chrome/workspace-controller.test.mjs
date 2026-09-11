@@ -10,6 +10,7 @@ import {
   isAllowedContextUrl,
   restoredWorkspaceLayout,
 } from "./workspace-controller.js";
+import { defaultAuxTabs, defaultPlayhouseTabs } from "./workspace-tabs.js";
 
 function fakeChrome() {
   let state = {};
@@ -86,6 +87,7 @@ function fakeChrome() {
       syncWindowTabs(moved.windowId);
     },
     resizeWindow(id, bounds) { windows.set(id, { ...windows.get(id), ...bounds }); },
+    setWorkspaceState(value) { state = { carnivalDesktopWorkspace: value }; },
     storage: {
       local: {
         async get() { return state; },
@@ -216,6 +218,33 @@ test("context routing accepts browser URLs and rejects privileged schemes", () =
   assert.equal(isAllowedContextUrl("http://localhost:3002"), true);
   assert.equal(isAllowedContextUrl("file:///private/data"), false);
   assert.equal(isAllowedContextUrl("javascript:alert(1)"), false);
+});
+
+test("legacy persisted tabs and role-specific bounds migrate into explicit PH/Aux sessions", async () => {
+  const chrome = fakeChrome();
+  chrome.setWorkspaceState({
+    contextTabs: defaultAuxTabs(),
+    layoutVersion: 2,
+    playhouseTabs: {
+      activeIndex: 0,
+      tabs: [{ pinned: false, role: "playhouse", url: PLAYHOUSE_URL }],
+    },
+    savedVisibleBounds: {
+      context: { height: 700, left: 900, top: 10, width: 650 },
+      playhouse: { height: 700, left: 120, top: 10, width: 700 },
+    },
+  });
+
+  const migrated = await controller(chrome).state();
+
+  assert.deepEqual(migrated.phSession, {
+    geometry: { left: 120, width: 700 },
+    tabs: defaultPlayhouseTabs(PLAYHOUSE_URL),
+  });
+  assert.deepEqual(migrated.auxSession, {
+    geometry: { left: 900, width: 650 },
+    tabs: defaultAuxTabs(),
+  });
 });
 
 test("repeated summons reuse both identified Chrome windows", async () => {
@@ -442,6 +471,7 @@ test("stale OPEN state with missing PlayHouse is reconciled and recreates only P
   chrome.closeWindow(first.playhouseWindowId);
 
   const actual = await workspace.reconcileWorkspaceState(workArea);
+  chrome.calls.updateWindow.length = 0;
   const repaired = await workspace.summon(workArea, "display-1");
 
   assert.equal(actual.actuallyOpen, false);
@@ -449,6 +479,9 @@ test("stale OPEN state with missing PlayHouse is reconciled and recreates only P
   assert.equal(chrome.calls.createWindow.length, 3);
   assert.notEqual(repaired.playhouseWindowId, first.playhouseWindowId);
   assert.equal(repaired.contextWindowId, first.contextWindowId);
+  assert.equal(chrome.calls.updateWindow.some(({ id, options }) => (
+    id === first.contextWindowId && (options.left !== undefined || options.width !== undefined)
+  )), false);
 });
 
 test("stale OPEN state with missing Aux is reconciled and recreates only Aux", async () => {
@@ -459,6 +492,7 @@ test("stale OPEN state with missing Aux is reconciled and recreates only Aux", a
   chrome.closeWindow(first.contextWindowId);
 
   const actual = await workspace.reconcileWorkspaceState(workArea);
+  chrome.calls.updateWindow.length = 0;
   const repaired = await workspace.summon(workArea, "display-1");
 
   assert.equal(actual.actuallyOpen, false);
@@ -466,6 +500,9 @@ test("stale OPEN state with missing Aux is reconciled and recreates only Aux", a
   assert.equal(chrome.calls.createWindow.length, 3);
   assert.equal(repaired.playhouseWindowId, first.playhouseWindowId);
   assert.notEqual(repaired.contextWindowId, first.contextWindowId);
+  assert.equal(chrome.calls.updateWindow.some(({ id, options }) => (
+    id === first.playhouseWindowId && (options.left !== undefined || options.width !== undefined)
+  )), false);
 });
 
 test("stale OPEN state with both windows missing recreates both", async () => {
@@ -577,10 +614,8 @@ test("settled geometry keeps horizontal choices and restores full monitor height
 
   const saved = await workspace.rememberVisibleBounds();
 
-  assert.deepEqual(saved.savedVisibleBounds, {
-    context: { height: 900, left: 850, top: 20, width: 500 },
-    playhouse: { height: 900, left: 40, top: 20, width: 700 },
-  });
+  assert.deepEqual(saved.phSession.geometry, { left: 40, width: 700 });
+  assert.deepEqual(saved.auxSession.geometry, { left: 850, width: 500 });
   assert.deepEqual(chrome.calls.updateWindow.slice(-2).map(({ id, options }) => ({ id, options })), [
     {
       id: opened.playhouseWindowId,
@@ -676,6 +711,125 @@ test("both closed workspace windows are recreated with saved geometry and contex
   assert.equal(chrome.calls.createWindow.some(({ left }) => left < workArea.left), false);
 });
 
+test("concurrent PH and Aux close events clear only live identities and retain both sessions", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  const before = await workspace.state();
+
+  chrome.closeWindow(opened.playhouseWindowId);
+  chrome.closeWindow(opened.contextWindowId);
+  await Promise.all([
+    workspace.handleWindowClosed(opened.playhouseWindowId),
+    workspace.handleWindowClosed(opened.contextWindowId),
+  ]);
+  const after = await workspace.state();
+
+  assert.equal(after.phWindowId, null);
+  assert.equal(after.auxWindowId, null);
+  assert.equal(after.drawerState, "retracted");
+  assert.deepEqual(after.phSession, before.phSession);
+  assert.deepEqual(after.auxSession, before.auxSession);
+});
+
+test("role sessions restore user tabs, active tabs, and unswapped geometry after both windows close", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1800 };
+  const opened = await workspace.summon(workArea, "display-1");
+  chrome.addTab(opened.playhouseWindowId, "https://example.com/a");
+  chrome.addTab(opened.playhouseWindowId, "https://example.com/b", { active: true });
+  chrome.addTab(opened.contextWindowId, "https://youtube.com/", { active: true });
+  await workspace.rememberWorkspaceTabs(opened.playhouseWindowId);
+  await workspace.rememberWorkspaceTabs(opened.contextWindowId);
+  chrome.resizeWindow(opened.playhouseWindowId, { left: 120, width: 700 });
+  chrome.resizeWindow(opened.contextWindowId, { left: 900, width: 650 });
+  await workspace.rememberVisibleBounds();
+  chrome.closeWindow(opened.playhouseWindowId);
+  chrome.closeWindow(opened.contextWindowId);
+  await Promise.all([
+    workspace.handleWindowClosed(opened.playhouseWindowId),
+    workspace.handleWindowClosed(opened.contextWindowId),
+  ]);
+
+  const restored = await controller(chrome).summon(workArea, "display-1");
+  const phTabs = chrome.getTabs(restored.phWindowId);
+  const auxTabs = chrome.getTabs(restored.auxWindowId);
+
+  assert.deepEqual(phTabs.map(({ url }) => url), [PLAYHOUSE_URL, "https://example.com/a", "https://example.com/b"]);
+  assert.equal(phTabs[2].active, true);
+  assert.deepEqual(auxTabs.map(({ url }) => url), [
+    DEFAULT_CONTEXT_URL,
+    "https://mail.google.com/mail/u/0/#inbox",
+    "https://www.google.com/",
+    "https://youtube.com/",
+  ]);
+  assert.equal(auxTabs[3].active, true);
+  assert.deepEqual(
+    { left: chrome.getWindow(restored.phWindowId).left, width: chrome.getWindow(restored.phWindowId).width },
+    { left: 120, width: 700 },
+  );
+  assert.deepEqual(
+    { left: chrome.getWindow(restored.auxWindowId).left, width: chrome.getWindow(restored.auxWindowId).width },
+    { left: 900, width: 650 },
+  );
+  assert.equal(chrome.getTab(restored.phPrimaryTabId).url, PLAYHOUSE_URL);
+  assert.equal(chrome.getTab(restored.auxRoleTabIds.gmail).url, "https://mail.google.com/mail/u/0/#inbox");
+});
+
+test("a PlayHouse URL in Aux is never adopted as the PH window", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  chrome.addTab(opened.contextWindowId, `${PLAYHOUSE_URL}?reference=aux`);
+  await workspace.rememberWorkspaceTabs(opened.contextWindowId);
+  chrome.closeWindow(opened.playhouseWindowId);
+  await workspace.handleWindowClosed(opened.playhouseWindowId);
+
+  const restored = await workspace.summon(workArea, "display-1");
+
+  assert.notEqual(restored.phWindowId, opened.contextWindowId);
+  assert.equal(restored.auxWindowId, opened.contextWindowId);
+  assert.equal(chrome.getTab(restored.phPrimaryTabId).windowId, restored.phWindowId);
+});
+
+test("explicit role restoration is independent of PH/Aux creation order", async () => {
+  const bounds = {
+    aux: { height: 900, left: 900, top: 0, width: 650 },
+    ph: { height: 900, left: 120, top: 0, width: 700 },
+  };
+  for (const order of ["ph-first", "aux-first"]) {
+    const chrome = fakeChrome();
+    const workspace = controller(chrome);
+    const created = {};
+    const createPh = async () => {
+      created.ph = await workspace.createWindowFromTabs(
+        bounds.ph,
+        defaultPlayhouseTabs(PLAYHOUSE_URL),
+        "playhouse",
+      );
+    };
+    const createAux = async () => {
+      created.aux = await workspace.createWindowFromTabs(bounds.aux, defaultAuxTabs(), "context");
+    };
+    if (order === "ph-first") {
+      await createPh();
+      await createAux();
+    } else {
+      await createAux();
+      await createPh();
+    }
+    assert.equal(created.ph.window.left, 120);
+    assert.equal(created.ph.window.width, 700);
+    assert.equal(created.aux.window.left, 900);
+    assert.equal(created.aux.window.width, 650);
+    assert.equal(chrome.getTab(created.ph.roleTabIds["ph-primary"]).url, PLAYHOUSE_URL);
+    assert.equal(chrome.getTab(created.aux.roleTabIds.gmail).url, "https://mail.google.com/mail/u/0/#inbox");
+  }
+});
+
 test("user-resized bounds are restored on the same monitor", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);
@@ -757,6 +911,23 @@ test("saved user widths survive retract, reopen, and controller restart", async 
     top: 0,
     width: 730,
   });
+});
+
+test("retract captures the last visible role-specific horizontal geometry before animation", async () => {
+  const chrome = fakeChrome();
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { warn() {} },
+    nativeAnimate: async () => true,
+  });
+  const workArea = { height: 900, left: 0, top: 0, width: 1800 };
+  const opened = await workspace.summon(workArea, "display-1");
+  chrome.resizeWindow(opened.phWindowId, { left: 75, width: 760 });
+  chrome.resizeWindow(opened.auxWindowId, { left: 910, width: 620 });
+
+  const retracted = await workspace.retract();
+
+  assert.deepEqual(retracted.phSession.geometry, { left: 75, width: 760 });
+  assert.deepEqual(retracted.auxSession.geometry, { left: 910, width: 620 });
 });
 
 test("native offscreen bounds are not persisted over the saved visible geometry", async () => {

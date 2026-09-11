@@ -30,7 +30,7 @@ export function defaultAuxTabs() {
 export function defaultPlayhouseTabs(playhouseUrl) {
   return {
     activeIndex: 0,
-    tabs: [{ pinned: false, role: "playhouse", url: playhouseUrl }],
+    tabs: [{ pinned: false, role: "ph-primary", url: playhouseUrl }],
   };
 }
 
@@ -39,7 +39,7 @@ export function validSavedTabs(value, kind) {
   const tabs = value.tabs.flatMap((tab, sourceIndex) => {
     if (!isRestorableTabUrl(tab?.url)) return [];
     const role = kind === "playhouse"
-      ? tab.role === "playhouse" ? "playhouse" : null
+      ? tab.role === "ph-primary" || tab.role === "playhouse" ? "ph-primary" : null
       : AUX_ROLES.has(tab.role) ? tab.role : null;
     return [{ pinned: tab.pinned === true, role, sourceIndex, url: tab.url }];
   });
@@ -67,7 +67,7 @@ export function snapshotTabs(tabs, roleTabIds = {}, primaryTabId = null) {
     activeIndex: Math.max(0, ordered.findIndex((tab) => tab.id === activeTabId)),
     tabs: ordered.map((tab) => ({
       pinned: tab.pinned === true,
-      role: tab.id === primaryTabId ? "playhouse" : roleByTabId.get(tab.id) ?? null,
+      role: tab.id === primaryTabId ? "ph-primary" : roleByTabId.get(tab.id) ?? null,
       url: tab.url,
     })),
   };

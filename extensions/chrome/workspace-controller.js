@@ -78,6 +78,58 @@ function storedBounds(value) {
     : null;
 }
 
+function storedGeometry(value) {
+  if (!value || !Number.isInteger(value.left) || !validInteger(value.width) || value.width < 320) {
+    return null;
+  }
+  return { left: value.left, width: value.width };
+}
+
+function geometryFromBounds(value) {
+  const bounds = storedBounds(value);
+  return bounds ? { left: bounds.left, width: bounds.width } : null;
+}
+
+function legacySession(state, role) {
+  const isPh = role === "ph";
+  const geometry = storedGeometry(state[`${role}Session`]?.geometry) ?? geometryFromBounds(
+    isPh
+      ? state.savedVisibleBounds?.playhouse ?? state.playhouseBounds
+      : state.savedVisibleBounds?.context ?? state.contextBounds,
+  );
+  const tabs = validSavedTabs(
+    state[`${role}Session`]?.tabs ?? (isPh ? state.playhouseTabs : state.contextTabs),
+    isPh ? "playhouse" : "context",
+  );
+  return { geometry, tabs };
+}
+
+function normalizedWorkspaceState(raw) {
+  const phWindowId = Object.hasOwn(raw, "phWindowId") ? raw.phWindowId : raw.playhouseWindowId ?? null;
+  const auxWindowId = Object.hasOwn(raw, "auxWindowId") ? raw.auxWindowId : raw.contextWindowId ?? null;
+  const phPrimaryTabId = Object.hasOwn(raw, "phPrimaryTabId")
+    ? raw.phPrimaryTabId : raw.playhouseTabId ?? null;
+  const auxActiveTabId = Object.hasOwn(raw, "auxActiveTabId")
+    ? raw.auxActiveTabId : raw.contextTabId ?? null;
+  const auxRoleTabIds = Object.hasOwn(raw, "auxRoleTabIds")
+    ? raw.auxRoleTabIds : raw.contextRoleTabIds ?? {};
+  return {
+    ...raw,
+    auxActiveTabId,
+    auxRoleTabIds,
+    auxSession: legacySession(raw, "aux"),
+    auxWindowId,
+    contextRoleTabIds: auxRoleTabIds,
+    contextTabId: auxActiveTabId,
+    contextWindowId: auxWindowId,
+    phPrimaryTabId,
+    phSession: legacySession(raw, "ph"),
+    phWindowId,
+    playhouseTabId: phPrimaryTabId,
+    playhouseWindowId: phWindowId,
+  };
+}
+
 function horizontalBoundsFitWorkArea(bounds, workArea) {
   return bounds.left >= workArea.left &&
     bounds.left + bounds.width <= workArea.left + workArea.width;
@@ -105,9 +157,26 @@ function restoreWindowBounds(bounds, priorWorkArea, workArea) {
 export function restoredWorkspaceLayout(prior, workArea) {
   const fallback = defaultWorkspaceLayout(workArea);
   if (prior.layoutVersion !== LAYOUT_VERSION) return fallback;
-  const playhouse = storedBounds(prior.savedVisibleBounds?.playhouse ?? prior.playhouseBounds);
-  const context = storedBounds(prior.savedVisibleBounds?.context ?? prior.contextBounds);
-  if (!playhouse || !context) return fallback;
+  const phGeometry = storedGeometry(prior.phSession?.geometry) ?? geometryFromBounds(
+    prior.savedVisibleBounds?.playhouse ?? prior.playhouseBounds,
+  );
+  const auxGeometry = storedGeometry(prior.auxSession?.geometry) ?? geometryFromBounds(
+    prior.savedVisibleBounds?.context ?? prior.contextBounds,
+  );
+  if (!phGeometry || !auxGeometry) return fallback;
+  const priorWorkArea = validWorkArea(prior.workArea) ? prior.workArea : workArea;
+  const playhouse = {
+    height: priorWorkArea.height,
+    left: phGeometry.left,
+    top: priorWorkArea.top,
+    width: phGeometry.width,
+  };
+  const context = {
+    height: priorWorkArea.height,
+    left: auxGeometry.left,
+    top: priorWorkArea.top,
+    width: auxGeometry.width,
+  };
   return {
     context: restoreWindowBounds(context, prior.workArea, workArea),
     playhouse: restoreWindowBounds(playhouse, prior.workArea, workArea),
@@ -165,15 +234,30 @@ export class CarnivalWorkspaceController {
     this.nativeActivate = options.nativeActivate ?? null;
     this.nativeAnimate = options.nativeAnimate ?? null;
     this.movingWindowIds = new Set();
+    this.stateUpdates = Promise.resolve();
     this.transitioning = false;
   }
 
   async state() {
-    return (await this.chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY] ?? {};
+    const raw = (await this.chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY] ?? {};
+    return normalizedWorkspaceState(raw);
   }
 
   async save(nextState) {
-    await this.chrome.storage.local.set({ [STORAGE_KEY]: nextState });
+    const normalized = normalizedWorkspaceState(nextState);
+    await this.chrome.storage.local.set({ [STORAGE_KEY]: normalized });
+    return normalized;
+  }
+
+  async updateState(update) {
+    const operation = this.stateUpdates.then(async () => {
+      const current = await this.state();
+      const next = update(current);
+      if (!next) return null;
+      return this.save(next);
+    });
+    this.stateUpdates = operation.catch(() => {});
+    return operation;
   }
 
   async tabsInWindow(windowId) {
@@ -184,12 +268,16 @@ export class CarnivalWorkspaceController {
   async createWindowFromTabs(bounds, savedTabs, kind) {
     let definitions = validSavedTabs(savedTabs, kind) ??
       (kind === "playhouse" ? defaultPlayhouseTabs(PLAYHOUSE_URL) : defaultAuxTabs());
-    if (kind === "playhouse" && !definitions.tabs.some((tab) => tab.role === "playhouse")) {
+    if (kind === "playhouse" && !definitions.tabs.some((tab) => tab.role === "ph-primary")) {
       definitions = {
         activeIndex: definitions.activeIndex + 1,
         tabs: [defaultPlayhouseTabs(PLAYHOUSE_URL).tabs[0], ...definitions.tabs],
       };
     }
+    const eventPrefix = kind === "playhouse" ? "PH" : "AUX";
+    this.logger.info?.(`${eventPrefix}_SESSION_RESTORE_STARTED`, {
+      count: definitions.tabs.length,
+    });
     const window = await this.chrome.windows.create({
       ...bounds,
       focused: false,
@@ -197,6 +285,11 @@ export class CarnivalWorkspaceController {
       url: definitions.tabs.map((tab) => tab.url),
     });
     if (!window?.id) throw new Error(`Chrome could not create the ${kind} window.`);
+    this.logger.info?.(`${eventPrefix}_WINDOW_CREATED`, { windowId: window.id });
+    this.logger.info?.(`${eventPrefix}_GEOMETRY_RESTORED`, {
+      width: bounds.width,
+      x: bounds.left,
+    });
     const tabs = await this.tabsInWindow(window.id);
     if (tabs.length !== definitions.tabs.length) {
       throw new Error(`Chrome could not restore the ${kind} tabs.`);
@@ -206,7 +299,7 @@ export class CarnivalWorkspaceController {
     )));
     await this.chrome.tabs.update(tabs[definitions.activeIndex].id, { active: true });
     const ids = roleTabIds(definitions, tabs);
-    this.logger.info?.(kind === "playhouse" ? "PH_TABS_RESTORED" : "AUX_TABS_RESTORED", {
+    this.logger.info?.(`${eventPrefix}_TABS_RESTORED`, {
       count: tabs.length,
     });
     return {
@@ -221,32 +314,24 @@ export class CarnivalWorkspaceController {
     const tabs = await this.tabsInWindow(windowId);
     const roleIds = kind === "playhouse"
       ? {}
-      : state.contextRoleTabIds ?? {};
+      : state.auxRoleTabIds ?? {};
     const snapshot = snapshotTabs(
       tabs,
       roleIds,
-      kind === "playhouse" ? state.playhouseTabId : null,
+      kind === "playhouse" ? state.phPrimaryTabId : null,
     );
     return { snapshot, tabs };
   }
 
   async findPlayhouse(prior, bounds, positionExisting = true) {
-    let window = await existingWindow(this.chrome, prior.playhouseWindowId);
-    let tab = await existingTab(this.chrome, prior.playhouseTabId);
-    if (!window || !tab || tab.windowId !== window.id) {
-      const matches = await this.chrome.tabs.query({ url: `${PLAYHOUSE_URL}*` });
-      if (matches[0]) {
-        tab = matches[0];
-        window = await existingWindow(this.chrome, tab.windowId);
-      } else {
-        tab = null;
-      }
-    }
+    const window = await existingWindow(this.chrome, prior.phWindowId);
+    let tab = await existingTab(this.chrome, prior.phPrimaryTabId);
+    if (!window || tab?.windowId !== window.id) tab = null;
     if (!window) {
-      const restored = await this.createWindowFromTabs(bounds, prior.playhouseTabs, "playhouse");
+      const restored = await this.createWindowFromTabs(bounds, prior.phSession.tabs, "playhouse");
       return {
-        tab: restored.roleTabIds.playhouse ?
-          await existingTab(this.chrome, restored.roleTabIds.playhouse) : restored.activeTab,
+        tab: restored.roleTabIds["ph-primary"] ?
+          await existingTab(this.chrome, restored.roleTabIds["ph-primary"]) : restored.activeTab,
         tabState: restored.tabState,
         window: restored.window,
       };
@@ -266,18 +351,12 @@ export class CarnivalWorkspaceController {
     return { tab, tabState: snapshot ?? defaultPlayhouseTabs(PLAYHOUSE_URL), window };
   }
 
-  async findContext(prior, bounds, playhouseWindowId, positionExisting = true) {
-    let window = await existingWindow(this.chrome, prior.contextWindowId);
-    let tab = await existingTab(this.chrome, prior.contextTabId);
-    if (!window && !prior.contextTabs && isAllowedContextUrl(prior.contextUrl)) {
-      const tabs = await this.chrome.tabs.query({});
-      tab = tabs.find((candidate) => (
-        candidate.windowId !== playhouseWindowId && candidate.url === prior.contextUrl
-      )) ?? null;
-      window = tab ? await existingWindow(this.chrome, tab.windowId) : null;
-    }
+  async findContext(prior, bounds, positionExisting = true) {
+    const window = await existingWindow(this.chrome, prior.auxWindowId);
+    let tab = await existingTab(this.chrome, prior.auxActiveTabId);
+    if (!window || tab?.windowId !== window.id) tab = null;
     if (!window) {
-      const restored = await this.createWindowFromTabs(bounds, prior.contextTabs, "context");
+      const restored = await this.createWindowFromTabs(bounds, prior.auxSession.tabs, "context");
       return {
         roleTabIds: restored.roleTabIds,
         tab: restored.activeTab,
@@ -289,16 +368,8 @@ export class CarnivalWorkspaceController {
         ? { ...bounds, focused: false, state: "normal" }
         : { focused: false, state: "normal" });
       let tabs = await this.tabsInWindow(window.id);
-      let roles = { ...(prior.contextRoleTabIds ?? {}) };
-      if (!prior.contextTabs) {
-        const calendar = tabs.find((candidate) => candidate.url?.startsWith("https://calendar.google.com/"));
-        const gmail = tabs.find((candidate) => candidate.url?.startsWith("https://mail.google.com/"));
-        const misc = tabs.find((candidate) => candidate.id !== calendar?.id && candidate.id !== gmail?.id);
-        roles = {
-          ...(calendar?.id ? { calendar: calendar.id } : {}),
-          ...(gmail?.id ? { gmail: gmail.id } : {}),
-          ...(misc?.id ? { misc: misc.id } : {}),
-        };
+      const roles = { ...(prior.auxRoleTabIds ?? {}) };
+      if (!prior.auxSession.tabs) {
         for (const role of ["calendar", "gmail", "misc"]) {
           if (roles[role]) continue;
           const created = await this.chrome.tabs.create({
@@ -311,7 +382,7 @@ export class CarnivalWorkspaceController {
         tabs = await this.tabsInWindow(window.id);
       }
       tab = tabs.find((candidate) => candidate.active) ??
-        tabs.find((candidate) => candidate.id === prior.contextTabId) ?? tabs[0] ?? null;
+        tabs.find((candidate) => candidate.id === prior.auxActiveTabId) ?? tabs[0] ?? null;
       const snapshot = snapshotTabs(tabs, roles);
       if (!tab?.id || !snapshot) throw new Error("Chrome could not identify the context tabs.");
       return { roleTabIds: roles, tab, tabState: snapshot, window };
@@ -362,8 +433,8 @@ export class CarnivalWorkspaceController {
     const state = await this.state();
     if (state.drawerState !== "open") return state;
     const [playhouseWindow, contextWindow] = await Promise.all([
-      existingWindow(this.chrome, state.playhouseWindowId),
-      existingWindow(this.chrome, state.contextWindowId),
+      existingWindow(this.chrome, state.phWindowId),
+      existingWindow(this.chrome, state.auxWindowId),
     ]);
     if (!playhouseWindow || !contextWindow) return state;
     const bounds = {
@@ -379,15 +450,15 @@ export class CarnivalWorkspaceController {
   async reconcileWorkspaceState(workArea) {
     const state = await this.state();
     const [playhouseWindow, contextWindow, playhouseTab, contextTab] = await Promise.all([
-      existingWindow(this.chrome, state.playhouseWindowId),
-      existingWindow(this.chrome, state.contextWindowId),
-      existingTab(this.chrome, state.playhouseTabId),
-      existingTab(this.chrome, state.contextTabId),
+      existingWindow(this.chrome, state.phWindowId),
+      existingWindow(this.chrome, state.auxWindowId),
+      existingTab(this.chrome, state.phPrimaryTabId),
+      existingTab(this.chrome, state.auxActiveTabId),
     ]);
-    const playhouseIdentityValid = Boolean(playhouseWindow && playhouseTab &&
-      playhouseTab.windowId === playhouseWindow.id && playhouseTab.url?.startsWith(PLAYHOUSE_URL));
-    const contextIdentityValid = Boolean(contextWindow && contextTab &&
-      contextTab.windowId === contextWindow.id && isAllowedContextUrl(contextTab.url));
+    const playhouseIdentityValid = Boolean(playhouseWindow);
+    const contextIdentityValid = Boolean(contextWindow);
+    const playhouseTabValid = Boolean(playhouseTab && playhouseTab.windowId === playhouseWindow?.id);
+    const contextTabValid = Boolean(contextTab && contextTab.windowId === contextWindow?.id);
     const playhouseVisible = playhouseIdentityValid && hasVisibleIntersection(playhouseWindow, workArea);
     const contextVisible = contextIdentityValid && hasVisibleIntersection(contextWindow, workArea);
     if (playhouseVisible && contextVisible) {
@@ -399,40 +470,40 @@ export class CarnivalWorkspaceController {
     this.logger.info?.("Carnival: actual workspace not visible; reconciling");
     const reconciled = {
       ...state,
-      contextTabId: contextIdentityValid ? state.contextTabId : null,
-      contextWindowId: contextIdentityValid ? state.contextWindowId : null,
+      auxActiveTabId: contextTabValid ? state.auxActiveTabId : null,
+      auxWindowId: contextIdentityValid ? state.auxWindowId : null,
       drawerState: "retracted",
-      playhouseTabId: playhouseIdentityValid ? state.playhouseTabId : null,
-      playhouseWindowId: playhouseIdentityValid ? state.playhouseWindowId : null,
+      phPrimaryTabId: playhouseTabValid ? state.phPrimaryTabId : null,
+      phWindowId: playhouseIdentityValid ? state.phWindowId : null,
     };
-    await this.save(reconciled);
-    return { actuallyOpen: false, state: reconciled };
+    const saved = await this.save(reconciled);
+    return { actuallyOpen: false, state: saved };
   }
 
   async handleWindowClosed(windowId) {
-    const state = await this.state();
-    const playhouseClosed = windowId === state.playhouseWindowId;
-    const contextClosed = windowId === state.contextWindowId;
-    if (!playhouseClosed && !contextClosed) return null;
-    const playhouseWindowId = playhouseClosed ? null : state.playhouseWindowId;
-    const contextWindowId = contextClosed ? null : state.contextWindowId;
-    const nextState = {
-      ...state,
-      contextTabId: contextClosed ? null : state.contextTabId,
-      contextWindowId,
-      drawerState: playhouseWindowId || contextWindowId ? "degraded" : "retracted",
-      playhouseTabId: playhouseClosed ? null : state.playhouseTabId,
-      playhouseWindowId,
-    };
-    await this.save(nextState);
-    return nextState;
+    return this.updateState((state) => {
+      const phClosed = windowId === state.phWindowId;
+      const auxClosed = windowId === state.auxWindowId;
+      if (!phClosed && !auxClosed) return null;
+      const phWindowId = phClosed ? null : state.phWindowId;
+      const auxWindowId = auxClosed ? null : state.auxWindowId;
+      return {
+        ...state,
+        auxActiveTabId: auxClosed ? null : state.auxActiveTabId,
+        auxRoleTabIds: auxClosed ? {} : state.auxRoleTabIds,
+        auxWindowId,
+        drawerState: phWindowId || auxWindowId ? "degraded" : "retracted",
+        phPrimaryTabId: phClosed ? null : state.phPrimaryTabId,
+        phWindowId,
+      };
+    });
   }
 
   async summonDrawer(workArea, monitorId = null) {
     const prior = await this.state();
     const layout = restoredWorkspaceLayout(prior, workArea);
-    const savedPlayhouse = storedBounds(prior.savedVisibleBounds?.playhouse ?? prior.playhouseBounds);
-    const savedContext = storedBounds(prior.savedVisibleBounds?.context ?? prior.contextBounds);
+    const savedPlayhouse = storedGeometry(prior.phSession.geometry);
+    const savedContext = storedGeometry(prior.auxSession.geometry);
     if (!savedPlayhouse || !savedContext) {
       this.logger.info?.("Carnival: using default workspace bounds");
     } else if (layout.playhouse.left === savedPlayhouse.left && layout.playhouse.width === savedPlayhouse.width &&
@@ -442,20 +513,37 @@ export class CarnivalWorkspaceController {
       this.logger.info?.("Carnival: normalizing saved bounds for new monitor");
     }
     const [knownPlayhouse, knownContext] = await Promise.all([
-      existingWindow(this.chrome, prior.playhouseWindowId),
-      existingWindow(this.chrome, prior.contextWindowId),
+      existingWindow(this.chrome, prior.phWindowId),
+      existingWindow(this.chrome, prior.auxWindowId),
     ]);
-    const shouldAnimate = prior.drawerState !== "open" || !knownPlayhouse || !knownContext;
+    const repairingOneSide = Boolean(knownPlayhouse) !== Boolean(knownContext);
+    const shouldAnimate = !repairingOneSide &&
+      (prior.drawerState !== "open" || !knownPlayhouse || !knownContext);
     const hiddenOffset = -workArea.width;
     const positionExisting = !shouldAnimate || !this.nativeAnimate;
-    const playhouse = await this.findPlayhouse(prior, layout.playhouse, positionExisting);
-    const context = await this.findContext(prior, layout.context, playhouse.window.id, positionExisting);
+    const playhouse = await this.findPlayhouse(
+      prior,
+      layout.playhouse,
+      positionExisting && !(repairingOneSide && knownPlayhouse),
+    );
+    const context = await this.findContext(
+      prior,
+      layout.context,
+      positionExisting && !(repairingOneSide && knownContext),
+    );
     const current = {
       context: currentBounds(context.window, layout.context),
       playhouse: currentBounds(playhouse.window, layout.playhouse),
     };
     const openingState = {
       ...prior,
+      auxActiveTabId: context.tab.id,
+      auxRoleTabIds: context.roleTabIds,
+      auxSession: {
+        geometry: geometryFromBounds(layout.context),
+        tabs: context.tabState,
+      },
+      auxWindowId: context.window.id,
       contextBounds: layout.context,
       contextRoleTabIds: context.roleTabIds,
       contextTabId: context.tab.id,
@@ -465,6 +553,12 @@ export class CarnivalWorkspaceController {
       drawerState: shouldAnimate ? "opening" : "open",
       layoutVersion: LAYOUT_VERSION,
       monitorId,
+      phPrimaryTabId: playhouse.tab.id,
+      phSession: {
+        geometry: geometryFromBounds(layout.playhouse),
+        tabs: playhouse.tabState,
+      },
+      phWindowId: playhouse.window.id,
       playhouseBounds: layout.playhouse,
       playhouseTabId: playhouse.tab.id,
       playhouseTabs: playhouse.tabState,
@@ -487,7 +581,6 @@ export class CarnivalWorkspaceController {
     const openState = {
       ...openingState,
       drawerState: "open",
-      savedVisibleBounds: { context: layout.context, playhouse: layout.playhouse },
     };
     await this.save(openState);
     await this.chrome.windows.update(context.window.id, { focused: true });
@@ -507,19 +600,30 @@ export class CarnivalWorkspaceController {
   async retractDrawer() {
     const state = await this.state();
     if (state.drawerState !== "open" || !validWorkArea(state.workArea)) return state;
-    const playhouseWindow = await existingWindow(this.chrome, state.playhouseWindowId);
-    const contextWindow = await existingWindow(this.chrome, state.contextWindowId);
+    const playhouseWindow = await existingWindow(this.chrome, state.phWindowId);
+    const contextWindow = await existingWindow(this.chrome, state.auxWindowId);
     if (!playhouseWindow || !contextWindow) {
       const retracted = { ...state, drawerState: "retracted" };
       await this.save(retracted);
       return retracted;
     }
-    const layout = {
-      context: storedBounds(state.savedVisibleBounds?.context ?? state.contextBounds),
-      playhouse: storedBounds(state.savedVisibleBounds?.playhouse ?? state.playhouseBounds),
-    };
-    if (!layout.context || !layout.playhouse) return state;
-    await this.save({ ...state, drawerState: "retracting" });
+    const playhouseVisible = storedBounds(playhouseWindow);
+    const contextVisible = storedBounds(contextWindow);
+    const visibleState = playhouseVisible && contextVisible &&
+      hasVisibleIntersection(playhouseWindow, state.workArea) &&
+      hasVisibleIntersection(contextWindow, state.workArea) &&
+      horizontalBoundsFitWorkArea(playhouseVisible, state.workArea) &&
+      horizontalBoundsFitWorkArea(contextVisible, state.workArea)
+      ? {
+          ...state,
+          auxSession: { ...state.auxSession, geometry: geometryFromBounds(contextVisible) },
+          contextBounds: contextVisible,
+          phSession: { ...state.phSession, geometry: geometryFromBounds(playhouseVisible) },
+          playhouseBounds: playhouseVisible,
+        }
+      : state;
+    const layout = restoredWorkspaceLayout(visibleState, state.workArea);
+    await this.save({ ...visibleState, drawerState: "retracting" });
     const current = {
       context: currentBounds(contextWindow, layout.context),
       playhouse: currentBounds(playhouseWindow, layout.playhouse),
@@ -535,11 +639,11 @@ export class CarnivalWorkspaceController {
       CLOSE_ANIMATION_MS,
     );
     if (!retractedSuccessfully) {
-      const open = { ...state, drawerState: "open" };
+      const open = { ...visibleState, drawerState: "open" };
       await this.save(open);
       return open;
     }
-    const retracted = { ...state, drawerState: "retracted" };
+    const retracted = { ...visibleState, drawerState: "retracted" };
     await this.save(retracted);
     return retracted;
   }
@@ -555,13 +659,12 @@ export class CarnivalWorkspaceController {
     this.logger.info?.("Carnival: resolving Aux context window");
     const prior = await this.state();
     const layout = restoredWorkspaceLayout(prior, workArea);
-    const existingContext = await existingWindow(this.chrome, prior.contextWindowId);
+    const existingContext = await existingWindow(this.chrome, prior.auxWindowId);
     const restoreContext = prior.drawerState !== "open" || !existingContext ||
       !hasVisibleIntersection(existingContext, workArea);
     const context = await this.findContext(
       prior,
       layout.context,
-      prior.playhouseWindowId,
       restoreContext,
     );
     const contextWindow = context.window;
@@ -588,6 +691,13 @@ export class CarnivalWorkspaceController {
       : currentBounds(contextWindow, layout.context);
     await this.save({
       ...prior,
+      auxActiveTabId: roleTab.id,
+      auxRoleTabIds: roleIds,
+      auxSession: {
+        geometry: geometryFromBounds(contextBounds),
+        tabs: contextTabs,
+      },
+      auxWindowId: contextWindow.id,
       contextBounds,
       contextRoleTabIds: roleIds,
       contextTabId: roleTab.id,
@@ -597,10 +707,6 @@ export class CarnivalWorkspaceController {
       drawerState: "open",
       layoutVersion: LAYOUT_VERSION,
       monitorId,
-      savedVisibleBounds: {
-        ...prior.savedVisibleBounds,
-        context: contextBounds,
-      },
       workArea,
     });
     await this.chrome.windows.update(contextWindow.id, { focused: true });
@@ -611,8 +717,8 @@ export class CarnivalWorkspaceController {
     const state = await this.state();
     if (state.drawerState !== "open" || !validWorkArea(state.workArea)) return null;
     const [playhouseWindow, contextWindow] = await Promise.all([
-      existingWindow(this.chrome, state.playhouseWindowId),
-      existingWindow(this.chrome, state.contextWindowId),
+      existingWindow(this.chrome, state.phWindowId),
+      existingWindow(this.chrome, state.auxWindowId),
     ]);
     const playhouseActual = storedBounds(playhouseWindow);
     const contextActual = storedBounds(contextWindow);
@@ -625,52 +731,65 @@ export class CarnivalWorkspaceController {
     if (!playhouse || !context ||
       !horizontalBoundsFitWorkArea(playhouse, state.workArea) ||
       !horizontalBoundsFitWorkArea(context, state.workArea)) return null;
-    const currentState = await this.state();
-    if (this.transitioning || currentState.drawerState !== "open" ||
-      currentState.playhouseWindowId !== state.playhouseWindowId ||
-      currentState.contextWindowId !== state.contextWindowId) return null;
-    const nextState = {
-      ...currentState,
-      contextBounds: context,
-      playhouseBounds: playhouse,
-      savedVisibleBounds: { context, playhouse },
-    };
-    await this.save(nextState);
+    const nextState = await this.updateState((currentState) => {
+      if (this.transitioning || currentState.drawerState !== "open" ||
+        currentState.phWindowId !== state.phWindowId ||
+        currentState.auxWindowId !== state.auxWindowId) return null;
+      return {
+        ...currentState,
+        auxSession: { ...currentState.auxSession, geometry: geometryFromBounds(context) },
+        contextBounds: context,
+        phSession: { ...currentState.phSession, geometry: geometryFromBounds(playhouse) },
+        playhouseBounds: playhouse,
+      };
+    });
+    if (!nextState) return null;
     const verticalUpdates = [];
     if (playhouseActual.top !== playhouse.top || playhouseActual.height !== playhouse.height) {
-      verticalUpdates.push(this.chrome.windows.update(state.playhouseWindowId, {
+      verticalUpdates.push(this.chrome.windows.update(state.phWindowId, {
         focused: false, height: playhouse.height, state: "normal", top: playhouse.top,
       }));
     }
     if (contextActual.top !== context.top || contextActual.height !== context.height) {
-      verticalUpdates.push(this.chrome.windows.update(state.contextWindowId, {
+      verticalUpdates.push(this.chrome.windows.update(state.auxWindowId, {
         focused: false, height: context.height, state: "normal", top: context.top,
       }));
     }
     await Promise.all(verticalUpdates);
-    this.logger.info?.("Carnival: saved visible workspace bounds");
+    this.logger.info?.("PH_SESSION_SAVED", { width: playhouse.width, x: playhouse.left });
+    this.logger.info?.("AUX_SESSION_SAVED", { width: context.width, x: context.left });
     return nextState;
   }
 
   async rememberWorkspaceTabs(windowId) {
     const state = await this.state();
-    const kind = windowId === state.playhouseWindowId
+    const kind = windowId === state.phWindowId
       ? "playhouse"
-      : windowId === state.contextWindowId ? "context" : null;
+      : windowId === state.auxWindowId ? "context" : null;
     if (!kind) return null;
     const { snapshot, tabs } = await this.snapshotWindow(kind, windowId, state);
     if (!snapshot) return null;
     const activeTab = tabs.find((tab) => tab.active) ?? tabs[0];
-    const nextState = kind === "playhouse"
-      ? { ...state, playhouseTabs: snapshot }
-      : {
-          ...state,
-          contextTabId: activeTab?.id ?? state.contextTabId,
-          contextTabs: snapshot,
-          contextUrl: activeTab?.url ?? state.contextUrl,
-        };
-    await this.save(nextState);
-    this.logger.info?.(kind === "playhouse" ? "PH_TABS_SAVED" : "AUX_TABS_SAVED", {
+    const nextState = await this.updateState((current) => {
+      if (kind === "playhouse" && current.phWindowId !== windowId) return null;
+      if (kind === "context" && current.auxWindowId !== windowId) return null;
+      return kind === "playhouse"
+        ? {
+            ...current,
+            phSession: { ...current.phSession, tabs: snapshot },
+            playhouseTabs: snapshot,
+          }
+        : {
+            ...current,
+            auxActiveTabId: activeTab?.id ?? current.auxActiveTabId,
+            auxSession: { ...current.auxSession, tabs: snapshot },
+            contextTabId: activeTab?.id ?? current.auxActiveTabId,
+            contextTabs: snapshot,
+            contextUrl: activeTab?.url ?? current.contextUrl,
+          };
+    });
+    if (!nextState) return null;
+    this.logger.info?.(kind === "playhouse" ? "PH_SESSION_SAVED" : "AUX_SESSION_SAVED", {
       count: snapshot.tabs.length,
     });
     return nextState;
