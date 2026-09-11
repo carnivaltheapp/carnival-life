@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   CarnivalWorkspaceController,
   DEFAULT_CONTEXT_URL,
+  PLAYHOUSE_URL,
   defaultWorkspaceLayout,
   effectiveRetractThreshold,
   isAllowedContextUrl,
@@ -16,11 +17,13 @@ function fakeChrome() {
   let nextTabId = 10;
   const windows = new Map();
   const tabs = new Map();
-  const calls = { createWindow: [], updateTab: [], updateWindow: [] };
+  const calls = { createTab: [], createWindow: [], updateTab: [], updateWindow: [] };
 
   return {
     calls,
     closeWindow(id) { windows.delete(id); },
+    getTab(id) { return tabs.get(id); },
+    getWindow(id) { return windows.get(id); },
     resizeWindow(id, bounds) { windows.set(id, { ...windows.get(id), ...bounds }); },
     storage: {
       local: {
@@ -30,6 +33,7 @@ function fakeChrome() {
     },
     tabs: {
       async create(options) {
+        calls.createTab.push(options);
         const tab = { id: nextTabId++, url: options.url, windowId: options.windowId };
         tabs.set(tab.id, tab);
         return tab;
@@ -156,21 +160,92 @@ test("repeated summons reuse both identified Chrome windows", async () => {
   assert.equal(chrome.calls.createWindow[1].url, DEFAULT_CONTEXT_URL);
 });
 
-test("opening context reuses the context tab and validates its URL", async () => {
+test("opening a URL in Aux reuses its designated tab without changing PlayHouse", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const initial = await workspace.summon(workArea, "display-1");
+  const playhouseBefore = { ...chrome.getWindow(initial.playhouseWindowId) };
+  chrome.calls.createWindow.length = 0;
+  chrome.calls.updateWindow.length = 0;
 
   await workspace.openCarnivalContext("https://example.com/play", workArea, "display-1");
 
-  assert.equal(chrome.calls.createWindow.length, 2);
+  assert.equal(chrome.calls.createWindow.length, 0);
+  assert.equal(chrome.calls.createTab.length, 0);
   assert.deepEqual(chrome.calls.updateTab.at(-1)?.options, {
     active: true,
     url: "https://example.com/play",
   });
+  assert.deepEqual(chrome.getWindow(initial.playhouseWindowId), playhouseBefore);
+  assert.equal(
+    chrome.calls.updateWindow.some(({ id }) => id === initial.playhouseWindowId),
+    false,
+  );
   await assert.rejects(
     workspace.openCarnivalContext("chrome://settings", workArea, "display-1"),
     /HTTP or HTTPS/,
+  );
+});
+
+test("repeated Email and Chrome routing reuses one Aux tab without tab growth", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const initial = await workspace.summon(workArea, "display-1");
+
+  await workspace.openCarnivalContext("https://mail.google.com/mail/u/0/#all/thread-1", workArea, "display-1");
+  await workspace.openCarnivalContext("https://example.com/context", workArea, "display-1");
+
+  assert.equal(chrome.calls.createWindow.length, 2);
+  assert.equal(chrome.calls.createTab.length, 0);
+  assert.equal(chrome.getTab(initial.contextTabId).url, "https://example.com/context");
+  assert.equal(chrome.getTab(initial.playhouseTabId).url, PLAYHOUSE_URL);
+});
+
+test("opening in Aux restores a minimized or offscreen Aux and focuses it", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const initial = await workspace.summon(workArea, "display-1");
+  chrome.resizeWindow(initial.contextWindowId, { left: -2000, state: "minimized" });
+  chrome.calls.updateWindow.length = 0;
+
+  await workspace.openCarnivalContext("https://example.com/restored", workArea, "display-1");
+
+  assert.deepEqual(chrome.calls.updateWindow[0], {
+    id: initial.contextWindowId,
+    options: { ...defaultWorkspaceLayout(workArea).context, focused: false, state: "normal" },
+  });
+  assert.deepEqual(chrome.calls.updateWindow.at(-1), {
+    id: initial.contextWindowId,
+    options: { focused: true },
+  });
+});
+
+test("opening in Aux recreates only a closed Aux at its saved geometry", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const initial = await workspace.summon(workArea, "display-1");
+  const playhouseBefore = { ...chrome.getWindow(initial.playhouseWindowId) };
+  chrome.closeWindow(initial.contextWindowId);
+  chrome.calls.createWindow.length = 0;
+  chrome.calls.updateWindow.length = 0;
+
+  await workspace.openCarnivalContext("https://example.com/recreated", workArea, "display-1");
+
+  assert.equal(chrome.calls.createWindow.length, 1);
+  assert.deepEqual(chrome.calls.createWindow[0], {
+    ...defaultWorkspaceLayout(workArea).context,
+    focused: false,
+    type: "normal",
+    url: "https://example.com/recreated",
+  });
+  assert.deepEqual(chrome.getWindow(initial.playhouseWindowId), playhouseBefore);
+  assert.equal(
+    chrome.calls.updateWindow.some(({ id }) => id === initial.playhouseWindowId),
+    false,
   );
 });
 

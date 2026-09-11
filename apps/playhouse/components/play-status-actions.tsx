@@ -12,6 +12,7 @@ import type {
 } from "../domain/play";
 import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
 import { gmailThreadUrl, usablePlayUrl } from "../domain/play-display";
+import { openInAux } from "../lib/desktop/open-in-aux";
 
 export function DoneIcon() {
   return <span aria-hidden="true">✓</span>;
@@ -161,30 +162,34 @@ export function PlayStatusActions({
           </button>
         </form>
         {play.gmailThreadId ? (
-          <a
+          <button
             aria-label="Open Gmail thread"
             className="rowIconButton gmailButton"
-            href={gmailThreadUrl(play.gmailThreadId)}
-            rel="noopener noreferrer"
-            target="_blank"
+            onClick={(event) => {
+              event.stopPropagation();
+              openInAux(gmailThreadUrl(play.gmailThreadId!));
+            }}
             title="Open Gmail thread"
+            type="button"
           >
             <GmailIcon />
-          </a>
+          </button>
         ) : (
           <span aria-hidden="true" className="rowActionPlaceholder" />
         )}
         {playUrl ? (
-          <a
+          <button
             aria-label="Open Play URL"
             className="rowIconButton urlButton"
-            href={playUrl}
-            rel="noopener noreferrer"
-            target="_blank"
+            onClick={(event) => {
+              event.stopPropagation();
+              openInAux(playUrl);
+            }}
             title="Open Play URL"
+            type="button"
           >
             <BrowserIcon />
-          </a>
+          </button>
         ) : (
           <span aria-hidden="true" className="rowActionPlaceholder" />
         )}

@@ -9,6 +9,7 @@ export default [
         clearTimeout: "readonly",
         console: "readonly",
         setTimeout: "readonly",
+        window: "readonly",
       },
       sourceType: "module",
     },

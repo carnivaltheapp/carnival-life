@@ -70,6 +70,51 @@ test("blank and HTTP(S) URL variants persist correctly", async ({ auth }) => {
   );
 });
 
+test("Email and URL row actions route to Aux without changing PlayHouse", async ({ auth }) => {
+  await auth.page.goto("/");
+  await createPlay(auth.page, "Aux routing Play", { url: "example.com/context" });
+  const { data: play, error: lookupError } = await auth.user
+    .from("plays")
+    .select("id")
+    .eq("owner_user_id", auth.userId)
+    .eq("title", "Aux routing Play")
+    .single();
+  expect(lookupError).toBeNull();
+  const { error: updateError } = await auth.user
+    .from("plays")
+    .update({
+      source_metadata: { external_ids: { thread_id: "thread/123" } },
+      source_type: "gmail",
+    })
+    .eq("id", play!.id);
+  expect(updateError).toBeNull();
+  await auth.page.reload();
+
+  await auth.page.evaluate(() => {
+    window.addEventListener("message", (event) => {
+      if (event.data?.source !== "carnival-playhouse" || event.data?.type !== "openInAux") return;
+      const routed = JSON.parse(sessionStorage.getItem("playhouse-aux-routes") ?? "[]");
+      sessionStorage.setItem("playhouse-aux-routes", JSON.stringify([...routed, event.data.url]));
+    });
+  });
+  const originalUrl = auth.page.url();
+  const pageCount = auth.context.pages().length;
+  const row = playRow(auth.page, "Aux routing Play");
+
+  await row.getByRole("button", { name: "Open Gmail thread" }).click();
+  await row.getByRole("button", { name: "Open Play URL" }).click();
+
+  await expect.poll(() => auth.page.evaluate(
+    () => JSON.parse(sessionStorage.getItem("playhouse-aux-routes") ?? "[]"),
+  )).toEqual([
+    "https://mail.google.com/mail/u/0/#all/thread%2F123",
+    "https://example.com/context",
+  ]);
+  expect(auth.context.pages()).toHaveLength(pageCount);
+  expect(auth.page.url()).toBe(originalUrl);
+  await expect(row).toBeVisible();
+});
+
 test("invalid Create stays open and preserves every entered value", async ({ auth }) => {
   await auth.page.goto("/");
   const form = await openCreatePlay(auth.page);
@@ -146,7 +191,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-OPEN-STATE-FIX-22", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-AUX-ROUTING-23", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');
@@ -281,10 +326,7 @@ test("Edit updates title and URL while preserving Duration and Place", async ({ 
   await expect(compactRow.getByRole("button", { name: "Trash" })).toBeVisible();
   await expect(compactRow.getByRole("button", { name: "Play information" })).toHaveCount(0);
   await expect(compactRow.locator(".statusActions > *")).toHaveCount(5);
-  await expect(compactRow.getByRole("link", { name: "Open Play URL" })).toHaveAttribute(
-    "href",
-    "https://example.com/original",
-  );
+  await expect(compactRow.getByRole("button", { name: "Open Play URL" })).toBeVisible();
   const gridHeader = auth.page.locator(".playGridHeader");
   await expect(gridHeader.getByText("Assignee", { exact: true })).toBeVisible();
   await expect(gridHeader.getByText("Description", { exact: true })).toBeVisible();
@@ -469,7 +511,7 @@ test("full-row drag uses a row preview while controls remain non-draggable", asy
     second.getByRole("button", { name: /Select .* Play/ }),
     second.getByRole("button", { name: "Done" }),
     second.getByRole("button", { name: "Trash" }),
-    second.getByRole("link", { name: "Open Play URL" }),
+    second.getByRole("button", { name: "Open Play URL" }),
   ]) {
     expect(await control.evaluate((element) => {
       element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));

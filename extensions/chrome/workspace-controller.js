@@ -455,10 +455,57 @@ export class CarnivalWorkspaceController {
 
   async openCarnivalContext(url, workArea, monitorId = null) {
     if (!isAllowedContextUrl(url)) throw new Error("Carnival context URLs must use HTTP or HTTPS.");
-    const state = await this.summon(workArea, monitorId);
-    await this.chrome.tabs.update(state.contextTabId, { active: true, url });
-    await this.save({ ...state, contextUrl: url });
-    await this.chrome.windows.update(state.contextWindowId, { focused: true });
+    if (!validWorkArea(workArea)) throw new Error("A valid monitor work area is required.");
+
+    const prior = await this.state();
+    const layout = restoredWorkspaceLayout(prior, workArea);
+    let contextWindow = await existingWindow(this.chrome, prior.contextWindowId);
+    let contextTab = await existingTab(this.chrome, prior.contextTabId);
+    if (contextWindow && (!contextTab || contextTab.windowId !== contextWindow.id)) {
+      contextTab = contextWindow.tabs?.find(({ active }) => active) ?? contextWindow.tabs?.[0] ?? null;
+    }
+
+    const restoreContext = prior.drawerState !== "open" ||
+      !contextWindow || !hasVisibleIntersection(contextWindow, workArea);
+    if (!contextWindow) {
+      contextWindow = await this.chrome.windows.create({
+        ...layout.context,
+        focused: false,
+        type: "normal",
+        url,
+      });
+      if (!contextWindow?.id) throw new Error("Chrome could not create the context window.");
+      contextTab = contextWindow.tabs?.[0] ?? null;
+    } else {
+      await this.chrome.windows.update(contextWindow.id, restoreContext
+        ? { ...layout.context, focused: false, state: "normal" }
+        : { focused: false, state: "normal" });
+      if (!contextTab) {
+        contextTab = await this.chrome.tabs.create({ active: true, url, windowId: contextWindow.id });
+      }
+    }
+    if (!contextTab?.id) throw new Error("Chrome could not identify the context tab.");
+
+    await this.chrome.tabs.update(contextTab.id, { active: true, url });
+    const contextBounds = restoreContext
+      ? layout.context
+      : currentBounds(contextWindow, layout.context);
+    await this.save({
+      ...prior,
+      contextBounds,
+      contextTabId: contextTab.id,
+      contextUrl: url,
+      contextWindowId: contextWindow.id,
+      drawerState: "open",
+      layoutVersion: LAYOUT_VERSION,
+      monitorId,
+      savedVisibleBounds: {
+        ...prior.savedVisibleBounds,
+        context: contextBounds,
+      },
+      workArea,
+    });
+    await this.chrome.windows.update(contextWindow.id, { focused: true });
   }
 
   async rememberVisibleBounds() {

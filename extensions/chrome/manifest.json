@@ -14,6 +14,15 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://carnival-playhouse.vercel.app/*",
+        "http://localhost:3002/*"
+      ],
+      "js": ["playhouse-bridge.js"]
+    }
+  ],
   "action": {
     "default_title": "Summon Carnival workspace"
   }
