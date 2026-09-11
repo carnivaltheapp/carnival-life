@@ -2,7 +2,7 @@ import { CarnivalWorkspaceController, validWorkArea } from "./workspace-controll
 import { createWorkspaceActions } from "./workspace-summon.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
-const NATIVE_HOST_VERSION = "DRAWER-HOST-6";
+const NATIVE_HOST_VERSION = "DRAWER-HOST-7";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 let nativePort = null;
@@ -73,40 +73,9 @@ async function activateWindowsNatively({ context, playhouse }) {
   }
 }
 
-async function setWorkspaceBoundsNatively({ current, target }) {
-  if (!nativePort || !nativeAnimationAvailable) return false;
-  const requestId = ++nativeAnimationRequestId;
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      nativeAnimationRequests.delete(requestId);
-      resolve(false);
-    }, 750);
-    nativeAnimationRequests.set(requestId, (ok) => {
-      clearTimeout(timeout);
-      resolve(ok);
-    });
-    try {
-      nativePort.postMessage({
-        ...flattenBounds("contextCurrent", current.context),
-        ...flattenBounds("contextTarget", target.context),
-        ...flattenBounds("playhouseCurrent", current.playhouse),
-        ...flattenBounds("playhouseTarget", target.playhouse),
-        requestId,
-        type: "setWorkspaceBounds",
-      });
-    } catch (error) {
-      clearTimeout(timeout);
-      nativeAnimationRequests.delete(requestId);
-      console.warn("Carnival: native coupled geometry update failed", error);
-      resolve(false);
-    }
-  });
-}
-
 const controller = new CarnivalWorkspaceController(chrome, {
   nativeActivate: activateWindowsNatively,
   nativeAnimate: animateWindowsNatively,
-  nativeSetBounds: setWorkspaceBoundsNatively,
 });
 
 function reportDrawerState(state) {
@@ -173,19 +142,6 @@ function connectNativeHost() {
         complete?.(message.ok === true);
         return;
       }
-      if (message?.type === "liveResizeStarted") {
-        controller.beginNativeResize();
-        return;
-      }
-      if (message?.type === "liveResizeComplete") {
-        controller.completeNativeResize({
-          context: message.context,
-          playhouse: message.playhouse,
-        }).then((state) => {
-          if (state) reportDrawerState(state);
-        }).catch((error) => console.error("Carnival final resize save failed", error));
-        return;
-      }
       workspaceActions.handleNativeMessage(message, port)
         .catch((error) => console.error("Carnival summon failed", error));
     });
@@ -219,13 +175,7 @@ chrome.action.onClicked.addListener(async () => {
   await workspaceActions.summon(display, "toolbar");
 });
 chrome.windows.onCreated.addListener(connectNativeHost);
-chrome.windows.onBoundsChanged.addListener(async (window) => {
-  try {
-    const reconciled = await controller.reconcileWorkspace(window);
-    if (reconciled) reportDrawerState(reconciled);
-  } catch (error) {
-    console.error("Carnival coupled geometry reconciliation failed", error);
-  }
+chrome.windows.onBoundsChanged.addListener(() => {
   clearTimeout(geometrySaveTimer);
   geometrySaveTimer = setTimeout(async () => {
     geometrySaveTimer = null;

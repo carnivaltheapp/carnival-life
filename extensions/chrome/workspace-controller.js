@@ -8,14 +8,6 @@ export const DRAWER_RIGHT_GUTTER_PX = RETRACT_DISTANCE_PX;
 const STORAGE_KEY = "carnivalDesktopWorkspace";
 const LAYOUT_VERSION = 2;
 const DEFAULT_PLAYHOUSE_RATIO = 0.6;
-export const MIN_PLAYHOUSE_WIDTH = 400;
-export const MIN_CONTEXT_WIDTH = 320;
-const GEOMETRY_TOLERANCE_PX = 4;
-const GEOMETRY_STATE = Object.freeze({
-  IDLE: "IDLE",
-  PROGRAMMATIC_UPDATE: "PROGRAMMATIC_UPDATE",
-  RESIZING: "RESIZING",
-});
 
 function validInteger(value) {
   return Number.isInteger(value) && value >= 0;
@@ -48,38 +40,24 @@ function availableWorkspaceWidth(workArea) {
   return workArea.width - activationGutter;
 }
 
-export function coupledWorkspaceLayout(workArea, playhouseWidth, contextWidth, requestedTotal) {
+export function defaultWorkspaceLayout(workArea) {
   if (!validWorkArea(workArea)) throw new Error("A valid monitor work area is required.");
-  const priorTotal = playhouseWidth + contextWidth;
-  const ratio = priorTotal > 0 ? playhouseWidth / priorTotal : DEFAULT_PLAYHOUSE_RATIO;
-  const maximumTotal = availableWorkspaceWidth(workArea);
-  const minimumTotal = Math.min(MIN_PLAYHOUSE_WIDTH + MIN_CONTEXT_WIDTH, maximumTotal);
-  const total = Math.max(minimumTotal, Math.min(requestedTotal ?? priorTotal, maximumTotal));
-  const leftWidth = Math.max(
-    Math.min(MIN_PLAYHOUSE_WIDTH, total - MIN_CONTEXT_WIDTH),
-    Math.min(total - MIN_CONTEXT_WIDTH, Math.round(total * ratio)),
-  );
+  const total = availableWorkspaceWidth(workArea);
+  const playhouseWidth = Math.round(total * DEFAULT_PLAYHOUSE_RATIO);
   return {
     context: {
       height: workArea.height,
-      left: workArea.left + leftWidth,
+      left: workArea.left + playhouseWidth,
       top: workArea.top,
-      width: total - leftWidth,
+      width: total - playhouseWidth,
     },
     playhouse: {
       height: workArea.height,
       left: workArea.left,
       top: workArea.top,
-      width: leftWidth,
+      width: playhouseWidth,
     },
   };
-}
-
-export function defaultWorkspaceLayout(workArea) {
-  if (!validWorkArea(workArea)) throw new Error("A valid monitor work area is required.");
-  const total = availableWorkspaceWidth(workArea);
-  return coupledWorkspaceLayout(workArea, total * DEFAULT_PLAYHOUSE_RATIO,
-    total * (1 - DEFAULT_PLAYHOUSE_RATIO), total);
 }
 
 function storedBounds(value) {
@@ -90,10 +68,17 @@ function storedBounds(value) {
     : null;
 }
 
-function boundsFitWorkArea(bounds, workArea) {
-  return bounds.left >= workArea.left && bounds.top >= workArea.top &&
-    bounds.left + bounds.width <= workArea.left + workArea.width &&
-    bounds.top + bounds.height <= workArea.top + workArea.height;
+function horizontalBoundsFitWorkArea(bounds, workArea) {
+  return bounds.left >= workArea.left &&
+    bounds.left + bounds.width <= workArea.left + workArea.width;
+}
+
+function restoreWindowBounds(bounds, priorWorkArea, workArea) {
+  const width = Math.min(bounds.width, workArea.width);
+  const relativeLeft = bounds.left - (validWorkArea(priorWorkArea) ? priorWorkArea.left : workArea.left);
+  const left = Math.max(workArea.left,
+    Math.min(workArea.left + relativeLeft, workArea.left + workArea.width - width));
+  return { height: workArea.height, left, top: workArea.top, width };
 }
 
 export function restoredWorkspaceLayout(prior, workArea) {
@@ -101,8 +86,11 @@ export function restoredWorkspaceLayout(prior, workArea) {
   if (prior.layoutVersion !== LAYOUT_VERSION) return fallback;
   const playhouse = storedBounds(prior.savedVisibleBounds?.playhouse ?? prior.playhouseBounds);
   const context = storedBounds(prior.savedVisibleBounds?.context ?? prior.contextBounds);
-  if (!playhouse || !context || playhouse.left >= context.left) return fallback;
-  return coupledWorkspaceLayout(workArea, playhouse.width, context.width);
+  if (!playhouse || !context) return fallback;
+  return {
+    context: restoreWindowBounds(context, prior.workArea, workArea),
+    playhouse: restoreWindowBounds(playhouse, prior.workArea, workArea),
+  };
 }
 
 export function effectiveRetractThreshold(rightEdge, monitorRight) {
@@ -115,12 +103,6 @@ function shifted(bounds, offset) {
 
 function currentBounds(window, fallback) {
   return storedBounds(window) ?? fallback;
-}
-
-function boundsMatch(first, second) {
-  return first && second && ["height", "left", "top", "width"].every(
-    (key) => Math.abs(first[key] - second[key]) <= GEOMETRY_TOLERANCE_PX,
-  );
 }
 
 function easeOutCubic(progress) {
@@ -155,10 +137,7 @@ export class CarnivalWorkspaceController {
     this.logger = options.logger ?? console;
     this.nativeActivate = options.nativeActivate ?? null;
     this.nativeAnimate = options.nativeAnimate ?? null;
-    this.nativeSetBounds = options.nativeSetBounds ?? null;
     this.movingWindowIds = new Set();
-    this.programmaticBounds = new Map();
-    this.geometryState = GEOMETRY_STATE.IDLE;
     this.transitioning = false;
   }
 
@@ -297,100 +276,9 @@ export class CarnivalWorkspaceController {
     return state;
   }
 
-  consumeProgrammaticBounds(changedWindow) {
-    const expected = this.programmaticBounds.get(changedWindow.id);
-    if (!boundsMatch(changedWindow, expected)) return false;
-    this.programmaticBounds.delete(changedWindow.id);
-    return true;
-  }
-
-  beginNativeResize() {
-    if (this.geometryState !== GEOMETRY_STATE.IDLE) return false;
-    this.programmaticBounds.clear();
-    this.geometryState = GEOMETRY_STATE.RESIZING;
-    return true;
-  }
-
-  async completeNativeResize({ context, playhouse }) {
-    if (this.geometryState !== GEOMETRY_STATE.RESIZING) return null;
-    try {
-      const state = await this.state();
-      const nextBounds = {
-        context: storedBounds(context),
-        playhouse: storedBounds(playhouse),
-      };
-      if (state.drawerState !== "open" || !validWorkArea(state.workArea) ||
-        !nextBounds.playhouse || !nextBounds.context ||
-        !boundsFitWorkArea(nextBounds.playhouse, state.workArea) ||
-        !boundsFitWorkArea(nextBounds.context, state.workArea)) return null;
-      const authoritative = coupledWorkspaceLayout(
-        state.workArea,
-        nextBounds.playhouse.width,
-        nextBounds.context.width,
-        nextBounds.playhouse.width + nextBounds.context.width,
-      );
-      if (!boundsMatch(nextBounds.playhouse, authoritative.playhouse) ||
-        !boundsMatch(nextBounds.context, authoritative.context)) return null;
-      this.programmaticBounds.set(state.playhouseWindowId, authoritative.playhouse);
-      this.programmaticBounds.set(state.contextWindowId, authoritative.context);
-      const nextState = {
-        ...state,
-        contextBounds: authoritative.context,
-        playhouseBounds: authoritative.playhouse,
-        savedVisibleBounds: authoritative,
-      };
-      await this.save(nextState);
-      this.logger.info?.("Carnival: saved final native resize bounds");
-      return nextState;
-    } finally {
-      this.geometryState = GEOMETRY_STATE.IDLE;
-    }
-  }
-
-  async reconcileWorkspace(changedWindow) {
-    if (this.transitioning || this.movingWindowIds.has(changedWindow.id) ||
-      this.consumeProgrammaticBounds(changedWindow) ||
-      this.geometryState !== GEOMETRY_STATE.IDLE) return null;
-    this.geometryState = GEOMETRY_STATE.PROGRAMMATIC_UPDATE;
-    try {
-      const state = await this.state();
-      if (state.drawerState !== "open" || !validWorkArea(state.workArea)) return null;
-      if (changedWindow.id !== state.playhouseWindowId && changedWindow.id !== state.contextWindowId) return null;
-      const saved = restoredWorkspaceLayout(state, state.workArea, state.monitorId);
-      const [playhouseWindow, contextWindow] = await Promise.all([
-        existingWindow(this.chrome, state.playhouseWindowId),
-        existingWindow(this.chrome, state.contextWindowId),
-      ]);
-      if (!playhouseWindow || !contextWindow) return null;
-      const target = coupledWorkspaceLayout(
-        state.workArea,
-        saved.playhouse.width,
-        saved.context.width,
-        saved.playhouse.width + saved.context.width,
-      );
-      const current = {
-        context: currentBounds(contextWindow, saved.context),
-        playhouse: currentBounds(playhouseWindow, saved.playhouse),
-      };
-      if (boundsMatch(current.playhouse, target.playhouse) && boundsMatch(current.context, target.context)) return null;
-      this.programmaticBounds.set(playhouseWindow.id, target.playhouse);
-      this.programmaticBounds.set(contextWindow.id, target.context);
-      const positioned = this.nativeSetBounds && await this.nativeSetBounds({ current, target });
-      if (!positioned) {
-        await Promise.all([
-          this.chrome.windows.update(playhouseWindow.id, { ...target.playhouse, focused: false, state: "normal" }),
-          this.chrome.windows.update(contextWindow.id, { ...target.context, focused: false, state: "normal" }),
-        ]);
-      }
-      return { ...state, contextBounds: target.context, playhouseBounds: target.playhouse };
-    } finally {
-      this.geometryState = GEOMETRY_STATE.IDLE;
-    }
-  }
-
   async summonDrawer(workArea, monitorId = null) {
     const prior = await this.state();
-    const layout = restoredWorkspaceLayout(prior, workArea, monitorId);
+    const layout = restoredWorkspaceLayout(prior, workArea);
     const savedPlayhouse = storedBounds(prior.savedVisibleBounds?.playhouse ?? prior.playhouseBounds);
     const savedContext = storedBounds(prior.savedVisibleBounds?.context ?? prior.contextBounds);
     if (!savedPlayhouse || !savedContext) {
@@ -510,36 +398,47 @@ export class CarnivalWorkspaceController {
   }
 
   async rememberVisibleBounds() {
-    if (this.geometryState !== GEOMETRY_STATE.IDLE || this.transitioning ||
-      this.movingWindowIds.size > 0) return null;
+    if (this.transitioning || this.movingWindowIds.size > 0) return null;
     const state = await this.state();
     if (state.drawerState !== "open" || !validWorkArea(state.workArea)) return null;
     const [playhouseWindow, contextWindow] = await Promise.all([
       existingWindow(this.chrome, state.playhouseWindowId),
       existingWindow(this.chrome, state.contextWindowId),
     ]);
-    const playhouse = storedBounds(playhouseWindow);
-    const context = storedBounds(contextWindow);
+    const playhouseActual = storedBounds(playhouseWindow);
+    const contextActual = storedBounds(contextWindow);
+    const playhouse = playhouseActual && horizontalBoundsFitWorkArea(playhouseActual, state.workArea)
+      ? { ...playhouseActual, height: state.workArea.height, top: state.workArea.top }
+      : null;
+    const context = contextActual && horizontalBoundsFitWorkArea(contextActual, state.workArea)
+      ? { ...contextActual, height: state.workArea.height, top: state.workArea.top }
+      : null;
     if (!playhouse || !context ||
-      !boundsFitWorkArea(playhouse, state.workArea) || !boundsFitWorkArea(context, state.workArea)) return null;
-    const authoritative = coupledWorkspaceLayout(
-      state.workArea,
-      playhouse.width,
-      context.width,
-      playhouse.width + context.width,
-    );
-    if (!boundsMatch(playhouse, authoritative.playhouse) || !boundsMatch(context, authoritative.context)) return null;
+      !horizontalBoundsFitWorkArea(playhouse, state.workArea) ||
+      !horizontalBoundsFitWorkArea(context, state.workArea)) return null;
     const currentState = await this.state();
     if (this.transitioning || currentState.drawerState !== "open" ||
       currentState.playhouseWindowId !== state.playhouseWindowId ||
       currentState.contextWindowId !== state.contextWindowId) return null;
     const nextState = {
       ...currentState,
-      contextBounds: authoritative.context,
-      playhouseBounds: authoritative.playhouse,
-      savedVisibleBounds: authoritative,
+      contextBounds: context,
+      playhouseBounds: playhouse,
+      savedVisibleBounds: { context, playhouse },
     };
     await this.save(nextState);
+    const verticalUpdates = [];
+    if (playhouseActual.top !== playhouse.top || playhouseActual.height !== playhouse.height) {
+      verticalUpdates.push(this.chrome.windows.update(state.playhouseWindowId, {
+        focused: false, height: playhouse.height, state: "normal", top: playhouse.top,
+      }));
+    }
+    if (contextActual.top !== context.top || contextActual.height !== context.height) {
+      verticalUpdates.push(this.chrome.windows.update(state.contextWindowId, {
+        focused: false, height: context.height, state: "normal", top: context.top,
+      }));
+    }
+    await Promise.all(verticalUpdates);
     this.logger.info?.("Carnival: saved visible workspace bounds");
     return nextState;
   }

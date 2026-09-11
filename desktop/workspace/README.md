@@ -34,7 +34,7 @@ The installer compiles the small C# host into the current user's Local AppData,
 stops an older installed companion if necessary, replaces its binary, writes a
 Chrome native-host manifest, registers it under HKCU, configures the resident
 companion in the current user's `Run` key, and starts it. It prints the installed
-path and native-host marker (`DRAWER-HOST-6`). Administrator access is not
+path and native-host marker (`DRAWER-HOST-7`). Administrator access is not
 required. Restart Chrome after installation. Git updates do not update the
 installed native executable automatically, so rerun this command after native
 host source changes.
@@ -65,20 +65,16 @@ left at 60% width and the normal
 context window on the right at 40% width. On Windows, the resident companion
 maps the two Chrome HWNDs from their extension-supplied starting rectangles and
 moves them together with Win32 deferred window positioning through the same
-250 ms eased animation. User-resized split ratios are saved in
-`chrome.storage.local`, normalized into left/right roles, and reused on the same
-monitor. Closing either or both windows is repaired by the next summon; their
-saved visible geometry and last Context URL survive stale window IDs. Repeated
-summons do not create duplicate workspace windows or repeated Chrome launches.
-The two windows are a coupled, left-anchored workspace: their edges touch and
-they always share the active monitor's usable top and height. Dragging the Aux
-window's outer right edge proportionally resizes both widths continuously
-through one frozen-ratio native resize session; moving either
-window, resizing PlayHouse directly, or moving their internal boundary is
-reconciled through one native paired positioning operation. Persisted widths are
-preserved on another monitor when they fit and proportionally reduced only when
-the destination is narrower. Minimum widths are 400 pixels for PlayHouse and
-320 pixels for Aux.
+250 ms eased animation. PlayHouse and Aux otherwise remain independent desktop
+windows: each window's visible horizontal position and width are saved in
+`chrome.storage.local`, including any user-created gap or overlap. Their usable
+monitor top and height are reapplied when the geometry settles and when the
+workspace opens. Closing either or both windows is repaired by the next summon;
+their saved visible geometry and last Context URL survive stale window IDs.
+Repeated summons do not create duplicate workspace windows or repeated Chrome
+launches. On another monitor, independent widths and relative horizontal
+positions are preserved where they fit and clamped only enough to remain
+reachable.
 After each summon, Windows places both Carnival windows together at the front of
 the normal z-order and gives PlayHouse keyboard focus; neither window is made
 permanently topmost.
@@ -99,7 +95,7 @@ are accepted. No PlayHouse bridge invokes that message in this foundation slice.
 After updating the checked-out extension or native-host source, reload the
 extension at `chrome://extensions` and rerun the platform installer before
 manual verification. The extension service-worker console confirms the current
-Windows companion with `Carnival native host: DRAWER-HOST-6`; startup is also
+Windows companion with `Carnival native host: DRAWER-HOST-7`; startup is also
 recorded without credentials in
 `%LOCALAPPDATA%\Carnival\DesktopWorkspace\CarnivalWorkspaceHost.log`. The log
 records pointer-monitor startup, hot-corner entry/cancellation/activation,

@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-PANEL-RESIZE-REWRITE-20
+          P3-INDEPENDENT-PH-AUX-21
         </small>
       </body>
     </html>
