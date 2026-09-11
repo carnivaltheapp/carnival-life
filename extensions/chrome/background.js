@@ -16,13 +16,17 @@ const nativeAnimationRequests = new Map();
 let geometrySaveTimer = null;
 let pendingGmailDrag = null;
 const tabSaveTimers = new Map();
+const tabSaveReasons = new Map();
 
-function scheduleTabSave(windowId) {
+function scheduleTabSave(windowId, reason) {
   if (!Number.isInteger(windowId)) return;
+  tabSaveReasons.set(windowId, reason);
   clearTimeout(tabSaveTimers.get(windowId));
   tabSaveTimers.set(windowId, setTimeout(() => {
     tabSaveTimers.delete(windowId);
-    controller.rememberWorkspaceTabs(windowId)
+    const saveReason = tabSaveReasons.get(windowId) ?? "tab-event";
+    tabSaveReasons.delete(windowId);
+    controller.rememberWorkspaceTabs(windowId, saveReason)
       .catch((error) => console.error("Carnival tab persistence failed", error));
   }, TAB_SAVE_DELAY_MS));
 }
@@ -211,15 +215,23 @@ chrome.windows.onBoundsChanged.addListener(() => {
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url || changeInfo.pinned !== undefined || changeInfo.status === "complete") {
-    scheduleTabSave(tab.windowId);
+    const reason = changeInfo.url
+      ? "tab-url-updated"
+      : changeInfo.pinned !== undefined ? "tab-pin-updated" : "tab-load-complete";
+    scheduleTabSave(tab.windowId, reason);
   }
 });
-chrome.tabs.onCreated.addListener((tab) => scheduleTabSave(tab.windowId));
+chrome.tabs.onCreated.addListener((tab) => scheduleTabSave(tab.windowId, "tab-created"));
 chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
-  if (!removeInfo.isWindowClosing) scheduleTabSave(removeInfo.windowId);
+  if (removeInfo.isWindowClosing) {
+    controller.logClosingTabSaveSkipped(removeInfo.windowId)
+      .catch((error) => console.error("Carnival closing-tab diagnostic failed", error));
+  } else {
+    scheduleTabSave(removeInfo.windowId, "tab-removed");
+  }
 });
-chrome.tabs.onActivated.addListener(({ windowId }) => scheduleTabSave(windowId));
-chrome.tabs.onMoved.addListener((_tabId, moveInfo) => scheduleTabSave(moveInfo.windowId));
+chrome.tabs.onActivated.addListener(({ windowId }) => scheduleTabSave(windowId, "tab-activated"));
+chrome.tabs.onMoved.addListener((_tabId, moveInfo) => scheduleTabSave(moveInfo.windowId, "tab-moved"));
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "gmailDragStarted") {
     const attachment = message.attachment;

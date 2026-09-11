@@ -227,6 +227,20 @@ function roleTabIds(definitions, tabs) {
   )));
 }
 
+function diagnosticSession(session) {
+  return {
+    activeIndex: session?.tabs?.activeIndex ?? null,
+    geometry: session?.geometry ?? null,
+    roles: session?.tabs?.tabs?.map((tab) => tab.role ?? "ordinary") ?? [],
+    tabCount: session?.tabs?.tabs?.length ?? 0,
+    urls: session?.tabs?.tabs?.map((tab) => tab.url) ?? [],
+  };
+}
+
+function newSessionCycleId() {
+  return `R29-${Date.now().toString(36)}`;
+}
+
 export class CarnivalWorkspaceController {
   constructor(chromeApi, options = {}) {
     this.chrome = chromeApi;
@@ -234,6 +248,7 @@ export class CarnivalWorkspaceController {
     this.nativeActivate = options.nativeActivate ?? null;
     this.nativeAnimate = options.nativeAnimate ?? null;
     this.movingWindowIds = new Set();
+    this.restoreWindowsUntil = new Map();
     this.stateUpdates = Promise.resolve();
     this.transitioning = false;
   }
@@ -265,7 +280,7 @@ export class CarnivalWorkspaceController {
       .sort((left, right) => (left.index ?? 0) - (right.index ?? 0));
   }
 
-  async createWindowFromTabs(bounds, savedTabs, kind) {
+  async createWindowFromTabs(bounds, savedTabs, kind, sessionCycle = null) {
     let definitions = validSavedTabs(savedTabs, kind) ??
       (kind === "playhouse" ? defaultPlayhouseTabs(PLAYHOUSE_URL) : defaultAuxTabs());
     if (kind === "playhouse" && !definitions.tabs.some((tab) => tab.role === "ph-primary")) {
@@ -275,8 +290,9 @@ export class CarnivalWorkspaceController {
       };
     }
     const eventPrefix = kind === "playhouse" ? "PH" : "AUX";
-    this.logger.info?.(`${eventPrefix}_SESSION_RESTORE_STARTED`, {
-      count: definitions.tabs.length,
+    this.logger.info?.(`${eventPrefix}_RESTORE_START`, {
+      ...diagnosticSession({ geometry: geometryFromBounds(bounds), tabs: definitions }),
+      sessionCycle,
     });
     const window = await this.chrome.windows.create({
       ...bounds,
@@ -285,6 +301,7 @@ export class CarnivalWorkspaceController {
       url: definitions.tabs.map((tab) => tab.url),
     });
     if (!window?.id) throw new Error(`Chrome could not create the ${kind} window.`);
+    this.restoreWindowsUntil.set(window.id, Date.now() + 2_000);
     this.logger.info?.(`${eventPrefix}_WINDOW_CREATED`, { windowId: window.id });
     this.logger.info?.(`${eventPrefix}_GEOMETRY_RESTORED`, {
       width: bounds.width,
@@ -294,6 +311,16 @@ export class CarnivalWorkspaceController {
     if (tabs.length !== definitions.tabs.length) {
       throw new Error(`Chrome could not restore the ${kind} tabs.`);
     }
+    definitions.tabs.forEach((definition, index) => {
+      this.logger.info?.(`${eventPrefix}_RESTORE_TAB_CREATED`, {
+        index,
+        role: definition.role,
+        sessionCycle,
+        tabId: tabs[index]?.id,
+        url: definition.url,
+        windowId: window.id,
+      });
+    });
     await Promise.all(definitions.tabs.flatMap((definition, index) => (
       definition.pinned ? [this.chrome.tabs.update(tabs[index].id, { pinned: true })] : []
     )));
@@ -301,6 +328,12 @@ export class CarnivalWorkspaceController {
     const ids = roleTabIds(definitions, tabs);
     this.logger.info?.(`${eventPrefix}_TABS_RESTORED`, {
       count: tabs.length,
+    });
+    this.logger.info?.(`${eventPrefix}_RESTORE_COMPLETE`, {
+      activeIndex: definitions.activeIndex,
+      sessionCycle,
+      tabCount: tabs.length,
+      windowId: window.id,
     });
     return {
       activeTab: tabs[definitions.activeIndex],
@@ -328,7 +361,12 @@ export class CarnivalWorkspaceController {
     let tab = await existingTab(this.chrome, prior.phPrimaryTabId);
     if (!window || tab?.windowId !== window.id) tab = null;
     if (!window) {
-      const restored = await this.createWindowFromTabs(bounds, prior.phSession.tabs, "playhouse");
+      const restored = await this.createWindowFromTabs(
+        bounds,
+        prior.phSession.tabs,
+        "playhouse",
+        prior.sessionCycle ?? null,
+      );
       return {
         tab: restored.roleTabIds["ph-primary"] ?
           await existingTab(this.chrome, restored.roleTabIds["ph-primary"]) : restored.activeTab,
@@ -356,7 +394,12 @@ export class CarnivalWorkspaceController {
     let tab = await existingTab(this.chrome, prior.auxActiveTabId);
     if (!window || tab?.windowId !== window.id) tab = null;
     if (!window) {
-      const restored = await this.createWindowFromTabs(bounds, prior.auxSession.tabs, "context");
+      const restored = await this.createWindowFromTabs(
+        bounds,
+        prior.auxSession.tabs,
+        "context",
+        prior.sessionCycle ?? null,
+      );
       return {
         roleTabIds: restored.roleTabIds,
         tab: restored.activeTab,
@@ -481,10 +524,19 @@ export class CarnivalWorkspaceController {
   }
 
   async handleWindowClosed(windowId) {
-    return this.updateState((state) => {
+    let closedRole = null;
+    const result = await this.updateState((state) => {
       const phClosed = windowId === state.phWindowId;
       const auxClosed = windowId === state.auxWindowId;
       if (!phClosed && !auxClosed) return null;
+      closedRole = phClosed ? "ph" : "aux";
+      const sessionCycle = state.sessionCycle ?? newSessionCycleId();
+      this.logger.info?.("WINDOW_CLOSE_STARTED", {
+        role: closedRole,
+        session: diagnosticSession(phClosed ? state.phSession : state.auxSession),
+        sessionCycle,
+        windowId,
+      });
       const phWindowId = phClosed ? null : state.phWindowId;
       const auxWindowId = auxClosed ? null : state.auxWindowId;
       return {
@@ -495,8 +547,20 @@ export class CarnivalWorkspaceController {
         drawerState: phWindowId || auxWindowId ? "degraded" : "retracted",
         phPrimaryTabId: phClosed ? null : state.phPrimaryTabId,
         phWindowId,
+        lastSessionCycle: sessionCycle,
+        sessionCycle,
       };
     });
+    if (result) {
+      this.logger.info?.("WINDOW_CLOSE_COMPLETE", {
+        auxWindowId: result.auxWindowId,
+        phWindowId: result.phWindowId,
+        role: closedRole,
+        sessionCycle: result.sessionCycle,
+        windowId,
+      });
+    }
+    return result;
   }
 
   async summonDrawer(workArea, monitorId = null) {
@@ -581,6 +645,8 @@ export class CarnivalWorkspaceController {
     const openState = {
       ...openingState,
       drawerState: "open",
+      lastSessionCycle: prior.sessionCycle ?? prior.lastSessionCycle ?? null,
+      sessionCycle: null,
     };
     await this.save(openState);
     await this.chrome.windows.update(context.window.id, { focused: true });
@@ -761,14 +827,37 @@ export class CarnivalWorkspaceController {
     return nextState;
   }
 
-  async rememberWorkspaceTabs(windowId) {
+  async rememberWorkspaceTabs(windowId, reason = "tab-event") {
     const state = await this.state();
     const kind = windowId === state.phWindowId
       ? "playhouse"
       : windowId === state.auxWindowId ? "context" : null;
-    if (!kind) return null;
+    const eventPrefix = kind === "playhouse" ? "PH" : kind === "context" ? "AUX" : "WORKSPACE";
+    const sessionCycle = state.sessionCycle ?? state.lastSessionCycle ?? null;
+    if (!kind) {
+      this.logger.info?.(`${eventPrefix}_SESSION_SAVE_SKIPPED`, {
+        reason: `${reason}:unknown-window`,
+        sessionCycle,
+        windowId,
+      });
+      return null;
+    }
+    this.logger.info?.(`${eventPrefix}_SESSION_SAVE_ATTEMPT`, {
+      reason,
+      restoreInProgress: (this.restoreWindowsUntil.get(windowId) ?? 0) > Date.now(),
+      session: diagnosticSession(kind === "playhouse" ? state.phSession : state.auxSession),
+      sessionCycle,
+      windowId,
+    });
     const { snapshot, tabs } = await this.snapshotWindow(kind, windowId, state);
-    if (!snapshot) return null;
+    if (!snapshot) {
+      this.logger.info?.(`${eventPrefix}_SESSION_SAVE_SKIPPED`, {
+        reason: `${reason}:no-stable-tabs`,
+        sessionCycle,
+        windowId,
+      });
+      return null;
+    }
     const activeTab = tabs.find((tab) => tab.active) ?? tabs[0];
     const nextState = await this.updateState((current) => {
       if (kind === "playhouse" && current.phWindowId !== windowId) return null;
@@ -788,10 +877,36 @@ export class CarnivalWorkspaceController {
             contextUrl: activeTab?.url ?? current.contextUrl,
           };
     });
-    if (!nextState) return null;
-    this.logger.info?.(kind === "playhouse" ? "PH_SESSION_SAVED" : "AUX_SESSION_SAVED", {
-      count: snapshot.tabs.length,
+    if (!nextState) {
+      this.logger.info?.(`${eventPrefix}_SESSION_SAVE_SKIPPED`, {
+        reason: `${reason}:window-no-longer-live`,
+        sessionCycle,
+        windowId,
+      });
+      return null;
+    }
+    this.logger.info?.(`${eventPrefix}_SESSION_SAVE_COMPLETE`, {
+      ...diagnosticSession(kind === "playhouse" ? nextState.phSession : nextState.auxSession),
+      reason,
+      restoreInProgress: (this.restoreWindowsUntil.get(windowId) ?? 0) > Date.now(),
+      sessionCycle,
+      windowId,
     });
     return nextState;
+  }
+
+  async logClosingTabSaveSkipped(windowId) {
+    const state = await this.updateState((current) => {
+      if (windowId !== current.phWindowId && windowId !== current.auxWindowId) return null;
+      const sessionCycle = current.sessionCycle ?? newSessionCycleId();
+      return { ...current, lastSessionCycle: sessionCycle, sessionCycle };
+    });
+    if (!state) return;
+    const role = windowId === state.phWindowId ? "PH" : windowId === state.auxWindowId ? "AUX" : "WORKSPACE";
+    this.logger.info?.(`${role}_SESSION_SAVE_SKIPPED`, {
+      reason: "tab-removed:window-closing",
+      sessionCycle: state.sessionCycle ?? state.lastSessionCycle ?? null,
+      windowId,
+    });
   }
 }
