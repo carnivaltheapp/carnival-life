@@ -139,24 +139,36 @@ internal static class CarnivalWorkspaceHost
 
     private static void RunNativeMessagingBridge()
     {
-        var pipe = ConnectToResident();
-        if (pipe == null)
+        try
         {
-            WriteDiagnostic("native bridge could not connect to resident");
-            return;
-        }
-        using (pipe)
-        using (var chromeInput = Console.OpenStandardInput())
-        using (var chromeOutput = Console.OpenStandardOutput())
-        {
-            SendNative(chromeOutput, "{\"type\":\"hostReady\",\"version\":\"" + HostMarker + "\",\"nativeWindowAnimation\":true}");
-            new Thread(delegate()
+            var pipe = ConnectToResident();
+            if (pipe == null)
             {
-                ForwardPipeToChrome(pipe, chromeOutput);
-                WriteDiagnostic("bridge output ended; reconnect required");
-                Environment.Exit(0);
-            }) { IsBackground = true }.Start();
-            ForwardChromeToPipe(chromeInput, pipe);
+                WriteDiagnostic("bridge exiting reason=resident unavailable");
+                return;
+            }
+            using (pipe)
+            using (var chromeInput = Console.OpenStandardInput())
+            using (var chromeOutput = Console.OpenStandardOutput())
+            {
+                if (!SendNative(chromeOutput, "{\"type\":\"hostReady\",\"version\":\"" + HostMarker + "\",\"nativeWindowAnimation\":true}"))
+                {
+                    WriteDiagnostic("bridge exiting reason=hostReady stdout write failure");
+                    return;
+                }
+                new Thread(delegate()
+                {
+                    var reason = ForwardPipeToChrome(pipe, chromeOutput);
+                    WriteDiagnostic("bridge exiting reason=" + reason);
+                    Environment.Exit(0);
+                }) { IsBackground = true }.Start();
+                WriteDiagnostic("bridge exiting reason=" + ForwardChromeToPipe(chromeInput, pipe));
+            }
+        }
+        catch (Exception error)
+        {
+            WriteDiagnostic("bridge exiting reason=exception type=" + error.GetType().Name +
+                " message=" + error.Message);
         }
     }
 
@@ -231,52 +243,81 @@ internal static class CarnivalWorkspaceHost
         }
     }
 
-    private static void ForwardChromeToPipe(Stream chromeInput, Stream pipe)
+    private static string ForwardChromeToPipe(Stream chromeInput, Stream pipe)
     {
         string message;
-        while ((message = ReadFramedMessage(chromeInput)) != null)
+        string failure;
+        while ((message = ReadFramedMessage(chromeInput, out failure)) != null)
         {
-            if (!WriteFramedMessage(pipe, message)) return;
+            if (!WriteFramedMessage(pipe, message)) return "resident pipe write failure";
         }
+        return "Chrome stdin " + failure;
     }
 
-    private static void ForwardPipeToChrome(Stream pipe, Stream chromeOutput)
+    private static string ForwardPipeToChrome(Stream pipe, Stream chromeOutput)
     {
         string message;
-        while ((message = ReadFramedMessage(pipe)) != null)
+        string failure;
+        while ((message = ReadFramedMessage(pipe, out failure)) != null)
         {
             var summon = Regex.IsMatch(message, "\\\"type\\\"\\s*:\\s*\\\"summon\\\"");
+            var retract = Regex.IsMatch(message, "\\\"type\\\"\\s*:\\s*\\\"retract\\\"");
             if (summon) WriteDiagnostic("bridge forwarding summon to Chrome");
+            if (retract) WriteDiagnostic("bridge forwarding retract to Chrome");
             var written = SendNative(chromeOutput, message);
             if (summon) WriteDiagnostic(written ? "bridge summon frame written" : "bridge summon frame write failed");
-            if (!written) return;
+            if (retract) WriteDiagnostic(written ? "bridge retract frame written" : "bridge retract frame write failed");
+            if (!written) return "Chrome stdout write failure";
         }
+        return "resident pipe " + failure;
     }
 
     private static string ReadFramedMessage(Stream stream)
     {
-        var lengthBytes = new byte[4];
-        if (!ReadExactly(stream, lengthBytes, 4)) return null;
-        var length = BitConverter.ToInt32(lengthBytes, 0);
-        if (length < 0 || length > 16384) return null;
-        var payload = new byte[length];
-        return ReadExactly(stream, payload, length) ? Encoding.UTF8.GetString(payload) : null;
+        string failure;
+        return ReadFramedMessage(stream, out failure);
+    }
+
+    private static string ReadFramedMessage(Stream stream, out string failure)
+    {
+        failure = "EOF";
+        try
+        {
+            var lengthBytes = new byte[4];
+            if (!ReadExactly(stream, lengthBytes, 4)) return null;
+            var length = BitConverter.ToInt32(lengthBytes, 0);
+            if (length < 0 || length > 16384)
+            {
+                failure = "invalid frame length";
+                return null;
+            }
+            var payload = new byte[length];
+            if (!ReadExactly(stream, payload, length)) return null;
+            failure = null;
+            return Encoding.UTF8.GetString(payload);
+        }
+        catch (IOException error)
+        {
+            failure = "IOException: " + error.Message;
+            return null;
+        }
+        catch (ObjectDisposedException error)
+        {
+            failure = "ObjectDisposedException: " + error.Message;
+            return null;
+        }
     }
 
     private static bool ReadExactly(Stream stream, byte[] buffer, int count)
     {
-        try
+        var offset = 0;
+        while (offset < count)
         {
-            var offset = 0;
-            while (offset < count)
-            {
-                var read = stream.Read(buffer, offset, count - offset);
-                if (read == 0) return false;
-                offset += read;
-            }
-            return true;
+            var read = stream.Read(buffer, offset, count - offset);
+            if (read == 0) return false;
+            offset += read;
         }
-        catch (IOException) { return false; }
+        return true;
     }
 
     private static bool WriteFramedMessage(Stream stream, string json)
@@ -294,6 +335,7 @@ internal static class CarnivalWorkspaceHost
             return true;
         }
         catch (IOException) { return false; }
+        catch (ObjectDisposedException) { return false; }
     }
 
     private static void MonitorGlobalPointer()

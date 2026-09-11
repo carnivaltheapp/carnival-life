@@ -1,6 +1,7 @@
 export const PLAYHOUSE_URL = "https://carnival-playhouse.vercel.app/";
 export const DEFAULT_CONTEXT_URL = "https://calendar.google.com/calendar/u/0/r";
-export const DRAWER_ANIMATION_MS = 250;
+export const OPEN_ANIMATION_MS = 450;
+export const CLOSE_ANIMATION_MS = 400;
 export const RETRACT_DISTANCE_PX = 150;
 export const DRAWER_RIGHT_GUTTER_PX = RETRACT_DISTANCE_PX + 1;
 
@@ -8,7 +9,6 @@ const STORAGE_KEY = "carnivalDesktopWorkspace";
 const LAYOUT_VERSION = 2;
 const DEFAULT_PLAYHOUSE_RATIO = 0.6;
 const MIN_SURFACE_RATIO = 0.3;
-const ANIMATION_FRAME_MS = 16;
 
 function validInteger(value) {
   return Number.isInteger(value) && value >= 0;
@@ -140,10 +140,8 @@ async function existingTab(chromeApi, tabId) {
 export class CarnivalWorkspaceController {
   constructor(chromeApi, options = {}) {
     this.chrome = chromeApi;
-    this.animationSteps = options.animationSteps ?? Math.ceil(DRAWER_ANIMATION_MS / ANIMATION_FRAME_MS);
     this.logger = options.logger ?? console;
     this.nativeAnimate = options.nativeAnimate ?? null;
-    this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.movingWindowIds = new Set();
     this.transitioning = false;
   }
@@ -225,7 +223,7 @@ export class CarnivalWorkspaceController {
     return { tab, window };
   }
 
-  async animate(playhouseWindowId, contextWindowId, current, layout, startOffset, endOffset, easing) {
+  async animate(playhouseWindowId, contextWindowId, current, layout, startOffset, endOffset, easing, durationMs) {
     this.movingWindowIds.add(playhouseWindowId);
     this.movingWindowIds.add(contextWindowId);
     try {
@@ -235,7 +233,7 @@ export class CarnivalWorkspaceController {
           from: shifted(layout.context, startOffset),
           to: shifted(layout.context, endOffset),
         },
-        durationMs: DRAWER_ANIMATION_MS,
+        durationMs,
         easing: easing === easeInCubic ? "in" : "out",
         playhouse: {
           current: current.playhouse,
@@ -297,7 +295,16 @@ export class CarnivalWorkspaceController {
     };
     await this.save(openingState);
     if (shouldAnimate) {
-      await this.animate(playhouse.window.id, context.window.id, current, layout, hiddenOffset, 0, easeOutCubic);
+      await this.animate(
+        playhouse.window.id,
+        context.window.id,
+        current,
+        layout,
+        hiddenOffset,
+        0,
+        easeOutCubic,
+        OPEN_ANIMATION_MS,
+      );
     }
     const openState = { ...openingState, drawerState: "open" };
     await this.save(openState);
@@ -343,6 +350,7 @@ export class CarnivalWorkspaceController {
       0,
       -state.workArea.width,
       easeInCubic,
+      CLOSE_ANIMATION_MS,
     );
     if (!retractedSuccessfully) {
       const open = { ...state, drawerState: "open" };
