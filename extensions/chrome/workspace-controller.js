@@ -100,6 +100,10 @@ function shifted(bounds, offset) {
   return { ...bounds, left: bounds.left + offset };
 }
 
+function currentBounds(window, fallback) {
+  return storedBounds(window) ?? fallback;
+}
+
 function easeOutCubic(progress) {
   return 1 - ((1 - progress) ** 3);
 }
@@ -130,6 +134,7 @@ export class CarnivalWorkspaceController {
   constructor(chromeApi, options = {}) {
     this.chrome = chromeApi;
     this.animationSteps = options.animationSteps ?? Math.ceil(DRAWER_ANIMATION_MS / ANIMATION_FRAME_MS);
+    this.logger = options.logger ?? console;
     this.nativeAnimate = options.nativeAnimate ?? null;
     this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.movingWindowIds = new Set();
@@ -144,7 +149,7 @@ export class CarnivalWorkspaceController {
     await this.chrome.storage.local.set({ [STORAGE_KEY]: nextState });
   }
 
-  async findPlayhouse(prior, bounds) {
+  async findPlayhouse(prior, bounds, positionExisting = true) {
     let window = await existingWindow(this.chrome, prior.playhouseWindowId);
     let tab = await existingTab(this.chrome, prior.playhouseTabId);
     if (!window || !tab || tab.windowId !== window.id) {
@@ -161,7 +166,9 @@ export class CarnivalWorkspaceController {
       if (!window?.id) throw new Error("Chrome could not create the PlayHouse window.");
       tab = window.tabs?.[0] ?? null;
     } else {
-      await this.chrome.windows.update(window.id, { ...bounds, focused: false, state: "normal" });
+      await this.chrome.windows.update(window.id, positionExisting
+        ? { ...bounds, focused: false, state: "normal" }
+        : { focused: false, state: "normal" });
       if (!tab) {
         tab = await this.chrome.tabs.create({ active: true, url: PLAYHOUSE_URL, windowId: window.id });
       }
@@ -170,7 +177,7 @@ export class CarnivalWorkspaceController {
     return { tab, window };
   }
 
-  async findContext(prior, bounds, playhouseWindowId) {
+  async findContext(prior, bounds, playhouseWindowId, positionExisting = true) {
     let window = await existingWindow(this.chrome, prior.contextWindowId);
     let tab = await existingTab(this.chrome, prior.contextTabId);
     if (window && (!tab || tab.windowId !== window.id)) {
@@ -194,7 +201,9 @@ export class CarnivalWorkspaceController {
       if (!window?.id) throw new Error("Chrome could not create the context window.");
       tab = window.tabs?.[0] ?? null;
     } else {
-      await this.chrome.windows.update(window.id, { ...bounds, focused: false, state: "normal" });
+      await this.chrome.windows.update(window.id, positionExisting
+        ? { ...bounds, focused: false, state: "normal" }
+        : { focused: false, state: "normal" });
       if (!tab) {
         tab = await this.chrome.tabs.create({
           active: true,
@@ -209,33 +218,31 @@ export class CarnivalWorkspaceController {
     return { tab, window };
   }
 
-  async animate(playhouseWindowId, contextWindowId, layout, startOffset, endOffset, easing) {
+  async animate(playhouseWindowId, contextWindowId, current, layout, startOffset, endOffset, easing) {
     this.movingWindowIds.add(playhouseWindowId);
     this.movingWindowIds.add(contextWindowId);
     try {
       if (this.nativeAnimate && await this.nativeAnimate({
         context: {
+          current: current.context,
           from: shifted(layout.context, startOffset),
           to: shifted(layout.context, endOffset),
         },
         durationMs: DRAWER_ANIMATION_MS,
         easing: easing === easeInCubic ? "in" : "out",
         playhouse: {
+          current: current.playhouse,
           from: shifted(layout.playhouse, startOffset),
           to: shifted(layout.playhouse, endOffset),
         },
-      })) return;
-      for (let step = 1; step <= this.animationSteps; step += 1) {
-        const progress = easing(step / this.animationSteps);
-        const offset = Math.round(startOffset + ((endOffset - startOffset) * progress));
-        await Promise.all([
-          this.chrome.windows.update(playhouseWindowId, { left: layout.playhouse.left + offset }),
-          this.chrome.windows.update(contextWindowId, { left: layout.context.left + offset }),
-        ]);
-        if (step < this.animationSteps) {
-          await this.sleep(DRAWER_ANIMATION_MS / this.animationSteps);
-        }
-      }
+      })) return true;
+      this.logger.warn("Carnival native animation unavailable; using visible fallback");
+      if (endOffset !== 0) return false;
+      await Promise.all([
+        this.chrome.windows.update(playhouseWindowId, { ...layout.playhouse, focused: false, state: "normal" }),
+        this.chrome.windows.update(contextWindowId, { ...layout.context, focused: false, state: "normal" }),
+      ]);
+      return true;
     } finally {
       this.movingWindowIds.delete(playhouseWindowId);
       this.movingWindowIds.delete(contextWindowId);
@@ -260,12 +267,13 @@ export class CarnivalWorkspaceController {
     ]);
     const shouldAnimate = prior.drawerState !== "open" || !knownPlayhouse || !knownContext;
     const hiddenOffset = -workArea.width;
-    const initialLayout = shouldAnimate
-      ? { context: shifted(layout.context, hiddenOffset), playhouse: shifted(layout.playhouse, hiddenOffset) }
-      : layout;
-
-    const playhouse = await this.findPlayhouse(prior, initialLayout.playhouse);
-    const context = await this.findContext(prior, initialLayout.context, playhouse.window.id);
+    const positionExisting = !shouldAnimate || !this.nativeAnimate;
+    const playhouse = await this.findPlayhouse(prior, layout.playhouse, positionExisting);
+    const context = await this.findContext(prior, layout.context, playhouse.window.id, positionExisting);
+    const current = {
+      context: currentBounds(context.window, layout.context),
+      playhouse: currentBounds(playhouse.window, layout.playhouse),
+    };
     const openingState = {
       ...prior,
       contextBounds: layout.context,
@@ -282,7 +290,7 @@ export class CarnivalWorkspaceController {
     };
     await this.save(openingState);
     if (shouldAnimate) {
-      await this.animate(playhouse.window.id, context.window.id, layout, hiddenOffset, 0, easeOutCubic);
+      await this.animate(playhouse.window.id, context.window.id, current, layout, hiddenOffset, 0, easeOutCubic);
     }
     const openState = { ...openingState, drawerState: "open" };
     await this.save(openState);
@@ -316,7 +324,24 @@ export class CarnivalWorkspaceController {
     };
     if (!layout.context || !layout.playhouse) return state;
     await this.save({ ...state, drawerState: "retracting" });
-    await this.animate(playhouseWindow.id, contextWindow.id, layout, 0, -state.workArea.width, easeInCubic);
+    const current = {
+      context: currentBounds(contextWindow, layout.context),
+      playhouse: currentBounds(playhouseWindow, layout.playhouse),
+    };
+    const retractedSuccessfully = await this.animate(
+      playhouseWindow.id,
+      contextWindow.id,
+      current,
+      layout,
+      0,
+      -state.workArea.width,
+      easeInCubic,
+    );
+    if (!retractedSuccessfully) {
+      const open = { ...state, drawerState: "open" };
+      await this.save(open);
+      return open;
+    }
     const retracted = { ...state, drawerState: "retracted" };
     await this.save(retracted);
     return retracted;

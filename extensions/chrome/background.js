@@ -34,16 +34,25 @@ async function animateWindowsNatively(animation) {
       console.info(`Carnival: native animation ${ok ? "complete" : "rejected"}`);
       resolve(ok);
     });
-    nativePort.postMessage({
-      ...flattenBounds("contextFrom", animation.context.from),
-      ...flattenBounds("contextTo", animation.context.to),
-      durationMs: animation.durationMs,
-      easing: animation.easing,
-      ...flattenBounds("playhouseFrom", animation.playhouse.from),
-      ...flattenBounds("playhouseTo", animation.playhouse.to),
-      requestId,
-      type: "animateWindows",
-    });
+    try {
+      nativePort.postMessage({
+        ...flattenBounds("contextCurrent", animation.context.current),
+        ...flattenBounds("contextFrom", animation.context.from),
+        ...flattenBounds("contextTo", animation.context.to),
+        durationMs: animation.durationMs,
+        easing: animation.easing,
+        ...flattenBounds("playhouseCurrent", animation.playhouse.current),
+        ...flattenBounds("playhouseFrom", animation.playhouse.from),
+        ...flattenBounds("playhouseTo", animation.playhouse.to),
+        requestId,
+        type: "animateWindows",
+      });
+    } catch (error) {
+      clearTimeout(timeout);
+      nativeAnimationRequests.delete(requestId);
+      console.warn("Carnival: native animation request failed; using visible fallback", error);
+      resolve(false);
+    }
   });
 }
 

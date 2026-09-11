@@ -524,18 +524,21 @@ internal static class CarnivalWorkspaceHost
     {
         var requestId = 0;
         var durationMs = 0;
+        var playhouseCurrent = ReadBounds(json, "playhouseCurrent");
         var playhouseFrom = ReadBounds(json, "playhouseFrom");
         var playhouseTo = ReadBounds(json, "playhouseTo");
+        var contextCurrent = ReadBounds(json, "contextCurrent");
         var contextFrom = ReadBounds(json, "contextFrom");
         var contextTo = ReadBounds(json, "contextTo");
         var valid = TryReadInteger(json, "requestId", out requestId) &&
                     TryReadInteger(json, "durationMs", out durationMs) && durationMs >= 50 && durationMs <= 1000 &&
+                    ValidBounds(playhouseCurrent) && ValidBounds(contextCurrent) &&
                     ValidBounds(playhouseFrom) && ValidBounds(playhouseTo) &&
                     ValidBounds(contextFrom) && ValidBounds(contextTo);
         var easeIn = Regex.IsMatch(json, "\\\"easing\\\"\\s*:\\s*\\\"in\\\"");
         WriteDiagnostic(easeIn ? "retract animation started" : "opening animation started");
-        var success = valid && AnimateChromeWindows(playhouseFrom, playhouseTo, contextFrom, contextTo,
-            durationMs, easeIn);
+        var success = valid && AnimateChromeWindows(playhouseCurrent, playhouseFrom, playhouseTo,
+            contextCurrent, contextFrom, contextTo, durationMs, easeIn);
         WriteDiagnostic(string.Format(CultureInfo.InvariantCulture, "{0} animation {1}",
             easeIn ? "retract" : "opening", success ? "complete" : "failed"));
         SendToChrome(string.Format(CultureInfo.InvariantCulture,
@@ -561,17 +564,19 @@ internal static class CarnivalWorkspaceHost
                bounds.Height >= 200 && bounds.Height <= 10000;
     }
 
-    private static bool AnimateChromeWindows(WindowBounds playhouseFrom, WindowBounds playhouseTo,
-        WindowBounds contextFrom, WindowBounds contextTo, int durationMs, bool easeIn)
+    private static bool AnimateChromeWindows(WindowBounds playhouseCurrent, WindowBounds playhouseFrom,
+        WindowBounds playhouseTo, WindowBounds contextCurrent, WindowBounds contextFrom,
+        WindowBounds contextTo, int durationMs, bool easeIn)
     {
         var windows = EnumerateChromeWindows();
-        var playhouse = ClosestWindow(windows, playhouseFrom, IntPtr.Zero);
-        var context = ClosestWindow(windows, contextFrom, playhouse);
+        var playhouse = ClosestWindow(windows, new[] { playhouseCurrent, playhouseFrom, playhouseTo }, IntPtr.Zero);
+        var context = ClosestWindow(windows, new[] { contextCurrent, contextFrom, contextTo }, playhouse);
         if (playhouse == IntPtr.Zero || context == IntPtr.Zero || !IsWindow(playhouse) || !IsWindow(context))
         {
             WriteDiagnostic("native animation could not map both Chrome HWNDs");
             return false;
         }
+        if (!MovePair(playhouse, playhouseFrom, context, contextFrom)) return false;
         var frameCount = Math.Max(2, (int)Math.Round(durationMs * AnimationFramesPerSecond / 1000.0));
         var stopwatch = Stopwatch.StartNew();
         for (var frame = 1; frame <= frameCount; frame += 1)
@@ -626,7 +631,7 @@ internal static class CarnivalWorkspaceHost
         return windows;
     }
 
-    private static IntPtr ClosestWindow(List<ChromeWindow> windows, WindowBounds expected, IntPtr excluded)
+    private static IntPtr ClosestWindow(List<ChromeWindow> windows, WindowBounds[] expectedBounds, IntPtr excluded)
     {
         long bestScore = long.MaxValue;
         var best = IntPtr.Zero;
@@ -635,9 +640,13 @@ internal static class CarnivalWorkspaceHost
             if (candidate.Handle == excluded) continue;
             var width = candidate.Rect.Right - candidate.Rect.Left;
             var height = candidate.Rect.Bottom - candidate.Rect.Top;
-            var score = Math.Abs((long)candidate.Rect.Left - expected.Left) +
-                        Math.Abs((long)candidate.Rect.Top - expected.Top) +
-                        Math.Abs((long)width - expected.Width) + Math.Abs((long)height - expected.Height);
+            long score = long.MaxValue;
+            foreach (var expected in expectedBounds)
+            {
+                score = Math.Min(score, Math.Abs((long)candidate.Rect.Left - expected.Left) +
+                    Math.Abs((long)candidate.Rect.Top - expected.Top) +
+                    Math.Abs((long)width - expected.Width) + Math.Abs((long)height - expected.Height));
+            }
             if (score < bestScore) { bestScore = score; best = candidate.Handle; }
         }
         return bestScore <= 400 ? best : IntPtr.Zero;
