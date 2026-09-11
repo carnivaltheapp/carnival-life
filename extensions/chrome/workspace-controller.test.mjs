@@ -19,11 +19,72 @@ function fakeChrome() {
   const tabs = new Map();
   const calls = { createTab: [], createWindow: [], updateTab: [], updateWindow: [] };
 
+  function windowTabs(windowId) {
+    return [...tabs.values()]
+      .filter((tab) => tab.windowId === windowId)
+      .sort((left, right) => left.index - right.index);
+  }
+
+  function syncWindowTabs(windowId) {
+    const ordered = windowTabs(windowId).map((tab, index) => ({ ...tab, index }));
+    for (const tab of ordered) tabs.set(tab.id, tab);
+    const window = windows.get(windowId);
+    if (window) windows.set(windowId, { ...window, tabs: ordered });
+    return ordered;
+  }
+
+  function addTab(windowId, url, options = {}) {
+    const existing = windowTabs(windowId);
+    const active = options.active ?? existing.length === 0;
+    if (active) {
+      for (const tab of existing) tabs.set(tab.id, { ...tab, active: false });
+    }
+    const tab = {
+      active,
+      id: nextTabId++,
+      index: existing.length,
+      pinned: options.pinned ?? false,
+      url,
+      windowId,
+    };
+    tabs.set(tab.id, tab);
+    syncWindowTabs(windowId);
+    return tabs.get(tab.id);
+  }
+
   return {
+    activateTab(id) {
+      const selected = tabs.get(id);
+      for (const tab of windowTabs(selected.windowId)) {
+        tabs.set(tab.id, { ...tab, active: tab.id === id });
+      }
+      syncWindowTabs(selected.windowId);
+    },
+    addTab,
     calls,
-    closeWindow(id) { windows.delete(id); },
+    closeTab(id) {
+      const removed = tabs.get(id);
+      tabs.delete(id);
+      const remaining = syncWindowTabs(removed.windowId);
+      if (removed.active && remaining[0]) {
+        tabs.set(remaining[0].id, { ...remaining[0], active: true });
+        syncWindowTabs(removed.windowId);
+      }
+    },
+    closeWindow(id) {
+      windows.delete(id);
+      for (const tab of windowTabs(id)) tabs.delete(tab.id);
+    },
     getTab(id) { return tabs.get(id); },
+    getTabs(id) { return windowTabs(id); },
     getWindow(id) { return windows.get(id); },
+    moveTab(id, index) {
+      const moved = tabs.get(id);
+      const ordered = windowTabs(moved.windowId).filter((tab) => tab.id !== id);
+      ordered.splice(index, 0, moved);
+      ordered.forEach((tab, tabIndex) => tabs.set(tab.id, { ...tab, index: tabIndex }));
+      syncWindowTabs(moved.windowId);
+    },
     resizeWindow(id, bounds) { windows.set(id, { ...windows.get(id), ...bounds }); },
     storage: {
       local: {
@@ -34,37 +95,48 @@ function fakeChrome() {
     tabs: {
       async create(options) {
         calls.createTab.push(options);
-        const tab = { id: nextTabId++, url: options.url, windowId: options.windowId };
-        tabs.set(tab.id, tab);
-        return tab;
+        return addTab(options.windowId, options.url, options);
       },
       async get(id) {
         if (!tabs.has(id)) throw new Error("missing tab");
         return tabs.get(id);
       },
-      async query({ url } = {}) {
-        if (!url) return [...tabs.values()];
+      async query({ url, windowId } = {}) {
+        let matches = [...tabs.values()];
+        if (Number.isInteger(windowId)) {
+          matches = matches.filter((tab) => tab.windowId === windowId);
+        }
+        if (!url) return matches;
         const prefix = url.replace("*", "");
-        return [...tabs.values()].filter((tab) => tab.url.startsWith(prefix));
+        return matches.filter((tab) => tab.url.startsWith(prefix));
       },
       async update(id, options) {
         calls.updateTab.push({ id, options });
+        const current = tabs.get(id);
+        if (options.active) {
+          for (const tab of windowTabs(current.windowId)) {
+            tabs.set(tab.id, { ...tab, active: tab.id === id });
+          }
+        }
         const tab = { ...tabs.get(id), ...options };
         tabs.set(id, tab);
+        syncWindowTabs(tab.windowId);
         return tab;
       },
     },
     windows: {
       async create(options) {
         calls.createWindow.push(options);
-        const tab = { id: nextTabId++, url: options.url, windowId: nextWindowId };
-        const window = { ...options, id: nextWindowId++, tabs: [tab] };
-        tabs.set(tab.id, tab);
+        const id = nextWindowId++;
+        const window = { ...options, id, tabs: [] };
         windows.set(window.id, window);
-        return window;
+        const urls = Array.isArray(options.url) ? options.url : [options.url];
+        for (const [index, url] of urls.entries()) addTab(id, url, { active: index === 0 });
+        return windows.get(id);
       },
       async get(id) {
         if (!windows.has(id)) throw new Error("missing window");
+        syncWindowTabs(id);
         return windows.get(id);
       },
       async update(id, options) {
@@ -157,7 +229,11 @@ test("repeated summons reuse both identified Chrome windows", async () => {
   assert.equal(chrome.calls.createWindow.length, 2);
   assert.equal(second.playhouseWindowId, first.playhouseWindowId);
   assert.equal(second.contextWindowId, first.contextWindowId);
-  assert.equal(chrome.calls.createWindow[1].url, DEFAULT_CONTEXT_URL);
+  assert.deepEqual(chrome.calls.createWindow[1].url, [
+    DEFAULT_CONTEXT_URL,
+    "https://mail.google.com/mail/u/0/#inbox",
+    "https://www.google.com/",
+  ]);
 });
 
 test("opening a URL in Aux reuses its designated tab without changing PlayHouse", async () => {
@@ -188,7 +264,7 @@ test("opening a URL in Aux reuses its designated tab without changing PlayHouse"
   );
 });
 
-test("repeated Email and Chrome routing reuses one Aux tab without tab growth", async () => {
+test("repeated Email and Chrome routing reuse their durable Aux role tabs without growth", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
@@ -199,8 +275,86 @@ test("repeated Email and Chrome routing reuses one Aux tab without tab growth", 
 
   assert.equal(chrome.calls.createWindow.length, 2);
   assert.equal(chrome.calls.createTab.length, 0);
-  assert.equal(chrome.getTab(initial.contextTabId).url, "https://example.com/context");
+  assert.equal(chrome.getTab(initial.contextRoleTabIds.gmail).url, "https://mail.google.com/mail/u/0/#all/thread-1");
+  assert.equal(chrome.getTab(initial.contextRoleTabIds.misc).url, "https://example.com/context");
   assert.equal(chrome.getTab(initial.playhouseTabId).url, PLAYHOUSE_URL);
+});
+
+test("Aux tab order, active tab, pins, roles, and user tabs restore after window close", async () => {
+  const chrome = fakeChrome();
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const first = await controller(chrome).summon(workArea, "display-1");
+  const userTab = chrome.addTab(first.contextWindowId, "https://docs.google.com/document/d/example", {
+    active: true,
+  });
+  chrome.moveTab(userTab.id, 1);
+  chrome.moveTab(first.contextRoleTabIds.gmail, 0);
+  await chrome.tabs.update(userTab.id, { pinned: true });
+  await controller(chrome).rememberWorkspaceTabs(first.contextWindowId);
+  chrome.closeWindow(first.contextWindowId);
+
+  const restarted = controller(chrome);
+  await restarted.openCarnivalContext(
+    "https://mail.google.com/mail/u/0/#all/restored-thread",
+    workArea,
+    "display-1",
+  );
+  const restored = await restarted.state();
+  const restoredTabs = chrome.getTabs(restored.contextWindowId);
+
+  assert.deepEqual(restoredTabs.map(({ url }) => url), [
+    "https://mail.google.com/mail/u/0/#all/restored-thread",
+    DEFAULT_CONTEXT_URL,
+    "https://docs.google.com/document/d/example",
+    "https://www.google.com/",
+  ]);
+  assert.equal(restoredTabs[0].active, true);
+  assert.equal(restoredTabs[2].pinned, true);
+  assert.equal(chrome.getTab(restored.contextRoleTabIds.calendar).url, DEFAULT_CONTEXT_URL);
+  assert.equal(chrome.getTab(restored.contextRoleTabIds.gmail).url, "https://mail.google.com/mail/u/0/#all/restored-thread");
+  assert.equal(chrome.getTab(restored.contextRoleTabIds.misc).url, "https://www.google.com/");
+});
+
+test("PlayHouse user tabs and active tab restore after controller restart", async () => {
+  const chrome = fakeChrome();
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const first = await controller(chrome).summon(workArea, "display-1");
+  chrome.addTab(first.playhouseWindowId, "https://example.com/reference", { active: true });
+  await controller(chrome).rememberWorkspaceTabs(first.playhouseWindowId);
+  chrome.closeWindow(first.playhouseWindowId);
+
+  const restored = await controller(chrome).summon(workArea, "display-1");
+
+  assert.deepEqual(chrome.getTabs(restored.playhouseWindowId).map(({ active, url }) => ({ active, url })), [
+    { active: false, url: PLAYHOUSE_URL },
+    { active: true, url: "https://example.com/reference" },
+  ]);
+  assert.equal(chrome.getTab(restored.playhouseTabId).url, PLAYHOUSE_URL);
+});
+
+test("a deliberately closed Gmail role is recreated only when Gmail routing needs it", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const initial = await workspace.summon(workArea, "display-1");
+  chrome.closeTab(initial.contextRoleTabIds.gmail);
+  await workspace.rememberWorkspaceTabs(initial.contextWindowId);
+  const countAfterClose = chrome.getTabs(initial.contextWindowId).length;
+
+  await workspace.summon(workArea, "display-1");
+  assert.equal(chrome.getTabs(initial.contextWindowId).length, countAfterClose);
+
+  await workspace.openCarnivalContext(
+    "https://mail.google.com/mail/u/0/#all/thread-restored",
+    workArea,
+    "display-1",
+  );
+  const state = await workspace.state();
+  assert.equal(chrome.getTabs(initial.contextWindowId).length, countAfterClose + 1);
+  assert.equal(
+    chrome.getTab(state.contextRoleTabIds.gmail).url,
+    "https://mail.google.com/mail/u/0/#all/thread-restored",
+  );
 });
 
 test("opening in Aux restores a minimized or offscreen Aux and focuses it", async () => {
@@ -240,7 +394,11 @@ test("opening in Aux recreates only a closed Aux at its saved geometry", async (
     ...defaultWorkspaceLayout(workArea).context,
     focused: false,
     type: "normal",
-    url: "https://example.com/recreated",
+    url: [
+      DEFAULT_CONTEXT_URL,
+      "https://mail.google.com/mail/u/0/#inbox",
+      "https://www.google.com/",
+    ],
   });
   assert.deepEqual(chrome.getWindow(initial.playhouseWindowId), playhouseBefore);
   assert.equal(
@@ -498,10 +656,11 @@ test("both closed workspace windows are recreated with saved geometry and contex
   assert.equal(chrome.calls.createWindow.length, 4);
   assert.notEqual(recreated.playhouseWindowId, first.playhouseWindowId);
   assert.notEqual(recreated.contextWindowId, first.contextWindowId);
-  assert.equal(
-    chrome.calls.createWindow.at(-1).url,
+  assert.deepEqual(chrome.calls.createWindow.at(-1).url, [
+    DEFAULT_CONTEXT_URL,
+    "https://mail.google.com/mail/u/0/#inbox",
     "https://calendar.google.com/calendar/u/0/r/week",
-  );
+  ]);
   assert.deepEqual(animations.at(-1).playhouse.to, {
     height: 900,
     left: 0,

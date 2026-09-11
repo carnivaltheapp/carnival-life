@@ -1,3 +1,12 @@
+import {
+  AUX_ROLE_URLS,
+  auxRoleForUrl,
+  defaultAuxTabs,
+  defaultPlayhouseTabs,
+  snapshotTabs,
+  validSavedTabs,
+} from "./workspace-tabs.js";
+
 export const PLAYHOUSE_URL = "https://carnival-playhouse.vercel.app/";
 export const DEFAULT_CONTEXT_URL = "https://calendar.google.com/calendar/u/0/r";
 export const OPEN_ANIMATION_MS = 450;
@@ -143,6 +152,12 @@ async function existingTab(chromeApi, tabId) {
   }
 }
 
+function roleTabIds(definitions, tabs) {
+  return Object.fromEntries(definitions.tabs.flatMap((definition, index) => (
+    definition.role && tabs[index]?.id ? [[definition.role, tabs[index].id]] : []
+  )));
+}
+
 export class CarnivalWorkspaceController {
   constructor(chromeApi, options = {}) {
     this.chrome = chromeApi;
@@ -161,6 +176,60 @@ export class CarnivalWorkspaceController {
     await this.chrome.storage.local.set({ [STORAGE_KEY]: nextState });
   }
 
+  async tabsInWindow(windowId) {
+    return (await this.chrome.tabs.query({ windowId }))
+      .sort((left, right) => (left.index ?? 0) - (right.index ?? 0));
+  }
+
+  async createWindowFromTabs(bounds, savedTabs, kind) {
+    let definitions = validSavedTabs(savedTabs, kind) ??
+      (kind === "playhouse" ? defaultPlayhouseTabs(PLAYHOUSE_URL) : defaultAuxTabs());
+    if (kind === "playhouse" && !definitions.tabs.some((tab) => tab.role === "playhouse")) {
+      definitions = {
+        activeIndex: definitions.activeIndex + 1,
+        tabs: [defaultPlayhouseTabs(PLAYHOUSE_URL).tabs[0], ...definitions.tabs],
+      };
+    }
+    const window = await this.chrome.windows.create({
+      ...bounds,
+      focused: false,
+      type: "normal",
+      url: definitions.tabs.map((tab) => tab.url),
+    });
+    if (!window?.id) throw new Error(`Chrome could not create the ${kind} window.`);
+    const tabs = await this.tabsInWindow(window.id);
+    if (tabs.length !== definitions.tabs.length) {
+      throw new Error(`Chrome could not restore the ${kind} tabs.`);
+    }
+    await Promise.all(definitions.tabs.flatMap((definition, index) => (
+      definition.pinned ? [this.chrome.tabs.update(tabs[index].id, { pinned: true })] : []
+    )));
+    await this.chrome.tabs.update(tabs[definitions.activeIndex].id, { active: true });
+    const ids = roleTabIds(definitions, tabs);
+    this.logger.info?.(kind === "playhouse" ? "PH_TABS_RESTORED" : "AUX_TABS_RESTORED", {
+      count: tabs.length,
+    });
+    return {
+      activeTab: tabs[definitions.activeIndex],
+      roleTabIds: ids,
+      tabState: definitions,
+      window,
+    };
+  }
+
+  async snapshotWindow(kind, windowId, state) {
+    const tabs = await this.tabsInWindow(windowId);
+    const roleIds = kind === "playhouse"
+      ? {}
+      : state.contextRoleTabIds ?? {};
+    const snapshot = snapshotTabs(
+      tabs,
+      roleIds,
+      kind === "playhouse" ? state.playhouseTabId : null,
+    );
+    return { snapshot, tabs };
+  }
+
   async findPlayhouse(prior, bounds, positionExisting = true) {
     let window = await existingWindow(this.chrome, prior.playhouseWindowId);
     let tab = await existingTab(this.chrome, prior.playhouseTabId);
@@ -174,9 +243,13 @@ export class CarnivalWorkspaceController {
       }
     }
     if (!window) {
-      window = await this.chrome.windows.create({ ...bounds, focused: false, type: "normal", url: PLAYHOUSE_URL });
-      if (!window?.id) throw new Error("Chrome could not create the PlayHouse window.");
-      tab = window.tabs?.[0] ?? null;
+      const restored = await this.createWindowFromTabs(bounds, prior.playhouseTabs, "playhouse");
+      return {
+        tab: restored.roleTabIds.playhouse ?
+          await existingTab(this.chrome, restored.roleTabIds.playhouse) : restored.activeTab,
+        tabState: restored.tabState,
+        window: restored.window,
+      };
     } else {
       await this.chrome.windows.update(window.id, positionExisting
         ? { ...bounds, focused: false, state: "normal" }
@@ -186,15 +259,17 @@ export class CarnivalWorkspaceController {
       }
     }
     if (!tab?.id) throw new Error("Chrome could not identify the PlayHouse tab.");
-    return { tab, window };
+    const { snapshot } = await this.snapshotWindow("playhouse", window.id, {
+      ...prior,
+      playhouseTabId: tab.id,
+    });
+    return { tab, tabState: snapshot ?? defaultPlayhouseTabs(PLAYHOUSE_URL), window };
   }
 
   async findContext(prior, bounds, playhouseWindowId, positionExisting = true) {
     let window = await existingWindow(this.chrome, prior.contextWindowId);
     let tab = await existingTab(this.chrome, prior.contextTabId);
-    if (window && (!tab || tab.windowId !== window.id)) {
-      tab = window.tabs?.find(({ active }) => active) ?? window.tabs?.[0] ?? null;
-    } else if (!window && isAllowedContextUrl(prior.contextUrl)) {
+    if (!window && !prior.contextTabs && isAllowedContextUrl(prior.contextUrl)) {
       const tabs = await this.chrome.tabs.query({});
       tab = tabs.find((candidate) => (
         candidate.windowId !== playhouseWindowId && candidate.url === prior.contextUrl
@@ -202,32 +277,45 @@ export class CarnivalWorkspaceController {
       window = tab ? await existingWindow(this.chrome, tab.windowId) : null;
     }
     if (!window) {
-      window = await this.chrome.windows.create({
-        ...bounds,
-        focused: false,
-        type: "normal",
-        url: prior.contextUrl && isAllowedContextUrl(prior.contextUrl)
-          ? prior.contextUrl
-          : DEFAULT_CONTEXT_URL,
-      });
-      if (!window?.id) throw new Error("Chrome could not create the context window.");
-      tab = window.tabs?.[0] ?? null;
+      const restored = await this.createWindowFromTabs(bounds, prior.contextTabs, "context");
+      return {
+        roleTabIds: restored.roleTabIds,
+        tab: restored.activeTab,
+        tabState: restored.tabState,
+        window: restored.window,
+      };
     } else {
       await this.chrome.windows.update(window.id, positionExisting
         ? { ...bounds, focused: false, state: "normal" }
         : { focused: false, state: "normal" });
-      if (!tab) {
-        tab = await this.chrome.tabs.create({
-          active: true,
-          url: prior.contextUrl && isAllowedContextUrl(prior.contextUrl)
-            ? prior.contextUrl
-            : DEFAULT_CONTEXT_URL,
-          windowId: window.id,
-        });
+      let tabs = await this.tabsInWindow(window.id);
+      let roles = { ...(prior.contextRoleTabIds ?? {}) };
+      if (!prior.contextTabs) {
+        const calendar = tabs.find((candidate) => candidate.url?.startsWith("https://calendar.google.com/"));
+        const gmail = tabs.find((candidate) => candidate.url?.startsWith("https://mail.google.com/"));
+        const misc = tabs.find((candidate) => candidate.id !== calendar?.id && candidate.id !== gmail?.id);
+        roles = {
+          ...(calendar?.id ? { calendar: calendar.id } : {}),
+          ...(gmail?.id ? { gmail: gmail.id } : {}),
+          ...(misc?.id ? { misc: misc.id } : {}),
+        };
+        for (const role of ["calendar", "gmail", "misc"]) {
+          if (roles[role]) continue;
+          const created = await this.chrome.tabs.create({
+            active: false,
+            url: AUX_ROLE_URLS[role],
+            windowId: window.id,
+          });
+          roles[role] = created.id;
+        }
+        tabs = await this.tabsInWindow(window.id);
       }
+      tab = tabs.find((candidate) => candidate.active) ??
+        tabs.find((candidate) => candidate.id === prior.contextTabId) ?? tabs[0] ?? null;
+      const snapshot = snapshotTabs(tabs, roles);
+      if (!tab?.id || !snapshot) throw new Error("Chrome could not identify the context tabs.");
+      return { roleTabIds: roles, tab, tabState: snapshot, window };
     }
-    if (!tab?.id) throw new Error("Chrome could not identify the context tab.");
-    return { tab, window };
   }
 
   async animate(playhouseWindowId, contextWindowId, current, layout, startOffset, endOffset, easing, durationMs) {
@@ -369,7 +457,9 @@ export class CarnivalWorkspaceController {
     const openingState = {
       ...prior,
       contextBounds: layout.context,
+      contextRoleTabIds: context.roleTabIds,
       contextTabId: context.tab.id,
+      contextTabs: context.tabState,
       contextUrl: context.tab.url ?? prior.contextUrl ?? DEFAULT_CONTEXT_URL,
       contextWindowId: context.window.id,
       drawerState: shouldAnimate ? "opening" : "open",
@@ -377,6 +467,7 @@ export class CarnivalWorkspaceController {
       monitorId,
       playhouseBounds: layout.playhouse,
       playhouseTabId: playhouse.tab.id,
+      playhouseTabs: playhouse.tabState,
       playhouseWindowId: playhouse.window.id,
       workArea,
     };
@@ -453,49 +544,54 @@ export class CarnivalWorkspaceController {
     return retracted;
   }
 
-  async openCarnivalContext(url, workArea, monitorId = null) {
+  async openCarnivalContext(url, workArea, monitorId = null, requestedRole = null) {
     if (!isAllowedContextUrl(url)) throw new Error("Carnival context URLs must use HTTP or HTTPS.");
     if (!validWorkArea(workArea)) throw new Error("A valid monitor work area is required.");
+    const role = requestedRole ?? auxRoleForUrl(url);
+    if (role !== "gmail" && role !== "misc") {
+      throw new Error("Carnival context navigation requires a Gmail or Misc role.");
+    }
 
     this.logger.info?.("Carnival: resolving Aux context window");
     const prior = await this.state();
     const layout = restoredWorkspaceLayout(prior, workArea);
-    let contextWindow = await existingWindow(this.chrome, prior.contextWindowId);
-    let contextTab = await existingTab(this.chrome, prior.contextTabId);
-    if (contextWindow && (!contextTab || contextTab.windowId !== contextWindow.id)) {
-      contextTab = contextWindow.tabs?.find(({ active }) => active) ?? contextWindow.tabs?.[0] ?? null;
-    }
-
-    const restoreContext = prior.drawerState !== "open" ||
-      !contextWindow || !hasVisibleIntersection(contextWindow, workArea);
-    if (!contextWindow) {
-      contextWindow = await this.chrome.windows.create({
-        ...layout.context,
-        focused: false,
-        type: "normal",
-        url,
-      });
-      if (!contextWindow?.id) throw new Error("Chrome could not create the context window.");
-      contextTab = contextWindow.tabs?.[0] ?? null;
+    const existingContext = await existingWindow(this.chrome, prior.contextWindowId);
+    const restoreContext = prior.drawerState !== "open" || !existingContext ||
+      !hasVisibleIntersection(existingContext, workArea);
+    const context = await this.findContext(
+      prior,
+      layout.context,
+      prior.playhouseWindowId,
+      restoreContext,
+    );
+    const contextWindow = context.window;
+    let roleTab = await existingTab(this.chrome, context.roleTabIds[role]);
+    const roleIds = { ...context.roleTabIds };
+    if (!roleTab || roleTab.windowId !== contextWindow.id) {
+      roleTab = await this.chrome.tabs.create({ active: true, url, windowId: contextWindow.id });
+      roleIds[role] = roleTab.id;
+      this.logger.info?.("AUX_ROLE_TAB_CREATED", { role, tabId: roleTab.id });
     } else {
-      await this.chrome.windows.update(contextWindow.id, restoreContext
-        ? { ...layout.context, focused: false, state: "normal" }
-        : { focused: false, state: "normal" });
-      if (!contextTab) {
-        contextTab = await this.chrome.tabs.create({ active: true, url, windowId: contextWindow.id });
-      }
+      this.logger.info?.("AUX_ROLE_TAB_FOUND", { role, tabId: roleTab.id });
+      await this.chrome.tabs.update(roleTab.id, { active: true, url });
     }
-    if (!contextTab?.id) throw new Error("Chrome could not identify the context tab.");
-
-    await this.chrome.tabs.update(contextTab.id, { active: true, url });
-    this.logger.info?.("Carnival: Aux context tab navigated");
+    this.logger.info?.("AUX_ROLE_TAB_ACTIVATED", { role, tabId: roleTab.id });
+    this.logger.info?.(role === "gmail" ? "GMAIL_ROLE_NAVIGATED" : "MISC_ROLE_NAVIGATED", {
+      host: new URL(url).hostname,
+      path: new URL(url).pathname,
+      tabId: roleTab.id,
+    });
+    const tabs = await this.tabsInWindow(contextWindow.id);
+    const contextTabs = snapshotTabs(tabs, roleIds);
     const contextBounds = restoreContext
       ? layout.context
       : currentBounds(contextWindow, layout.context);
     await this.save({
       ...prior,
       contextBounds,
-      contextTabId: contextTab.id,
+      contextRoleTabIds: roleIds,
+      contextTabId: roleTab.id,
+      contextTabs,
       contextUrl: url,
       contextWindowId: contextWindow.id,
       drawerState: "open",
@@ -556,10 +652,27 @@ export class CarnivalWorkspaceController {
     return nextState;
   }
 
-  async rememberContextTab(tabId, changeInfo, tab) {
-    if (!changeInfo.url || !isAllowedContextUrl(changeInfo.url)) return;
+  async rememberWorkspaceTabs(windowId) {
     const state = await this.state();
-    if (tabId !== state.contextTabId || tab.windowId !== state.contextWindowId) return;
-    await this.save({ ...state, contextUrl: changeInfo.url });
+    const kind = windowId === state.playhouseWindowId
+      ? "playhouse"
+      : windowId === state.contextWindowId ? "context" : null;
+    if (!kind) return null;
+    const { snapshot, tabs } = await this.snapshotWindow(kind, windowId, state);
+    if (!snapshot) return null;
+    const activeTab = tabs.find((tab) => tab.active) ?? tabs[0];
+    const nextState = kind === "playhouse"
+      ? { ...state, playhouseTabs: snapshot }
+      : {
+          ...state,
+          contextTabId: activeTab?.id ?? state.contextTabId,
+          contextTabs: snapshot,
+          contextUrl: activeTab?.url ?? state.contextUrl,
+        };
+    await this.save(nextState);
+    this.logger.info?.(kind === "playhouse" ? "PH_TABS_SAVED" : "AUX_TABS_SAVED", {
+      count: snapshot.tabs.length,
+    });
+    return nextState;
   }
 }

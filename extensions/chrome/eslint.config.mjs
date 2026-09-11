@@ -14,6 +14,7 @@ export default [
         decodeURIComponent: "readonly",
         document: "readonly",
         setTimeout: "readonly",
+        Map: "readonly",
         window: "readonly",
       },
       sourceType: "module",

@@ -1,3 +1,5 @@
+import { auxRoleForUrl } from "./workspace-tabs.js";
+
 export const OPEN_IN_AUX_MESSAGE_TYPE = "openInAux";
 
 export function isOpenInAuxMessage(message) {
@@ -13,7 +15,12 @@ export async function routeOpenInAuxMessage({
 }) {
   logger.info?.("Carnival: openInAux received", routeLogLabel(message.url));
   const { monitorId, workArea } = await currentWorkArea();
-  await controller.openCarnivalContext(message.url, workArea, monitorId);
+  await controller.openCarnivalContext(
+    message.url,
+    workArea,
+    monitorId,
+    auxRoleForUrl(message.url),
+  );
   reportDrawerState(await controller.state());
 }
 

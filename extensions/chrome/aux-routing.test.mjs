@@ -17,8 +17,8 @@ test("background routing hands the URL to the existing Aux controller", async ()
   const state = { contextTabId: 12, contextWindowId: 2, drawerState: "open" };
   await routeOpenInAuxMessage({
     controller: {
-      async openCarnivalContext(url, workArea, monitorId) {
-        calls.push({ monitorId, url, workArea });
+      async openCarnivalContext(url, workArea, monitorId, role) {
+        calls.push({ monitorId, role, url, workArea });
       },
       async state() { return state; },
     },
@@ -34,6 +34,7 @@ test("background routing hands the URL to the existing Aux controller", async ()
   assert.deepEqual(calls, [
     {
       monitorId: "display-1",
+      role: "misc",
       url: "https://example.com/context",
       workArea: { height: 900, left: 0, top: 0, width: 1600 },
     },

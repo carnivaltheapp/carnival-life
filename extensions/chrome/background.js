@@ -7,6 +7,7 @@ const NATIVE_HOST_VERSION = "DRAWER-HOST-7";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 const GMAIL_DRAG_TTL_MS = 10_000;
+const TAB_SAVE_DELAY_MS = 300;
 let nativePort = null;
 let nativeAnimationAvailable = false;
 let nativeAnimationRequestId = 0;
@@ -14,6 +15,17 @@ let immediateNativeReconnectUsed = false;
 const nativeAnimationRequests = new Map();
 let geometrySaveTimer = null;
 let pendingGmailDrag = null;
+const tabSaveTimers = new Map();
+
+function scheduleTabSave(windowId) {
+  if (!Number.isInteger(windowId)) return;
+  clearTimeout(tabSaveTimers.get(windowId));
+  tabSaveTimers.set(windowId, setTimeout(() => {
+    tabSaveTimers.delete(windowId);
+    controller.rememberWorkspaceTabs(windowId)
+      .catch((error) => console.error("Carnival tab persistence failed", error));
+  }, TAB_SAVE_DELAY_MS));
+}
 
 function flattenBounds(prefix, bounds) {
   return {
@@ -198,9 +210,16 @@ chrome.windows.onBoundsChanged.addListener(() => {
   }, GEOMETRY_SAVE_DELAY_MS);
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  controller.rememberContextTab(tabId, changeInfo, tab)
-    .catch((error) => console.error("Carnival context save failed", error));
+  if (changeInfo.url || changeInfo.pinned !== undefined || changeInfo.status === "complete") {
+    scheduleTabSave(tab.windowId);
+  }
 });
+chrome.tabs.onCreated.addListener((tab) => scheduleTabSave(tab.windowId));
+chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
+  if (!removeInfo.isWindowClosing) scheduleTabSave(removeInfo.windowId);
+});
+chrome.tabs.onActivated.addListener(({ windowId }) => scheduleTabSave(windowId));
+chrome.tabs.onMoved.addListener((_tabId, moveInfo) => scheduleTabSave(moveInfo.windowId));
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "gmailDragStarted") {
     const attachment = message.attachment;
