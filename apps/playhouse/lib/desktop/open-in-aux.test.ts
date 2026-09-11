@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { OPEN_IN_AUX_MESSAGE_SOURCE, openInAux } from "./open-in-aux";
+import {
+  OPEN_IN_AUX_MESSAGE_SOURCE,
+  OPEN_IN_AUX_MESSAGE_TYPE,
+  openInAux,
+} from "./open-in-aux";
 
 describe("openInAux", () => {
   it("hands the exact destination to the Carnival desktop bridge", () => {
@@ -13,7 +17,7 @@ describe("openInAux", () => {
 
     expect(postMessage).toHaveBeenCalledWith({
       source: OPEN_IN_AUX_MESSAGE_SOURCE,
-      type: "openInAux",
+      type: OPEN_IN_AUX_MESSAGE_TYPE,
       url: "https://mail.google.com/mail/u/0/#all/thread%2F123",
     }, "https://carnival-playhouse.vercel.app");
   });

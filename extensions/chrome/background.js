@@ -1,5 +1,6 @@
 import { CarnivalWorkspaceController, validWorkArea } from "./workspace-controller.js";
 import { createWorkspaceActions } from "./workspace-summon.js";
+import { isOpenInAuxMessage, routeOpenInAuxMessage } from "./aux-routing.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
 const NATIVE_HOST_VERSION = "DRAWER-HOST-7";
@@ -199,11 +200,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     .catch((error) => console.error("Carnival context save failed", error));
 });
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== "openCarnivalContext") return false;
-  currentWorkArea()
-    .then(({ monitorId, workArea }) => controller.openCarnivalContext(message.url, workArea, monitorId))
-    .then(() => controller.state())
-    .then(reportDrawerState)
+  if (!isOpenInAuxMessage(message)) return false;
+  routeOpenInAuxMessage({ controller, currentWorkArea, message, reportDrawerState })
     .then(() => sendResponse({ ok: true }))
     .catch((error) => sendResponse({ error: error.message, ok: false }));
   return true;

@@ -167,7 +167,9 @@ export function PlayStatusActions({
             className="rowIconButton gmailButton"
             onClick={(event) => {
               event.stopPropagation();
-              openInAux(gmailThreadUrl(play.gmailThreadId!));
+              const url = gmailThreadUrl(play.gmailThreadId!);
+              console.info("PH AUX ROUTE CLICK", new URL(url).origin);
+              openInAux(url);
             }}
             title="Open Gmail thread"
             type="button"
@@ -183,6 +185,7 @@ export function PlayStatusActions({
             className="rowIconButton urlButton"
             onClick={(event) => {
               event.stopPropagation();
+              console.info("PH AUX ROUTE CLICK", new URL(playUrl).origin);
               openInAux(playUrl);
             }}
             title="Open Play URL"

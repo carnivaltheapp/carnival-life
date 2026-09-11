@@ -457,6 +457,7 @@ export class CarnivalWorkspaceController {
     if (!isAllowedContextUrl(url)) throw new Error("Carnival context URLs must use HTTP or HTTPS.");
     if (!validWorkArea(workArea)) throw new Error("A valid monitor work area is required.");
 
+    this.logger.info?.("Carnival: resolving Aux context window");
     const prior = await this.state();
     const layout = restoredWorkspaceLayout(prior, workArea);
     let contextWindow = await existingWindow(this.chrome, prior.contextWindowId);
@@ -487,6 +488,7 @@ export class CarnivalWorkspaceController {
     if (!contextTab?.id) throw new Error("Chrome could not identify the context tab.");
 
     await this.chrome.tabs.update(contextTab.id, { active: true, url });
+    this.logger.info?.("Carnival: Aux context tab navigated");
     const contextBounds = restoreContext
       ? layout.context
       : currentBounds(contextWindow, layout.context);

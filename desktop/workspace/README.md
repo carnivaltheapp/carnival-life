@@ -18,6 +18,10 @@ logic.
 3. Choose **Load unpacked** and select `extensions/chrome` in this repository.
 4. Copy the 32-character extension ID Chrome displays.
 
+After extension source changes, click **Reload** for the unpacked extension and
+then refresh the open PlayHouse page. Chrome does not reliably inject a newly
+loaded content script into a page that was already open.
+
 Clicking the extension toolbar action is a non-global fallback that summons the
 same workspace and is useful before installing the native host.
 
