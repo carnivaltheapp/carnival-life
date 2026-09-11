@@ -191,7 +191,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-AUX-BRIDGE-FIX-24", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-MULTI-DRAG-26", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');
@@ -529,6 +529,50 @@ test("full-row drag uses a row preview while controls remain non-draggable", asy
   await expect(auth.page.getByTestId("play-title").first()).toContainText(
     "Second draggable Play",
   );
+});
+
+test("selected Plays drag together to a Basket and date in relative order", async ({ auth }) => {
+  await auth.page.addInitScript(() => {
+    const nativeSetDragImage = DataTransfer.prototype.setDragImage;
+    DataTransfer.prototype.setDragImage = function setDragImage(image, x, y) {
+      sessionStorage.setItem(
+        "playhouse-multi-drag-count",
+        image.querySelector(".playDragCount")?.textContent ?? "",
+      );
+      nativeSetDragImage.call(this, image, x, y);
+    };
+  });
+  await auth.page.goto("/");
+  const titles = ["Group drag one", "Group drag two", "Group drag three"];
+  for (const title of titles) await createPlay(auth.page, title);
+  const visibleOrder = await auth.page.getByTestId("play-title").allTextContents();
+
+  for (const title of titles) {
+    await playRow(auth.page, title).locator(".playSelectControl").click();
+  }
+  await auth.page.getByRole("button", { name: "Baskets" }).click();
+  const backlog = auth.page.getByRole("link", { name: "Backlog" });
+  const urlBeforeDrop = auth.page.url();
+  await playRow(auth.page, "Group drag two").dragTo(backlog);
+
+  await expect.poll(() => auth.page.getByTestId("play-row").count()).toBe(0);
+  expect(auth.page.url()).toBe(urlBeforeDrop);
+  expect(await auth.page.evaluate(
+    () => sessionStorage.getItem("playhouse-multi-drag-count"),
+  )).toBe("3 Plays");
+
+  await backlog.click();
+  await expect(auth.page.getByTestId("play-title")).toHaveText(visibleOrder);
+  for (const title of titles) {
+    await playRow(auth.page, title).locator(".playSelectControl").click();
+  }
+  await auth.page.getByRole("button", { name: "Calendar" }).click();
+  const tomorrow = auth.page.getByRole("link", { name: /^Tomorrow / });
+  await playRow(auth.page, "Group drag two").dragTo(tomorrow);
+
+  await expect.poll(() => auth.page.getByTestId("play-row").count()).toBe(0);
+  await tomorrow.click();
+  await expect(auth.page.getByTestId("play-title")).toHaveText(visibleOrder);
 });
 
 test("global search shows standard rows and clearing restores the current view", async ({ auth }) => {

@@ -481,11 +481,15 @@ export class SupabasePlayRepository implements PlayRepository {
   }: RepositionPlaysRequest) {
     const { data: selectedRows, error: selectedError } = await this.supabase
       .from("plays")
-      .select("id, play_type, scheduled_date, basket_id, sort_order")
+      .select("id, play_type, scheduled_date, basket_id, sort_order, source_metadata")
       .eq("owner_user_id", this.ownerUserId)
       .eq("status", "open")
       .in("id", playIds);
-    if (selectedError || selectedRows.length !== playIds.length) return false;
+    if (
+      selectedError ||
+      selectedRows.length !== playIds.length ||
+      selectedRows.some((play) => legacyTaskTypeFromMetadata(play.source_metadata) === "A")
+    ) return false;
 
     let destinationQuery = this.supabase
       .from("plays")

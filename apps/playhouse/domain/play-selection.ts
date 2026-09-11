@@ -26,6 +26,22 @@ export function togglePlaySelection({
   return next;
 }
 
+export function playIdsForDrag({
+  draggedPlayId,
+  eligiblePlayIds,
+  selectedIds,
+  visibleIds,
+}: {
+  draggedPlayId: string;
+  eligiblePlayIds: ReadonlySet<string>;
+  selectedIds: ReadonlySet<string>;
+  visibleIds: string[];
+}) {
+  if (!eligiblePlayIds.has(draggedPlayId)) return [];
+  if (!selectedIds.has(draggedPlayId)) return [draggedPlayId];
+  return visibleIds.filter((id) => selectedIds.has(id) && eligiblePlayIds.has(id));
+}
+
 export type RegionSelectionGesture = {
   selectedIds: Set<string>;
   touchedIds: Set<string>;

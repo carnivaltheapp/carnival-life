@@ -522,7 +522,10 @@ export class MongoPlayRepository implements PlayRepository {
         _id: { $in: objectIds },
       })
       .toArray();
-    if (selectedTasks.length !== playIds.length) return false;
+    if (
+      selectedTasks.length !== playIds.length ||
+      selectedTasks.some((task) => task.task_type === "A")
+    ) return false;
 
     const destinationDate = legacyPlacementDate(placement, this.dependencies.baskets);
     const destinationTasks = await this.dependencies.collection

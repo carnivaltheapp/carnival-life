@@ -587,6 +587,25 @@ describe("MongoPlayRepository mutations", () => {
     }
   });
 
+  it("rejects a reposition request containing an Appointment before writing", async () => {
+    const appointmentId = new ObjectId();
+    const find = vi.fn().mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([{ _id: appointmentId, task_type: "A" }]),
+    });
+    const bulkWrite = vi.fn();
+
+    expect(await repository({
+      bulkWrite: bulkWrite as never,
+      find: find as never,
+    }).reposition({
+      beforePlayId: null,
+      placement: { kind: "calendar", scheduledDate: "2026-09-07" },
+      playIds: [appointmentId.toHexString()],
+    })).toBe(false);
+    expect(find).toHaveBeenCalledOnce();
+    expect(bulkWrite).not.toHaveBeenCalled();
+  });
+
   it("moves a Play to a real date without changing its legacy type or unrelated fields", async () => {
     const playId = new ObjectId();
     const selected = {

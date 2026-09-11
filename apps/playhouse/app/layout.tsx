@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-AUX-BRIDGE-FIX-24
+          P3-MULTI-DRAG-26
         </small>
       </body>
     </html>

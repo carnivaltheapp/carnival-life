@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   beginRegionSelection,
   exceedsRegionSelectionDragThreshold,
+  playIdsForDrag,
   regionSelectionPlayIdAtPoint,
   togglePlaySelection,
   touchRegionSelection,
@@ -51,6 +52,25 @@ describe("Play multi-selection", () => {
   it("supports Select All and Clear through ordinary Set state", () => {
     expect([...new Set(visibleIds)]).toEqual(visibleIds);
     expect(new Set<string>().size).toBe(0);
+  });
+
+  it("drags the full eligible selection in visible order from any selected row", () => {
+    expect(playIdsForDrag({
+      draggedPlayId: "b",
+      eligiblePlayIds: new Set(["a", "b", "c"]),
+      selectedIds: new Set(["c", "appointment", "a", "b"]),
+      visibleIds: ["a", "appointment", "b", "c"],
+    })).toEqual(["a", "b", "c"]);
+  });
+
+  it("drags only an unselected row and rejects an ineligible Appointment", () => {
+    const request = {
+      eligiblePlayIds: new Set(["a", "b", "c"]),
+      selectedIds: new Set(["a", "b"]),
+      visibleIds,
+    };
+    expect(playIdsForDrag({ ...request, draggedPlayId: "c" })).toEqual(["c"]);
+    expect(playIdsForDrag({ ...request, draggedPlayId: "appointment" })).toEqual([]);
   });
 
   it("toggles a crossed row only once in each region gesture", () => {

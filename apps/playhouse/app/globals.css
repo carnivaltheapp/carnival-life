@@ -998,6 +998,20 @@ h1 {
   height: 100%;
 }
 
+.playDragCount {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  padding: 3px 7px;
+  color: #fff;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.78);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  transform: translateY(-50%);
+}
+
 .playRowLine,
 .playGridHeader {
   --play-description-group-min: 200px;

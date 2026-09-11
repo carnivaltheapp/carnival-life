@@ -41,6 +41,7 @@ import {
   beginRegionSelection,
   exceedsRegionSelectionDragThreshold,
   regionSelectionPlayIdAtPoint,
+  playIdsForDrag,
   togglePlaySelection,
   touchRegionSelection,
   type RegionSelectionGesture,
@@ -321,7 +322,13 @@ function PlayhouseShellView({
   }
 
   function beginDrag(playId: string, event: DragEvent<HTMLLIElement>) {
-    if (!dragOriginAllowedRef.current || selectedIds.size > 0) {
+    const ids = playIdsForDrag({
+      draggedPlayId: playId,
+      eligiblePlayIds,
+      selectedIds,
+      visibleIds,
+    });
+    if (!dragOriginAllowedRef.current || !ids.length) {
       event.preventDefault();
       return;
     }
@@ -340,6 +347,12 @@ function PlayhouseShellView({
     preview.style.setProperty("--play-grid-font-size", rowStyle.fontSize);
     preview.style.width = `${bounds.width}px`;
     preview.style.height = `${bounds.height}px`;
+    if (ids.length > 1) {
+      const count = document.createElement("span");
+      count.className = "playDragCount";
+      count.textContent = `${ids.length} Plays`;
+      preview.append(count);
+    }
     dragPreviewRef.current?.remove();
     previewHost.replaceChildren(preview);
     dragPreviewRef.current = preview;
@@ -350,7 +363,6 @@ function PlayhouseShellView({
       Math.min(Math.max(event.clientY - bounds.top, 0), bounds.height),
     );
 
-    const ids = [playId];
     setDraggedIds(ids);
     setMoveError(null);
     event.dataTransfer.effectAllowed = "move";
@@ -920,7 +932,7 @@ function PlayhouseShellView({
                   data-testid="play-row"
                   data-play-row-id={play.id}
                   key={play.id}
-                  draggable={!isPlaceContext && !searchQuery && selectedIds.size === 0}
+                  draggable={!isPlaceContext && !searchQuery && eligiblePlayIds.has(play.id)}
                   onClickCapture={(event) => {
                     if (!(event.ctrlKey || event.metaKey) || !eligiblePlayIds.has(play.id)) return;
                     event.preventDefault();
