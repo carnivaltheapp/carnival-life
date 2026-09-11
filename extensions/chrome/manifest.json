@@ -18,7 +18,7 @@
     {
       "matches": [
         "https://carnival-playhouse.vercel.app/*",
-        "http://localhost:3002/*"
+        "http://localhost/*"
       ],
       "js": ["playhouse-bridge.js"]
     }
