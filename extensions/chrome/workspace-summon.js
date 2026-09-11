@@ -8,12 +8,11 @@ export function createWorkspaceActions({ controller, logger = console, reportDra
       logger.info(`Carnival: summon workspace requested (${source})`);
       const prior = await controller.state();
       logger.info(`Carnival: workspace state = ${prior.drawerState ?? "unknown"}`);
-      if (prior.drawerState === "open" || prior.drawerState === "opening") {
-        if (prior.drawerState === "open") {
-          await controller.activate();
-          reportDrawerState(prior);
-        }
-        return prior;
+      const reconciled = await controller.reconcileWorkspaceState(workArea);
+      if (reconciled.actuallyOpen) {
+        const active = await controller.activate();
+        reportDrawerState(active);
+        return active;
       }
       logger.info("Carnival: creating/restoring windows");
       const state = await controller.summon(workArea, monitorId);

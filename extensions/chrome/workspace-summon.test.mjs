@@ -17,6 +17,9 @@ function harness() {
       drawerState = "retracted";
       return { drawerState };
     },
+    async reconcileWorkspaceState() {
+      return { actuallyOpen: drawerState === "open", state: { drawerState } };
+    },
     async state() {
       return { drawerState };
     },

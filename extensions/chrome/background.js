@@ -175,6 +175,13 @@ chrome.action.onClicked.addListener(async () => {
   await workspaceActions.summon(display, "toolbar");
 });
 chrome.windows.onCreated.addListener(connectNativeHost);
+chrome.windows.onRemoved.addListener((windowId) => {
+  controller.handleWindowClosed(windowId)
+    .then((state) => {
+      if (state) reportDrawerState(state);
+    })
+    .catch((error) => console.error("Carnival window-close reconciliation failed", error));
+});
 chrome.windows.onBoundsChanged.addListener(() => {
   clearTimeout(geometrySaveTimer);
   geometrySaveTimer = setTimeout(async () => {

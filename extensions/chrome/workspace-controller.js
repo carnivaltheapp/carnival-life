@@ -8,6 +8,7 @@ export const DRAWER_RIGHT_GUTTER_PX = RETRACT_DISTANCE_PX;
 const STORAGE_KEY = "carnivalDesktopWorkspace";
 const LAYOUT_VERSION = 2;
 const DEFAULT_PLAYHOUSE_RATIO = 0.6;
+const MINIMUM_VISIBLE_INTERSECTION_PX = 64;
 
 function validInteger(value) {
   return Number.isInteger(value) && value >= 0;
@@ -71,6 +72,17 @@ function storedBounds(value) {
 function horizontalBoundsFitWorkArea(bounds, workArea) {
   return bounds.left >= workArea.left &&
     bounds.left + bounds.width <= workArea.left + workArea.width;
+}
+
+function hasVisibleIntersection(window, workArea) {
+  const bounds = storedBounds(window);
+  if (!bounds || window.state === "minimized") return false;
+  const visibleWidth = Math.max(0, Math.min(bounds.left + bounds.width,
+    workArea.left + workArea.width) - Math.max(bounds.left, workArea.left));
+  const visibleHeight = Math.max(0, Math.min(bounds.top + bounds.height,
+    workArea.top + workArea.height) - Math.max(bounds.top, workArea.top));
+  return visibleWidth >= MINIMUM_VISIBLE_INTERSECTION_PX &&
+    visibleHeight >= MINIMUM_VISIBLE_INTERSECTION_PX;
 }
 
 function restoreWindowBounds(bounds, priorWorkArea, workArea) {
@@ -274,6 +286,58 @@ export class CarnivalWorkspaceController {
     await this.chrome.windows.update(contextWindow.id, { focused: true });
     await this.chrome.windows.update(playhouseWindow.id, { focused: true });
     return state;
+  }
+
+  async reconcileWorkspaceState(workArea) {
+    const state = await this.state();
+    const [playhouseWindow, contextWindow, playhouseTab, contextTab] = await Promise.all([
+      existingWindow(this.chrome, state.playhouseWindowId),
+      existingWindow(this.chrome, state.contextWindowId),
+      existingTab(this.chrome, state.playhouseTabId),
+      existingTab(this.chrome, state.contextTabId),
+    ]);
+    const playhouseIdentityValid = Boolean(playhouseWindow && playhouseTab &&
+      playhouseTab.windowId === playhouseWindow.id && playhouseTab.url?.startsWith(PLAYHOUSE_URL));
+    const contextIdentityValid = Boolean(contextWindow && contextTab &&
+      contextTab.windowId === contextWindow.id && isAllowedContextUrl(contextTab.url));
+    const playhouseVisible = playhouseIdentityValid && hasVisibleIntersection(playhouseWindow, workArea);
+    const contextVisible = contextIdentityValid && hasVisibleIntersection(contextWindow, workArea);
+    if (playhouseVisible && contextVisible) {
+      return { actuallyOpen: true, state };
+    }
+    if (state.drawerState !== "open" && state.drawerState !== "opening") {
+      return { actuallyOpen: false, state };
+    }
+    this.logger.info?.("Carnival: actual workspace not visible; reconciling");
+    const reconciled = {
+      ...state,
+      contextTabId: contextIdentityValid ? state.contextTabId : null,
+      contextWindowId: contextIdentityValid ? state.contextWindowId : null,
+      drawerState: "retracted",
+      playhouseTabId: playhouseIdentityValid ? state.playhouseTabId : null,
+      playhouseWindowId: playhouseIdentityValid ? state.playhouseWindowId : null,
+    };
+    await this.save(reconciled);
+    return { actuallyOpen: false, state: reconciled };
+  }
+
+  async handleWindowClosed(windowId) {
+    const state = await this.state();
+    const playhouseClosed = windowId === state.playhouseWindowId;
+    const contextClosed = windowId === state.contextWindowId;
+    if (!playhouseClosed && !contextClosed) return null;
+    const playhouseWindowId = playhouseClosed ? null : state.playhouseWindowId;
+    const contextWindowId = contextClosed ? null : state.contextWindowId;
+    const nextState = {
+      ...state,
+      contextTabId: contextClosed ? null : state.contextTabId,
+      contextWindowId,
+      drawerState: playhouseWindowId || contextWindowId ? "degraded" : "retracted",
+      playhouseTabId: playhouseClosed ? null : state.playhouseTabId,
+      playhouseWindowId,
+    };
+    await this.save(nextState);
+    return nextState;
   }
 
   async summonDrawer(workArea, monitorId = null) {

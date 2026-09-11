@@ -188,6 +188,126 @@ test("a missing workspace side is repaired without duplicating the surviving win
   assert.notEqual(repaired.contextWindowId, first.contextWindowId);
 });
 
+test("logical OPEN with both identified windows visible is functionally open", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+
+  const actual = await workspace.reconcileWorkspaceState(workArea);
+
+  assert.equal(actual.actuallyOpen, true);
+  assert.equal(actual.state.playhouseWindowId, opened.playhouseWindowId);
+  assert.equal(actual.state.contextWindowId, opened.contextWindowId);
+});
+
+test("stale OPEN state with missing PlayHouse is reconciled and recreates only PlayHouse", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const first = await workspace.summon(workArea, "display-1");
+  chrome.closeWindow(first.playhouseWindowId);
+
+  const actual = await workspace.reconcileWorkspaceState(workArea);
+  const repaired = await workspace.summon(workArea, "display-1");
+
+  assert.equal(actual.actuallyOpen, false);
+  assert.equal(actual.state.playhouseWindowId, null);
+  assert.equal(chrome.calls.createWindow.length, 3);
+  assert.notEqual(repaired.playhouseWindowId, first.playhouseWindowId);
+  assert.equal(repaired.contextWindowId, first.contextWindowId);
+});
+
+test("stale OPEN state with missing Aux is reconciled and recreates only Aux", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const first = await workspace.summon(workArea, "display-1");
+  chrome.closeWindow(first.contextWindowId);
+
+  const actual = await workspace.reconcileWorkspaceState(workArea);
+  const repaired = await workspace.summon(workArea, "display-1");
+
+  assert.equal(actual.actuallyOpen, false);
+  assert.equal(actual.state.contextWindowId, null);
+  assert.equal(chrome.calls.createWindow.length, 3);
+  assert.equal(repaired.playhouseWindowId, first.playhouseWindowId);
+  assert.notEqual(repaired.contextWindowId, first.contextWindowId);
+});
+
+test("stale OPEN state with both windows missing recreates both", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const first = await workspace.summon(workArea, "display-1");
+  chrome.closeWindow(first.playhouseWindowId);
+  chrome.closeWindow(first.contextWindowId);
+
+  await workspace.reconcileWorkspaceState(workArea);
+  const repaired = await workspace.summon(workArea, "display-1");
+
+  assert.equal(chrome.calls.createWindow.length, 4);
+  assert.notEqual(repaired.playhouseWindowId, first.playhouseWindowId);
+  assert.notEqual(repaired.contextWindowId, first.contextWindowId);
+});
+
+test("stale OPEN state with offscreen windows runs the normal opening path", async () => {
+  const chrome = fakeChrome();
+  const animations = [];
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { info() {}, warn() {} },
+    nativeAnimate: async (animation) => {
+      animations.push(animation);
+      return true;
+    },
+  });
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const first = await workspace.summon(workArea, "display-1");
+  chrome.resizeWindow(first.playhouseWindowId, { left: -1600 });
+  chrome.resizeWindow(first.contextWindowId, { left: -700 });
+
+  const actual = await workspace.reconcileWorkspaceState(workArea);
+  const reopened = await workspace.summon(workArea, "display-1");
+
+  assert.equal(actual.actuallyOpen, false);
+  assert.equal(actual.state.drawerState, "retracted");
+  assert.equal(reopened.drawerState, "open");
+  assert.equal(animations.length, 2);
+});
+
+test("stale OPEN state with minimized windows restores both", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const first = await workspace.summon(workArea, "display-1");
+  chrome.resizeWindow(first.playhouseWindowId, { state: "minimized" });
+  chrome.resizeWindow(first.contextWindowId, { state: "minimized" });
+
+  const actual = await workspace.reconcileWorkspaceState(workArea);
+  await workspace.summon(workArea, "display-1");
+
+  assert.equal(actual.actuallyOpen, false);
+  assert.equal(chrome.calls.updateWindow.some(({ id, options }) =>
+    id === first.playhouseWindowId && options.state === "normal"), true);
+  assert.equal(chrome.calls.updateWindow.some(({ id, options }) =>
+    id === first.contextWindowId && options.state === "normal"), true);
+});
+
+test("manual window closes invalidate live identities and eventually retract state", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const first = await workspace.summon(workArea, "display-1");
+
+  const degraded = await workspace.handleWindowClosed(first.playhouseWindowId);
+  const retracted = await workspace.handleWindowClosed(first.contextWindowId);
+
+  assert.equal(degraded.drawerState, "degraded");
+  assert.equal(degraded.playhouseWindowId, null);
+  assert.equal(retracted.drawerState, "retracted");
+  assert.equal(retracted.contextWindowId, null);
+});
+
 test("PlayHouse resize persists independently without changing Aux", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);
