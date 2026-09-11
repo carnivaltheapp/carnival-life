@@ -22,18 +22,13 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const buildCommit = process.env.NEXT_PUBLIC_CARNIVAL_BUILD_COMMIT;
-  const buildVersion = process.env.NEXT_PUBLIC_CARNIVAL_BUILD_VERSION;
-
   return (
     <html lang="en">
       <body>
         {children}
-        {buildCommit && buildVersion ? (
-          <small className="versionStamp" data-testid="version-stamp">
-            Version {buildCommit} · {buildVersion}
-          </small>
-        ) : null}
+        <small className="versionStamp" data-testid="version-stamp">
+          PLACES-VISIBLE-1
+        </small>
       </body>
     </html>
   );

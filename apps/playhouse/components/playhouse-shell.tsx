@@ -603,7 +603,6 @@ function PlayhouseShellView({
     <main className="workspace">
       <BrowserTimeZone />
       <div aria-hidden="true" className="playDragPreviewHost" ref={dragPreviewHostRef} />
-      <span className="deploymentBuildMarker">PLACES-VISIBLE-1</span>
       <header className="appHeader">
         <div className="headerBrandArea">
           <Link className="brand" href="/?view=today" aria-label="Carnival PlayHouse home">
