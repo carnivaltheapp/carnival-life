@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-SESSION-RESTORE-29
+          P3-RESTORE-RACE-FIX-30
         </small>
       </body>
     </html>

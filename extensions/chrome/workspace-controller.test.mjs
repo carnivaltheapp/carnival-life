@@ -157,6 +157,18 @@ function controller(chrome) {
   });
 }
 
+function diagnosticController(chrome, options = {}) {
+  const events = [];
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    ...options,
+    logger: {
+      info(event, details) { events.push({ details, event }); },
+      warn() {},
+    },
+  });
+  return { events, workspace };
+}
+
 test("default workspace is a left PlayHouse 60/40 split across the monitor work area", () => {
   assert.deepEqual(defaultWorkspaceLayout({ height: 1000, left: 100, top: 20, width: 2000 }), {
     context: { height: 1000, left: 1240, top: 20, width: 760 },
@@ -359,6 +371,130 @@ test("PlayHouse user tabs and active tab restore after controller restart", asyn
     { active: true, url: "https://example.com/reference" },
   ]);
   assert.equal(chrome.getTab(restored.playhouseTabId).url, PLAYHOUSE_URL);
+});
+
+test("three-tab PH restore suppresses reconstruction saves and performs one verified final save", async () => {
+  const chrome = fakeChrome();
+  const { events, workspace } = diagnosticController(chrome);
+  const tabs = {
+    activeIndex: 2,
+    tabs: [
+      { pinned: false, role: "ph-primary", url: PLAYHOUSE_URL },
+      { pinned: false, role: null, url: "https://example.com/a" },
+      { pinned: false, role: null, url: "https://example.com/b" },
+    ],
+  };
+  const geometry = { left: 200, width: 700 };
+  const restored = await workspace.createWindowFromTabs(
+    { ...geometry, height: 900, top: 0 }, tabs, "playhouse", "PH-3-TABS",
+  );
+  await workspace.save({
+    auxSession: { geometry: null, tabs: defaultAuxTabs() },
+    auxWindowId: null,
+    drawerState: "open",
+    layoutVersion: 2,
+    phPrimaryTabId: restored.roleTabIds["ph-primary"],
+    phSession: { geometry, tabs },
+    phWindowId: restored.window.id,
+    workArea: { height: 900, left: 0, top: 0, width: 1800 },
+  });
+
+  for (const reason of ["tab-activated", "tab-url-updated", "tab-load-complete"]) {
+    assert.equal(await workspace.rememberWorkspaceTabs(restored.window.id, reason), null);
+  }
+  assert.equal((await workspace.state()).phSession.tabs.tabs.length, 3);
+  assert.equal(events.some(({ event }) => event === "PH_SESSION_SAVE_COMPLETE"), false);
+  assert.equal(events.filter(({ event }) => event === "PH_SESSION_SAVE_SKIPPED").length, 3);
+
+  await workspace.finalizeRestoredWindow("playhouse", restored, "PH-3-TABS");
+  const final = await workspace.state();
+  assert.deepEqual(final.phSession.tabs.tabs.map(({ role }) => role), ["ph-primary", null, null]);
+  assert.equal(final.phSession.tabs.tabs.length, 3);
+  assert.equal(events.filter(({ event }) => event === "PH_RESTORE_VERIFIED").length, 1);
+  assert.equal(events.filter(({ event }) => event === "PH_RESTORE_FINAL_SAVE").length, 1);
+});
+
+test("Aux restore suppresses reconstruction events until its role set is verified", async () => {
+  const chrome = fakeChrome();
+  const { events, workspace } = diagnosticController(chrome);
+  const tabs = {
+    activeIndex: 3,
+    tabs: [
+      ...defaultAuxTabs().tabs,
+      { pinned: true, role: null, url: "https://docs.google.com/document/d/example" },
+    ],
+  };
+  const geometry = { left: 1000, width: 600 };
+  const restored = await workspace.createWindowFromTabs(
+    { ...geometry, height: 900, top: 0 }, tabs, "context", "AUX-4-TABS",
+  );
+  await workspace.save({
+    auxActiveTabId: restored.activeTab.id,
+    auxRoleTabIds: restored.roleTabIds,
+    auxSession: { geometry, tabs },
+    auxWindowId: restored.window.id,
+    drawerState: "open",
+    layoutVersion: 2,
+    phSession: { geometry: null, tabs: defaultPlayhouseTabs(PLAYHOUSE_URL) },
+    phWindowId: null,
+    workArea: { height: 900, left: 0, top: 0, width: 1800 },
+  });
+
+  assert.equal(await workspace.rememberWorkspaceTabs(restored.window.id, "tab-pin-updated"), null);
+  assert.equal(events.some(({ event }) => event === "AUX_SESSION_SAVE_COMPLETE"), false);
+  await workspace.finalizeRestoredWindow("context", restored, "AUX-4-TABS");
+
+  assert.equal((await workspace.state()).auxSession.tabs.tabs.length, 4);
+  assert.equal(events.filter(({ event }) => event === "AUX_RESTORE_VERIFIED").length, 1);
+  assert.equal(events.filter(({ event }) => event === "AUX_RESTORE_FINAL_SAVE").length, 1);
+});
+
+test("restore and animation bounds never replace geometry until a later user move", async () => {
+  const chrome = fakeChrome();
+  const { events, workspace } = diagnosticController(chrome, { geometrySettleMs: 0 });
+  const phGeometry = { left: 200, width: 700 };
+  const auxGeometry = { left: 1000, width: 600 };
+  const ph = await workspace.createWindowFromTabs(
+    { ...phGeometry, height: 900, top: 0 }, defaultPlayhouseTabs(PLAYHOUSE_URL), "playhouse",
+  );
+  const aux = await workspace.createWindowFromTabs(
+    { ...auxGeometry, height: 900, top: 0 }, defaultAuxTabs(), "context",
+  );
+  await workspace.save({
+    auxActiveTabId: aux.activeTab.id,
+    auxRoleTabIds: aux.roleTabIds,
+    auxSession: { geometry: auxGeometry, tabs: aux.tabState },
+    auxWindowId: aux.window.id,
+    drawerState: "open",
+    layoutVersion: 2,
+    phPrimaryTabId: ph.roleTabIds["ph-primary"],
+    phSession: { geometry: phGeometry, tabs: ph.tabState },
+    phWindowId: ph.window.id,
+    workArea: { height: 900, left: 0, top: 0, width: 1800 },
+  });
+
+  chrome.resizeWindow(ph.window.id, { left: 834 });
+  chrome.resizeWindow(aux.window.id, { left: 846 });
+  assert.equal(await workspace.rememberVisibleBounds(ph.window.id), null);
+  assert.equal(await workspace.rememberVisibleBounds(aux.window.id), null);
+  assert.deepEqual((await workspace.state()).phSession.geometry, phGeometry);
+  assert.deepEqual((await workspace.state()).auxSession.geometry, auxGeometry);
+
+  chrome.resizeWindow(ph.window.id, { left: phGeometry.left });
+  chrome.resizeWindow(aux.window.id, { left: auxGeometry.left });
+  await workspace.finalizeRestoredWindow("playhouse", ph);
+  await workspace.finalizeRestoredWindow("context", aux);
+  chrome.resizeWindow(ph.window.id, { left: 820 });
+  assert.equal(await workspace.rememberVisibleBounds(ph.window.id), null);
+  assert.deepEqual((await workspace.state()).phSession.geometry, phGeometry);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  chrome.resizeWindow(ph.window.id, { left: 250 });
+  await workspace.rememberVisibleBounds(ph.window.id);
+
+  assert.deepEqual((await workspace.state()).phSession.geometry, { left: 250, width: 700 });
+  assert.equal(events.filter(({ event, details }) => (
+    event === "GEOMETRY_SAVE_SKIPPED" && details.reason === "system-change"
+  )).length, 3);
 });
 
 test("a deliberately closed Gmail role is recreated only when Gmail routing needs it", async () => {

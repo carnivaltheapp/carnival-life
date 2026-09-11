@@ -48,6 +48,10 @@ const diagnosticLogger = {
 
 function scheduleTabSave(windowId, reason) {
   if (!Number.isInteger(windowId)) return;
+  if (controller.isRestoreInProgress(windowId)) {
+    controller.logRestoreSaveSkipped(windowId, reason);
+    return;
+  }
   tabSaveReasons.set(windowId, reason);
   clearTimeout(tabSaveTimers.get(windowId));
   tabSaveTimers.set(windowId, setTimeout(() => {
@@ -230,12 +234,16 @@ chrome.windows.onRemoved.addListener((windowId) => {
     })
     .catch((error) => console.error("Carnival window-close reconciliation failed", error));
 });
-chrome.windows.onBoundsChanged.addListener(() => {
+chrome.windows.onBoundsChanged.addListener((window) => {
+  if (controller.isSystemGeometryChange(window.id)) {
+    controller.logSystemGeometrySaveSkipped(window.id);
+    return;
+  }
   clearTimeout(geometrySaveTimer);
   geometrySaveTimer = setTimeout(async () => {
     geometrySaveTimer = null;
     try {
-      const state = await controller.rememberVisibleBounds();
+      const state = await controller.rememberVisibleBounds(window.id);
       if (state) reportDrawerState(state);
     } catch (error) {
       console.error("Carnival layout save failed", error);

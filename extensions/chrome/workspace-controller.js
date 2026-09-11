@@ -18,6 +18,7 @@ const STORAGE_KEY = "carnivalDesktopWorkspace";
 const LAYOUT_VERSION = 2;
 const DEFAULT_PLAYHOUSE_RATIO = 0.6;
 const MINIMUM_VISIBLE_INTERSECTION_PX = 64;
+const POST_RESTORE_GEOMETRY_SETTLE_MS = 500;
 
 function validInteger(value) {
   return Number.isInteger(value) && value >= 0;
@@ -248,9 +249,56 @@ export class CarnivalWorkspaceController {
     this.nativeActivate = options.nativeActivate ?? null;
     this.nativeAnimate = options.nativeAnimate ?? null;
     this.movingWindowIds = new Set();
-    this.restoreWindowsUntil = new Map();
+    this.phRestoreInProgress = false;
+    this.auxRestoreInProgress = false;
+    this.restoreWindowRoles = new Map();
+    this.systemGeometryWindowIds = new Set();
+    this.systemGeometryTimers = new Map();
+    this.geometrySettleMs = options.geometrySettleMs ?? POST_RESTORE_GEOMETRY_SETTLE_MS;
+    this.creatingRestoreRole = null;
     this.stateUpdates = Promise.resolve();
     this.transitioning = false;
+  }
+
+  restoreRoleForWindow(windowId) {
+    return this.restoreWindowRoles.get(windowId) ?? this.creatingRestoreRole;
+  }
+
+  isRestoreInProgress(windowId) {
+    const role = this.restoreRoleForWindow(windowId);
+    return role === "playhouse" ? this.phRestoreInProgress
+      : role === "context" ? this.auxRestoreInProgress : false;
+  }
+
+  isSystemGeometryChange(windowId) {
+    return this.transitioning || this.movingWindowIds.has(windowId) ||
+      this.systemGeometryWindowIds.has(windowId) || this.isRestoreInProgress(windowId);
+  }
+
+  logRestoreSaveSkipped(windowId, reason) {
+    const role = this.restoreRoleForWindow(windowId);
+    const eventPrefix = role === "playhouse" ? "PH" : role === "context" ? "AUX" : "WORKSPACE";
+    this.logger.info?.(`${eventPrefix}_SESSION_SAVE_SKIPPED`, {
+      reason: "restore-in-progress",
+      source: reason,
+      windowId,
+    });
+  }
+
+  logSystemGeometrySaveSkipped(windowId) {
+    this.logger.info?.("GEOMETRY_SAVE_SKIPPED", {
+      reason: "system-change",
+      windowId,
+    });
+    if (this.systemGeometryWindowIds.has(windowId)) this.settleSystemGeometry(windowId);
+  }
+
+  settleSystemGeometry(windowId) {
+    clearTimeout(this.systemGeometryTimers.get(windowId));
+    this.systemGeometryTimers.set(windowId, setTimeout(() => {
+      this.systemGeometryTimers.delete(windowId);
+      this.systemGeometryWindowIds.delete(windowId);
+    }, this.geometrySettleMs));
   }
 
   async state() {
@@ -290,18 +338,35 @@ export class CarnivalWorkspaceController {
       };
     }
     const eventPrefix = kind === "playhouse" ? "PH" : "AUX";
+    if (kind === "playhouse") this.phRestoreInProgress = true;
+    else this.auxRestoreInProgress = true;
+    this.creatingRestoreRole = kind;
     this.logger.info?.(`${eventPrefix}_RESTORE_START`, {
       ...diagnosticSession({ geometry: geometryFromBounds(bounds), tabs: definitions }),
       sessionCycle,
     });
-    const window = await this.chrome.windows.create({
-      ...bounds,
-      focused: false,
-      type: "normal",
-      url: definitions.tabs.map((tab) => tab.url),
-    });
-    if (!window?.id) throw new Error(`Chrome could not create the ${kind} window.`);
-    this.restoreWindowsUntil.set(window.id, Date.now() + 2_000);
+    let window;
+    try {
+      window = await this.chrome.windows.create({
+        ...bounds,
+        focused: false,
+        type: "normal",
+        url: definitions.tabs.map((tab) => tab.url),
+      });
+    } catch (error) {
+      if (kind === "playhouse") this.phRestoreInProgress = false;
+      else this.auxRestoreInProgress = false;
+      throw error;
+    } finally {
+      this.creatingRestoreRole = null;
+    }
+    if (!window?.id) {
+      if (kind === "playhouse") this.phRestoreInProgress = false;
+      else this.auxRestoreInProgress = false;
+      throw new Error(`Chrome could not create the ${kind} window.`);
+    }
+    this.restoreWindowRoles.set(window.id, kind);
+    this.systemGeometryWindowIds.add(window.id);
     this.logger.info?.(`${eventPrefix}_WINDOW_CREATED`, { windowId: window.id });
     this.logger.info?.(`${eventPrefix}_GEOMETRY_RESTORED`, {
       width: bounds.width,
@@ -329,18 +394,82 @@ export class CarnivalWorkspaceController {
     this.logger.info?.(`${eventPrefix}_TABS_RESTORED`, {
       count: tabs.length,
     });
-    this.logger.info?.(`${eventPrefix}_RESTORE_COMPLETE`, {
-      activeIndex: definitions.activeIndex,
-      sessionCycle,
-      tabCount: tabs.length,
-      windowId: window.id,
-    });
     return {
       activeTab: tabs[definitions.activeIndex],
+      expectedTabIds: tabs.map((tab) => tab.id),
       roleTabIds: ids,
+      restored: true,
       tabState: definitions,
       window,
     };
+  }
+
+  async finalizeRestoredWindow(kind, restored, sessionCycle = null) {
+    if (!restored?.restored) return null;
+    const eventPrefix = kind === "playhouse" ? "PH" : "AUX";
+    const windowId = restored.window.id;
+    const state = await this.state();
+    const { snapshot, tabs } = await this.snapshotWindow(kind, windowId, state);
+    const expectedRoles = restored.tabState.tabs.map((tab) => tab.role ?? null);
+    const actualRoles = snapshot?.tabs.map((tab) => tab.role ?? null);
+    const actualTabIds = tabs.map((tab) => tab.id);
+    const expectedActiveId = restored.expectedTabIds[restored.tabState.activeIndex];
+    const actualActiveId = tabs.find((tab) => tab.active)?.id;
+    if (!snapshot ||
+      JSON.stringify(actualTabIds) !== JSON.stringify(restored.expectedTabIds) ||
+      JSON.stringify(actualRoles) !== JSON.stringify(expectedRoles) ||
+      actualActiveId !== expectedActiveId) {
+      throw new Error(`Chrome could not verify the restored ${kind} session.`);
+    }
+    this.logger.info?.(`${eventPrefix}_RESTORE_VERIFIED`, {
+      activeIndex: snapshot.activeIndex,
+      roles: actualRoles,
+      sessionCycle,
+      tabCount: snapshot.tabs.length,
+      windowId,
+    });
+
+    if (kind === "playhouse") this.phRestoreInProgress = false;
+    else this.auxRestoreInProgress = false;
+    this.restoreWindowRoles.delete(windowId);
+    const activeTab = tabs.find((tab) => tab.active) ?? tabs[0];
+    const finalState = await this.updateState((current) => kind === "playhouse"
+      ? {
+          ...current,
+          phSession: { ...current.phSession, tabs: snapshot },
+          playhouseTabs: snapshot,
+        }
+      : {
+          ...current,
+          auxActiveTabId: activeTab.id,
+          auxSession: { ...current.auxSession, tabs: snapshot },
+          contextTabId: activeTab.id,
+          contextTabs: snapshot,
+          contextUrl: activeTab.url ?? current.contextUrl,
+        });
+    this.logger.info?.(`${eventPrefix}_RESTORE_FINAL_SAVE`, {
+      ...diagnosticSession(kind === "playhouse" ? finalState.phSession : finalState.auxSession),
+      sessionCycle,
+      windowId,
+    });
+    this.logger.info?.(`${eventPrefix}_RESTORE_COMPLETE`, {
+      activeIndex: snapshot.activeIndex,
+      sessionCycle,
+      tabCount: snapshot.tabs.length,
+      windowId,
+    });
+    this.settleSystemGeometry(windowId);
+    return finalState;
+  }
+
+  cancelRestores() {
+    this.phRestoreInProgress = false;
+    this.auxRestoreInProgress = false;
+    this.creatingRestoreRole = null;
+    this.restoreWindowRoles.clear();
+    this.systemGeometryWindowIds.clear();
+    for (const timer of this.systemGeometryTimers.values()) clearTimeout(timer);
+    this.systemGeometryTimers.clear();
   }
 
   async snapshotWindow(kind, windowId, state) {
@@ -371,6 +500,7 @@ export class CarnivalWorkspaceController {
         tab: restored.roleTabIds["ph-primary"] ?
           await existingTab(this.chrome, restored.roleTabIds["ph-primary"]) : restored.activeTab,
         tabState: restored.tabState,
+        restore: restored,
         window: restored.window,
       };
     } else {
@@ -386,7 +516,7 @@ export class CarnivalWorkspaceController {
       ...prior,
       playhouseTabId: tab.id,
     });
-    return { tab, tabState: snapshot ?? defaultPlayhouseTabs(PLAYHOUSE_URL), window };
+    return { restore: null, tab, tabState: snapshot ?? defaultPlayhouseTabs(PLAYHOUSE_URL), window };
   }
 
   async findContext(prior, bounds, positionExisting = true) {
@@ -404,6 +534,7 @@ export class CarnivalWorkspaceController {
         roleTabIds: restored.roleTabIds,
         tab: restored.activeTab,
         tabState: restored.tabState,
+        restore: restored,
         window: restored.window,
       };
     } else {
@@ -428,7 +559,7 @@ export class CarnivalWorkspaceController {
         tabs.find((candidate) => candidate.id === prior.auxActiveTabId) ?? tabs[0] ?? null;
       const snapshot = snapshotTabs(tabs, roles);
       if (!tab?.id || !snapshot) throw new Error("Chrome could not identify the context tabs.");
-      return { roleTabIds: roles, tab, tabState: snapshot, window };
+      return { restore: null, roleTabIds: roles, tab, tabState: snapshot, window };
     }
   }
 
@@ -467,6 +598,9 @@ export class CarnivalWorkspaceController {
     this.transitioning = true;
     try {
       return await this.summonDrawer(workArea, monitorId);
+    } catch (error) {
+      this.cancelRestores();
+      throw error;
     } finally {
       this.transitioning = false;
     }
@@ -651,7 +785,9 @@ export class CarnivalWorkspaceController {
     await this.save(openState);
     await this.chrome.windows.update(context.window.id, { focused: true });
     await this.chrome.windows.update(playhouse.window.id, { focused: true });
-    return openState;
+    await this.finalizeRestoredWindow("playhouse", playhouse.restore, prior.sessionCycle ?? null);
+    await this.finalizeRestoredWindow("context", context.restore, prior.sessionCycle ?? null);
+    return this.state();
   }
 
   async retract() {
@@ -734,6 +870,23 @@ export class CarnivalWorkspaceController {
       restoreContext,
     );
     const contextWindow = context.window;
+    if (context.restore) {
+      await this.save({
+        ...prior,
+        auxActiveTabId: context.tab.id,
+        auxRoleTabIds: context.roleTabIds,
+        auxSession: { geometry: geometryFromBounds(layout.context), tabs: context.tabState },
+        auxWindowId: contextWindow.id,
+        contextRoleTabIds: context.roleTabIds,
+        contextTabId: context.tab.id,
+        contextTabs: context.tabState,
+        contextWindowId: contextWindow.id,
+        layoutVersion: LAYOUT_VERSION,
+        monitorId,
+        workArea,
+      });
+      await this.finalizeRestoredWindow("context", context.restore, prior.sessionCycle ?? null);
+    }
     let roleTab = await existingTab(this.chrome, context.roleTabIds[role]);
     const roleIds = { ...context.roleTabIds };
     if (!roleTab || roleTab.windowId !== contextWindow.id) {
@@ -778,10 +931,21 @@ export class CarnivalWorkspaceController {
     await this.chrome.windows.update(contextWindow.id, { focused: true });
   }
 
-  async rememberVisibleBounds() {
-    if (this.transitioning || this.movingWindowIds.size > 0) return null;
+  async rememberVisibleBounds(changedWindowId = null) {
+    if (changedWindowId !== null && this.isSystemGeometryChange(changedWindowId)) {
+      this.logSystemGeometrySaveSkipped(changedWindowId);
+      return null;
+    }
+    if (this.transitioning || this.movingWindowIds.size > 0) {
+      this.logSystemGeometrySaveSkipped(changedWindowId);
+      return null;
+    }
     const state = await this.state();
     if (state.drawerState !== "open" || !validWorkArea(state.workArea)) return null;
+    const changedRole = changedWindowId === state.phWindowId
+      ? "playhouse"
+      : changedWindowId === state.auxWindowId ? "context" : null;
+    if (changedWindowId !== null && !changedRole) return null;
     const [playhouseWindow, contextWindow] = await Promise.all([
       existingWindow(this.chrome, state.phWindowId),
       existingWindow(this.chrome, state.auxWindowId),
@@ -803,31 +967,45 @@ export class CarnivalWorkspaceController {
         currentState.auxWindowId !== state.auxWindowId) return null;
       return {
         ...currentState,
-        auxSession: { ...currentState.auxSession, geometry: geometryFromBounds(context) },
-        contextBounds: context,
-        phSession: { ...currentState.phSession, geometry: geometryFromBounds(playhouse) },
-        playhouseBounds: playhouse,
+        ...(changedRole !== "playhouse" ? {
+          auxSession: { ...currentState.auxSession, geometry: geometryFromBounds(context) },
+          contextBounds: context,
+        } : {}),
+        ...(changedRole !== "context" ? {
+          phSession: { ...currentState.phSession, geometry: geometryFromBounds(playhouse) },
+          playhouseBounds: playhouse,
+        } : {}),
       };
     });
     if (!nextState) return null;
     const verticalUpdates = [];
-    if (playhouseActual.top !== playhouse.top || playhouseActual.height !== playhouse.height) {
+    if (changedRole !== "context" &&
+      (playhouseActual.top !== playhouse.top || playhouseActual.height !== playhouse.height)) {
       verticalUpdates.push(this.chrome.windows.update(state.phWindowId, {
         focused: false, height: playhouse.height, state: "normal", top: playhouse.top,
       }));
     }
-    if (contextActual.top !== context.top || contextActual.height !== context.height) {
+    if (changedRole !== "playhouse" &&
+      (contextActual.top !== context.top || contextActual.height !== context.height)) {
       verticalUpdates.push(this.chrome.windows.update(state.auxWindowId, {
         focused: false, height: context.height, state: "normal", top: context.top,
       }));
     }
     await Promise.all(verticalUpdates);
-    this.logger.info?.("PH_SESSION_SAVED", { width: playhouse.width, x: playhouse.left });
-    this.logger.info?.("AUX_SESSION_SAVED", { width: context.width, x: context.left });
+    if (changedRole !== "context") {
+      this.logger.info?.("PH_SESSION_SAVED", { width: playhouse.width, x: playhouse.left });
+    }
+    if (changedRole !== "playhouse") {
+      this.logger.info?.("AUX_SESSION_SAVED", { width: context.width, x: context.left });
+    }
     return nextState;
   }
 
   async rememberWorkspaceTabs(windowId, reason = "tab-event") {
+    if (this.isRestoreInProgress(windowId)) {
+      this.logRestoreSaveSkipped(windowId, reason);
+      return null;
+    }
     const state = await this.state();
     const kind = windowId === state.phWindowId
       ? "playhouse"
@@ -844,12 +1022,16 @@ export class CarnivalWorkspaceController {
     }
     this.logger.info?.(`${eventPrefix}_SESSION_SAVE_ATTEMPT`, {
       reason,
-      restoreInProgress: (this.restoreWindowsUntil.get(windowId) ?? 0) > Date.now(),
+      restoreInProgress: false,
       session: diagnosticSession(kind === "playhouse" ? state.phSession : state.auxSession),
       sessionCycle,
       windowId,
     });
     const { snapshot, tabs } = await this.snapshotWindow(kind, windowId, state);
+    if (this.isRestoreInProgress(windowId)) {
+      this.logRestoreSaveSkipped(windowId, reason);
+      return null;
+    }
     if (!snapshot) {
       this.logger.info?.(`${eventPrefix}_SESSION_SAVE_SKIPPED`, {
         reason: `${reason}:no-stable-tabs`,
@@ -859,7 +1041,12 @@ export class CarnivalWorkspaceController {
       return null;
     }
     const activeTab = tabs.find((tab) => tab.active) ?? tabs[0];
+    let restoreSkipped = false;
     const nextState = await this.updateState((current) => {
+      if (this.isRestoreInProgress(windowId)) {
+        restoreSkipped = true;
+        return null;
+      }
       if (kind === "playhouse" && current.phWindowId !== windowId) return null;
       if (kind === "context" && current.auxWindowId !== windowId) return null;
       return kind === "playhouse"
@@ -878,6 +1065,10 @@ export class CarnivalWorkspaceController {
           };
     });
     if (!nextState) {
+      if (restoreSkipped) {
+        this.logRestoreSaveSkipped(windowId, reason);
+        return null;
+      }
       this.logger.info?.(`${eventPrefix}_SESSION_SAVE_SKIPPED`, {
         reason: `${reason}:window-no-longer-live`,
         sessionCycle,
@@ -888,7 +1079,7 @@ export class CarnivalWorkspaceController {
     this.logger.info?.(`${eventPrefix}_SESSION_SAVE_COMPLETE`, {
       ...diagnosticSession(kind === "playhouse" ? nextState.phSession : nextState.auxSession),
       reason,
-      restoreInProgress: (this.restoreWindowsUntil.get(windowId) ?? 0) > Date.now(),
+      restoreInProgress: false,
       sessionCycle,
       windowId,
     });
