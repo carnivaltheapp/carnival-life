@@ -22,8 +22,11 @@ internal static class CarnivalWorkspaceHost
     private const string PlayHouseUrl = "https://carnival-playhouse.vercel.app/";
     private const int MonitorDefaultToNearest = 2;
     private const uint SwpNoActivate = 0x0010;
+    private const uint SwpNoMove = 0x0002;
     private const uint SwpNoOwnerZOrder = 0x0200;
+    private const uint SwpNoSize = 0x0001;
     private const uint SwpNoZOrder = 0x0004;
+    private const int SwShow = 5;
     private static readonly object OutputLock = new object();
     private static readonly object PipeLock = new object();
     private static readonly object StateLock = new object();
@@ -72,7 +75,13 @@ internal static class CarnivalWorkspaceHost
     private delegate bool EnumWindowsCallback(IntPtr window, IntPtr parameter);
 
     [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint attachThread, uint attachToThread, bool attach);
+
+    [DllImport("user32.dll")]
     private static extern IntPtr BeginDeferWindowPos(int windowCount);
+
+    [DllImport("user32.dll")]
+    private static extern bool BringWindowToTop(IntPtr window);
 
     [DllImport("user32.dll")]
     private static extern IntPtr DeferWindowPos(IntPtr positionInfo, IntPtr window, IntPtr insertAfter,
@@ -91,6 +100,15 @@ internal static class CarnivalWorkspaceHost
     private static extern bool GetCursorPos(out Point point);
 
     [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, IntPtr processId);
+
+    [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr window, out Rect rect);
 
     [DllImport("user32.dll")]
@@ -98,6 +116,16 @@ internal static class CarnivalWorkspaceHost
 
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr window);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr window);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y,
+        int width, int height, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindowAsync(IntPtr window, int command);
 
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromPoint(Point point, int flags);
@@ -615,6 +643,10 @@ internal static class CarnivalWorkspaceHost
             WriteDiagnostic("native animation requested");
             ApplyAnimationRequest(json);
         }
+        else if (Regex.IsMatch(json, "\\\"type\\\"\\s*:\\s*\\\"activateWindows\\\""))
+        {
+            ApplyActivationRequest(json);
+        }
         else if (Regex.IsMatch(json, "\\\"type\\\"\\s*:\\s*\\\"summonAccepted\\\""))
         {
             lock (SummonLock)
@@ -685,6 +717,15 @@ internal static class CarnivalWorkspaceHost
             requestId, success ? "true" : "false"));
     }
 
+    private static void ApplyActivationRequest(string json)
+    {
+        var playhouseBounds = ReadBounds(json, "playhouse");
+        var contextBounds = ReadBounds(json, "context");
+        var success = ValidBounds(playhouseBounds) && ValidBounds(contextBounds) &&
+            ActivateMappedChromeWindows(playhouseBounds, contextBounds);
+        WriteDiagnostic("foreground activation " + (success ? "complete" : "failed"));
+    }
+
     private static WindowBounds ReadBounds(string json, string prefix)
     {
         int left;
@@ -727,7 +768,44 @@ internal static class CarnivalWorkspaceHost
             var wait = (frame * durationMs / frameCount) - (int)stopwatch.ElapsedMilliseconds;
             if (wait > 0) Thread.Sleep(wait);
         }
+        if (!easeIn && !ActivateWorkspace(playhouse, context))
+            WriteDiagnostic("opening complete but foreground activation failed");
         return true;
+    }
+
+    private static bool ActivateMappedChromeWindows(WindowBounds playhouseBounds, WindowBounds contextBounds)
+    {
+        var windows = EnumerateChromeWindows();
+        var playhouse = ClosestWindow(windows, new[] { playhouseBounds }, IntPtr.Zero);
+        var context = ClosestWindow(windows, new[] { contextBounds }, playhouse);
+        return playhouse != IntPtr.Zero && context != IntPtr.Zero && ActivateWorkspace(playhouse, context);
+    }
+
+    private static bool ActivateWorkspace(IntPtr playhouse, IntPtr context)
+    {
+        if (!IsWindow(playhouse) || !IsWindow(context)) return false;
+        ShowWindowAsync(context, SwShow);
+        ShowWindowAsync(playhouse, SwShow);
+        var foreground = GetForegroundWindow();
+        var foregroundThread = foreground == IntPtr.Zero
+            ? 0
+            : GetWindowThreadProcessId(foreground, IntPtr.Zero);
+        var currentThread = GetCurrentThreadId();
+        var attached = foregroundThread != 0 && foregroundThread != currentThread &&
+            AttachThreadInput(currentThread, foregroundThread, true);
+        try
+        {
+            BringWindowToTop(context);
+            BringWindowToTop(playhouse);
+            var adjacent = SetWindowPos(context, playhouse, 0, 0, 0, 0,
+                SwpNoActivate | SwpNoMove | SwpNoOwnerZOrder | SwpNoSize);
+            var activated = SetForegroundWindow(playhouse);
+            return adjacent && (activated || GetForegroundWindow() == playhouse);
+        }
+        finally
+        {
+            if (attached) AttachThreadInput(currentThread, foregroundThread, false);
+        }
     }
 
     private static WindowBounds Interpolate(WindowBounds from, WindowBounds to, double progress)

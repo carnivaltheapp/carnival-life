@@ -141,6 +141,7 @@ export class CarnivalWorkspaceController {
   constructor(chromeApi, options = {}) {
     this.chrome = chromeApi;
     this.logger = options.logger ?? console;
+    this.nativeActivate = options.nativeActivate ?? null;
     this.nativeAnimate = options.nativeAnimate ?? null;
     this.movingWindowIds = new Set();
     this.transitioning = false;
@@ -261,6 +262,24 @@ export class CarnivalWorkspaceController {
     } finally {
       this.transitioning = false;
     }
+  }
+
+  async activate() {
+    const state = await this.state();
+    if (state.drawerState !== "open") return state;
+    const [playhouseWindow, contextWindow] = await Promise.all([
+      existingWindow(this.chrome, state.playhouseWindowId),
+      existingWindow(this.chrome, state.contextWindowId),
+    ]);
+    if (!playhouseWindow || !contextWindow) return state;
+    const bounds = {
+      context: currentBounds(contextWindow, state.contextBounds),
+      playhouse: currentBounds(playhouseWindow, state.playhouseBounds),
+    };
+    if (this.nativeActivate && await this.nativeActivate(bounds)) return state;
+    await this.chrome.windows.update(contextWindow.id, { focused: true });
+    await this.chrome.windows.update(playhouseWindow.id, { focused: true });
+    return state;
   }
 
   async summonDrawer(workArea, monitorId = null) {

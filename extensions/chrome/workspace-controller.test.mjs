@@ -369,6 +369,29 @@ test("native open and retract animations move both windows with one shared offse
   assert.equal(animations[2].context.from.left - animations[2].playhouse.from.left, 899);
 });
 
+test("an open workspace uses native foreground activation without changing bounds", async () => {
+  const chrome = fakeChrome();
+  const activations = [];
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    nativeActivate: async (bounds) => {
+      activations.push(bounds);
+      return true;
+    },
+  });
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  chrome.calls.updateWindow.length = 0;
+
+  await workspace.activate();
+
+  assert.deepEqual(activations, [{
+    context: { height: 900, left: 899, top: 0, width: 600 },
+    playhouse: { height: 900, left: 0, top: 0, width: 899 },
+  }]);
+  assert.equal(chrome.calls.updateWindow.length, 0);
+  assert.equal((await workspace.state()).playhouseWindowId, opened.playhouseWindowId);
+});
+
 test("Windows native animation receives the same paired geometry for summon and retract", async () => {
   const chrome = fakeChrome();
   const animations = [];

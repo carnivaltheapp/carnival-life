@@ -9,7 +9,10 @@ export function createWorkspaceActions({ controller, logger = console, reportDra
       const prior = await controller.state();
       logger.info(`Carnival: workspace state = ${prior.drawerState ?? "unknown"}`);
       if (prior.drawerState === "open" || prior.drawerState === "opening") {
-        if (prior.drawerState === "open") reportDrawerState(prior);
+        if (prior.drawerState === "open") {
+          await controller.activate();
+          reportDrawerState(prior);
+        }
         return prior;
       }
       logger.info("Carnival: creating/restoring windows");

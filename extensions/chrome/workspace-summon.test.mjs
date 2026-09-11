@@ -8,6 +8,10 @@ function harness() {
   const reports = [];
   let drawerState = "retracted";
   const controller = {
+    async activate() {
+      calls.push({ type: "activate" });
+      return { drawerState };
+    },
     async retract() {
       calls.push({ type: "retract" });
       drawerState = "retracted";
@@ -62,7 +66,7 @@ test("toolbar summon uses the same workspace action and coalesces an opening dup
   assert.equal(reports.length, 1);
 });
 
-test("an already-open summon is a no-op and does not recreate or reanimate windows", async () => {
+test("an already-open summon activates without recreating or reanimating windows", async () => {
   const { actions, calls, reports } = harness();
   const display = {
     monitorId: "display-1",
@@ -73,6 +77,7 @@ test("an already-open summon is a no-op and does not recreate or reanimate windo
   await actions.summon(display, "native hot corner");
 
   assert.equal(calls.filter(({ type }) => type === "summon").length, 1);
+  assert.equal(calls.filter(({ type }) => type === "activate").length, 1);
   assert.equal(reports.length, 2);
 });
 

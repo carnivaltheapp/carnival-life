@@ -58,7 +58,25 @@ async function animateWindowsNatively(animation) {
   });
 }
 
-const controller = new CarnivalWorkspaceController(chrome, { nativeAnimate: animateWindowsNatively });
+async function activateWindowsNatively({ context, playhouse }) {
+  if (!nativePort || !nativeAnimationAvailable) return false;
+  try {
+    nativePort.postMessage({
+      ...flattenBounds("context", context),
+      ...flattenBounds("playhouse", playhouse),
+      type: "activateWindows",
+    });
+    return true;
+  } catch (error) {
+    console.warn("Carnival: native foreground activation failed", error);
+    return false;
+  }
+}
+
+const controller = new CarnivalWorkspaceController(chrome, {
+  nativeActivate: activateWindowsNatively,
+  nativeAnimate: animateWindowsNatively,
+});
 
 function reportDrawerState(state) {
   if (!nativePort) return;

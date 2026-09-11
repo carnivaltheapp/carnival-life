@@ -70,6 +70,9 @@ moves them together with Win32 deferred window positioning through the same
 monitor. Closing either or both windows is repaired by the next summon; their
 saved visible geometry and last Context URL survive stale window IDs. Repeated
 summons do not create duplicate workspace windows or repeated Chrome launches.
+After each summon, Windows places both Carnival windows together at the front of
+the normal z-order and gives PlayHouse keyboard focus; neither window is made
+permanently topmost.
 
 On normal desktop widths, the open workspace reserves a 101 pixel activation
 gutter to the right. Moving the pointer 100 pixels beyond the Context window's
