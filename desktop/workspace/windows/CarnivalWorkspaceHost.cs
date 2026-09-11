@@ -12,7 +12,7 @@ using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
-    private const string HostMarker = "DRAWER-HOST-3";
+    private const string HostMarker = "DRAWER-HOST-4";
     private const int AnimationFramesPerSecond = 60;
     private const int HotCornerMaximumOffsetPixels = 4;
     private const int DwellMilliseconds = 200;
@@ -647,6 +647,10 @@ internal static class CarnivalWorkspaceHost
         {
             ApplyActivationRequest(json);
         }
+        else if (Regex.IsMatch(json, "\\\"type\\\"\\s*:\\s*\\\"setWorkspaceBounds\\\""))
+        {
+            ApplyWorkspaceBoundsRequest(json);
+        }
         else if (Regex.IsMatch(json, "\\\"type\\\"\\s*:\\s*\\\"summonAccepted\\\""))
         {
             lock (SummonLock)
@@ -724,6 +728,31 @@ internal static class CarnivalWorkspaceHost
         var success = ValidBounds(playhouseBounds) && ValidBounds(contextBounds) &&
             ActivateMappedChromeWindows(playhouseBounds, contextBounds);
         WriteDiagnostic("foreground activation " + (success ? "complete" : "failed"));
+    }
+
+    private static void ApplyWorkspaceBoundsRequest(string json)
+    {
+        var requestId = 0;
+        var playhouseCurrent = ReadBounds(json, "playhouseCurrent");
+        var playhouseTarget = ReadBounds(json, "playhouseTarget");
+        var contextCurrent = ReadBounds(json, "contextCurrent");
+        var contextTarget = ReadBounds(json, "contextTarget");
+        var valid = TryReadInteger(json, "requestId", out requestId) &&
+                    ValidBounds(playhouseCurrent) && ValidBounds(playhouseTarget) &&
+                    ValidBounds(contextCurrent) && ValidBounds(contextTarget);
+        var windows = valid ? EnumerateChromeWindows() : new List<ChromeWindow>();
+        var playhouse = valid
+            ? ClosestWindow(windows, new[] { playhouseCurrent, playhouseTarget }, IntPtr.Zero)
+            : IntPtr.Zero;
+        var context = valid
+            ? ClosestWindow(windows, new[] { contextCurrent, contextTarget }, playhouse)
+            : IntPtr.Zero;
+        var success = playhouse != IntPtr.Zero && context != IntPtr.Zero &&
+            MovePair(playhouse, playhouseTarget, context, contextTarget);
+        WriteDiagnostic("coupled workspace bounds " + (success ? "applied" : "failed"));
+        SendToChrome(string.Format(CultureInfo.InvariantCulture,
+            "{{\"type\":\"animationComplete\",\"requestId\":{0},\"ok\":{1}}}",
+            requestId, success ? "true" : "false"));
     }
 
     private static WindowBounds ReadBounds(string json, string prefix)

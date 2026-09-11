@@ -2,7 +2,7 @@ import { CarnivalWorkspaceController, validWorkArea } from "./workspace-controll
 import { createWorkspaceActions } from "./workspace-summon.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
-const NATIVE_HOST_VERSION = "DRAWER-HOST-3";
+const NATIVE_HOST_VERSION = "DRAWER-HOST-4";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 let nativePort = null;
@@ -73,9 +73,40 @@ async function activateWindowsNatively({ context, playhouse }) {
   }
 }
 
+async function setWorkspaceBoundsNatively({ current, target }) {
+  if (!nativePort || !nativeAnimationAvailable) return false;
+  const requestId = ++nativeAnimationRequestId;
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      nativeAnimationRequests.delete(requestId);
+      resolve(false);
+    }, 750);
+    nativeAnimationRequests.set(requestId, (ok) => {
+      clearTimeout(timeout);
+      resolve(ok);
+    });
+    try {
+      nativePort.postMessage({
+        ...flattenBounds("contextCurrent", current.context),
+        ...flattenBounds("contextTarget", target.context),
+        ...flattenBounds("playhouseCurrent", current.playhouse),
+        ...flattenBounds("playhouseTarget", target.playhouse),
+        requestId,
+        type: "setWorkspaceBounds",
+      });
+    } catch (error) {
+      clearTimeout(timeout);
+      nativeAnimationRequests.delete(requestId);
+      console.warn("Carnival: native coupled geometry update failed", error);
+      resolve(false);
+    }
+  });
+}
+
 const controller = new CarnivalWorkspaceController(chrome, {
   nativeActivate: activateWindowsNatively,
   nativeAnimate: animateWindowsNatively,
+  nativeSetBounds: setWorkspaceBoundsNatively,
 });
 
 function reportDrawerState(state) {
@@ -173,7 +204,13 @@ chrome.action.onClicked.addListener(async () => {
   await workspaceActions.summon(display, "toolbar");
 });
 chrome.windows.onCreated.addListener(connectNativeHost);
-chrome.windows.onBoundsChanged.addListener(() => {
+chrome.windows.onBoundsChanged.addListener(async (window) => {
+  try {
+    const reconciled = await controller.reconcileWorkspace(window);
+    if (reconciled) reportDrawerState(reconciled);
+  } catch (error) {
+    console.error("Carnival coupled geometry reconciliation failed", error);
+  }
   clearTimeout(geometrySaveTimer);
   geometrySaveTimer = setTimeout(async () => {
     geometrySaveTimer = null;

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   CarnivalWorkspaceController,
+  coupledWorkspaceLayout,
   DEFAULT_CONTEXT_URL,
   defaultWorkspaceLayout,
   effectiveRetractThreshold,
@@ -86,17 +87,17 @@ test("default workspace is a left PlayHouse 60/40 split across the monitor work 
   });
 });
 
-test("valid saved geometry is restored exactly on the same work area", () => {
+test("saved widths are restored left-anchored at full monitor height", () => {
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
   assert.deepEqual(restoredWorkspaceLayout({
-    contextBounds: { height: 800, left: 960, top: 30, width: 640 },
+    contextBounds: { height: 800, left: 900, top: 30, width: 500 },
     layoutVersion: 2,
     monitorId: "display-1",
-    playhouseBounds: { height: 800, left: 0, top: 30, width: 960 },
+    playhouseBounds: { height: 800, left: 0, top: 30, width: 900 },
     workArea,
   }, workArea, "chrome-display-1"), {
-    context: { height: 800, left: 960, top: 30, width: 640 },
-    playhouse: { height: 800, left: 0, top: 30, width: 960 },
+    context: { height: 900, left: 900, top: 0, width: 500 },
+    playhouse: { height: 900, left: 0, top: 0, width: 900 },
   });
 });
 
@@ -113,9 +114,50 @@ test("missing-monitor geometry is normalized onto the current work area with its
 
   assert.equal(restored.playhouse.left, workArea.left);
   assert.equal(restored.playhouse.top, workArea.top);
+  assert.equal(restored.playhouse.width, 720);
+  assert.equal(restored.context.width, 880);
+  assert.equal(restored.context.left, restored.playhouse.left + restored.playhouse.width);
+  assert.equal(restored.context.top, workArea.top);
+  assert.equal(restored.context.height, workArea.height);
   assert.equal(restored.context.left + restored.context.width <= workArea.left + workArea.width, true);
   assert.ok(Math.abs(restored.playhouse.width /
     (restored.playhouse.width + restored.context.width) - 0.45) < 0.01);
+});
+
+test("coupled resize preserves a 900/600 ratio when shrinking and growing", () => {
+  const workArea = { height: 900, left: 0, top: 0, width: 2000 };
+  assert.deepEqual(coupledWorkspaceLayout(workArea, 900, 600, 1400), {
+    context: { height: 900, left: 840, top: 0, width: 560 },
+    playhouse: { height: 900, left: 0, top: 0, width: 840 },
+  });
+  assert.deepEqual(coupledWorkspaceLayout(workArea, 900, 600, 1600), {
+    context: { height: 900, left: 960, top: 0, width: 640 },
+    playhouse: { height: 900, left: 0, top: 0, width: 960 },
+  });
+});
+
+test("a narrower monitor shrinks saved widths proportionally only enough to fit", () => {
+  const layout = coupledWorkspaceLayout(
+    { height: 700, left: 100, top: 20, width: 1200 },
+    900,
+    600,
+  );
+  assert.deepEqual(layout, {
+    context: { height: 700, left: 759, top: 20, width: 440 },
+    playhouse: { height: 700, left: 100, top: 20, width: 659 },
+  });
+});
+
+test("coupled resizing enforces the PH and Aux minimum widths", () => {
+  const layout = coupledWorkspaceLayout(
+    { height: 900, left: 0, top: 0, width: 1600 },
+    900,
+    600,
+    100,
+  );
+  assert.equal(layout.playhouse.width, 400);
+  assert.equal(layout.context.width, 320);
+  assert.equal(layout.playhouse.width + layout.context.width, 720);
 });
 
 test("invalid or swapped saved geometry falls back to the fresh 60/40 layout", () => {
@@ -187,6 +229,67 @@ test("a missing workspace side is repaired without duplicating the surviving win
   assert.notEqual(repaired.contextWindowId, first.contextWindowId);
 });
 
+test("Aux outer-edge resize proportionally updates both connected windows", async () => {
+  const chrome = fakeChrome();
+  const updates = [];
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    nativeSetBounds: async (update) => {
+      updates.push(update);
+      return true;
+    },
+  });
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  const changedContext = { height: 900, id: opened.contextWindowId, left: 899, top: 0, width: 500 };
+  chrome.resizeWindow(opened.contextWindowId, changedContext);
+
+  const reconciled = await workspace.reconcileWorkspace(changedContext);
+
+  assert.deepEqual(updates.at(-1).target, {
+    context: { height: 900, left: 839, top: 0, width: 560 },
+    playhouse: { height: 900, left: 0, top: 0, width: 839 },
+  });
+  assert.equal(reconciled.playhouseBounds.left + reconciled.playhouseBounds.width,
+    reconciled.contextBounds.left);
+  assert.equal(reconciled.playhouseBounds.top, reconciled.contextBounds.top);
+  assert.equal(reconciled.playhouseBounds.height, reconciled.contextBounds.height);
+  assert.equal(await workspace.reconcileWorkspace({
+    ...updates.at(-1).target.context,
+    id: opened.contextWindowId,
+  }), null);
+  assert.equal(updates.length, 1);
+});
+
+test("PH resize and independent window movement reconcile to the anchored saved layout", async () => {
+  const scenarios = [
+    { role: "playhouse", bounds: { height: 900, left: 100, top: 20, width: 820 } },
+    { role: "playhouse", bounds: { height: 900, left: 180, top: 20, width: 899 } },
+    { role: "context", bounds: { height: 900, left: 1050, top: 20, width: 500 } },
+  ];
+  for (const { bounds, role } of scenarios) {
+    const chrome = fakeChrome();
+    const updates = [];
+    const workspace = new CarnivalWorkspaceController(chrome, {
+      nativeSetBounds: async (update) => {
+        updates.push(update);
+        return true;
+      },
+    });
+    const workArea = { height: 900, left: 100, top: 20, width: 1600 };
+    const opened = await workspace.summon(workArea, "display-1");
+    const id = role === "playhouse" ? opened.playhouseWindowId : opened.contextWindowId;
+    const changed = { ...bounds, id };
+    chrome.resizeWindow(id, changed);
+
+    await workspace.reconcileWorkspace(changed);
+
+    assert.deepEqual(updates.at(-1).target, {
+      context: { height: 900, left: 999, top: 20, width: 600 },
+      playhouse: { height: 900, left: 100, top: 20, width: 899 },
+    });
+  }
+});
+
 test("both closed workspace windows are recreated with saved geometry and context", async () => {
   const chrome = fakeChrome();
   const animations = [];
@@ -200,15 +303,15 @@ test("both closed workspace windows are recreated with saved geometry and contex
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
   const first = await workspace.summon(workArea, "display-1");
   chrome.resizeWindow(first.playhouseWindowId, {
-    height: 820,
-    left: 10,
-    top: 20,
+    height: 900,
+    left: 0,
+    top: 0,
     width: 700,
   });
   chrome.resizeWindow(first.contextWindowId, {
-    height: 820,
-    left: 710,
-    top: 20,
+    height: 900,
+    left: 700,
+    top: 0,
     width: 730,
   });
   await workspace.rememberVisibleBounds();
@@ -226,15 +329,15 @@ test("both closed workspace windows are recreated with saved geometry and contex
     "https://calendar.google.com/calendar/u/0/r/week",
   );
   assert.deepEqual(animations.at(-1).playhouse.to, {
-    height: 820,
-    left: 10,
-    top: 20,
+    height: 900,
+    left: 0,
+    top: 0,
     width: 700,
   });
   assert.deepEqual(animations.at(-1).context.to, {
-    height: 820,
-    left: 710,
-    top: 20,
+    height: 900,
+    left: 700,
+    top: 0,
     width: 730,
   });
   assert.equal(chrome.calls.createWindow.some(({ left }) => left < workArea.left), false);
@@ -246,16 +349,16 @@ test("user-resized bounds are restored on the same monitor", async () => {
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
   const first = await workspace.summon(workArea, "display-1");
   chrome.resizeWindow(first.playhouseWindowId, {
-    height: 820,
-    left: 20,
-    top: 30,
+    height: 900,
+    left: 0,
+    top: 0,
     width: 720,
   });
   chrome.resizeWindow(first.contextWindowId, {
-    height: 820,
-    left: 740,
-    top: 30,
-    width: 840,
+    height: 900,
+    left: 720,
+    top: 0,
+    width: 680,
   });
   await workspace.rememberVisibleBounds();
 
@@ -266,7 +369,7 @@ test("user-resized bounds are restored on the same monitor", async () => {
   });
   assert.deepEqual(
     chrome.calls.updateWindow.filter(({ id, options }) => id === first.playhouseWindowId && options.width).at(-1)?.options,
-    { focused: false, height: 820, left: 20, state: "normal", top: 30, width: 720 },
+    { focused: false, height: 900, left: 0, state: "normal", top: 0, width: 720 },
   );
 });
 
@@ -283,21 +386,21 @@ test("saved user widths survive retract, reopen, and controller restart", async 
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
   const first = await workspace.summon(workArea, "display-1");
   chrome.resizeWindow(first.playhouseWindowId, {
-    height: 820,
-    left: 10,
-    top: 20,
+    height: 900,
+    left: 0,
+    top: 0,
     width: 700,
   });
   chrome.resizeWindow(first.contextWindowId, {
-    height: 820,
-    left: 710,
-    top: 20,
+    height: 900,
+    left: 700,
+    top: 0,
     width: 730,
   });
   await workspace.rememberVisibleBounds();
   const resizedState = await workspace.state();
-  assert.equal(resizedState.contextBounds.left + resizedState.contextBounds.width, 1440);
-  assert.equal(effectiveRetractThreshold(1440, 1600), 1540);
+  assert.equal(resizedState.contextBounds.left + resizedState.contextBounds.width, 1430);
+  assert.equal(effectiveRetractThreshold(1430, 1600), 1530);
   await workspace.retract();
 
   workspace = new CarnivalWorkspaceController(chrome, {
@@ -310,15 +413,15 @@ test("saved user widths survive retract, reopen, and controller restart", async 
   await workspace.summon(workArea, "display-1");
 
   assert.deepEqual(animations.at(-1).playhouse.to, {
-    height: 820,
-    left: 10,
-    top: 20,
+    height: 900,
+    left: 0,
+    top: 0,
     width: 700,
   });
   assert.deepEqual(animations.at(-1).context.to, {
-    height: 820,
-    left: 710,
-    top: 20,
+    height: 900,
+    left: 700,
+    top: 0,
     width: 730,
   });
 });
