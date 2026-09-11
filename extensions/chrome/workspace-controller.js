@@ -11,6 +11,11 @@ const DEFAULT_PLAYHOUSE_RATIO = 0.6;
 export const MIN_PLAYHOUSE_WIDTH = 400;
 export const MIN_CONTEXT_WIDTH = 320;
 const GEOMETRY_TOLERANCE_PX = 4;
+const GEOMETRY_STATE = Object.freeze({
+  IDLE: "IDLE",
+  PROGRAMMATIC_UPDATE: "PROGRAMMATIC_UPDATE",
+  RESIZING: "RESIZING",
+});
 
 function validInteger(value) {
   return Number.isInteger(value) && value >= 0;
@@ -153,8 +158,7 @@ export class CarnivalWorkspaceController {
     this.nativeSetBounds = options.nativeSetBounds ?? null;
     this.movingWindowIds = new Set();
     this.programmaticBounds = new Map();
-    this.nativeResizeInProgress = false;
-    this.reconciling = false;
+    this.geometryState = GEOMETRY_STATE.IDLE;
     this.transitioning = false;
   }
 
@@ -300,47 +304,54 @@ export class CarnivalWorkspaceController {
     return true;
   }
 
-  setNativeResizeInProgress(inProgress) {
-    this.nativeResizeInProgress = inProgress;
+  beginNativeResize() {
+    if (this.geometryState !== GEOMETRY_STATE.IDLE) return false;
+    this.programmaticBounds.clear();
+    this.geometryState = GEOMETRY_STATE.RESIZING;
+    return true;
   }
 
   async completeNativeResize({ context, playhouse }) {
-    this.nativeResizeInProgress = false;
-    const state = await this.state();
-    const nextBounds = {
-      context: storedBounds(context),
-      playhouse: storedBounds(playhouse),
-    };
-    if (state.drawerState !== "open" || !validWorkArea(state.workArea) ||
-      !nextBounds.playhouse || !nextBounds.context ||
-      !boundsFitWorkArea(nextBounds.playhouse, state.workArea) ||
-      !boundsFitWorkArea(nextBounds.context, state.workArea)) return null;
-    const authoritative = coupledWorkspaceLayout(
-      state.workArea,
-      nextBounds.playhouse.width,
-      nextBounds.context.width,
-      nextBounds.playhouse.width + nextBounds.context.width,
-    );
-    if (!boundsMatch(nextBounds.playhouse, authoritative.playhouse) ||
-      !boundsMatch(nextBounds.context, authoritative.context)) return null;
-    this.programmaticBounds.set(state.playhouseWindowId, authoritative.playhouse);
-    this.programmaticBounds.set(state.contextWindowId, authoritative.context);
-    const nextState = {
-      ...state,
-      contextBounds: authoritative.context,
-      playhouseBounds: authoritative.playhouse,
-      savedVisibleBounds: authoritative,
-    };
-    await this.save(nextState);
-    this.logger.info?.("Carnival: saved final native resize bounds");
-    return nextState;
+    if (this.geometryState !== GEOMETRY_STATE.RESIZING) return null;
+    try {
+      const state = await this.state();
+      const nextBounds = {
+        context: storedBounds(context),
+        playhouse: storedBounds(playhouse),
+      };
+      if (state.drawerState !== "open" || !validWorkArea(state.workArea) ||
+        !nextBounds.playhouse || !nextBounds.context ||
+        !boundsFitWorkArea(nextBounds.playhouse, state.workArea) ||
+        !boundsFitWorkArea(nextBounds.context, state.workArea)) return null;
+      const authoritative = coupledWorkspaceLayout(
+        state.workArea,
+        nextBounds.playhouse.width,
+        nextBounds.context.width,
+        nextBounds.playhouse.width + nextBounds.context.width,
+      );
+      if (!boundsMatch(nextBounds.playhouse, authoritative.playhouse) ||
+        !boundsMatch(nextBounds.context, authoritative.context)) return null;
+      this.programmaticBounds.set(state.playhouseWindowId, authoritative.playhouse);
+      this.programmaticBounds.set(state.contextWindowId, authoritative.context);
+      const nextState = {
+        ...state,
+        contextBounds: authoritative.context,
+        playhouseBounds: authoritative.playhouse,
+        savedVisibleBounds: authoritative,
+      };
+      await this.save(nextState);
+      this.logger.info?.("Carnival: saved final native resize bounds");
+      return nextState;
+    } finally {
+      this.geometryState = GEOMETRY_STATE.IDLE;
+    }
   }
 
   async reconcileWorkspace(changedWindow) {
-    if (this.nativeResizeInProgress || this.reconciling || this.transitioning ||
-      this.movingWindowIds.has(changedWindow.id) ||
-      this.consumeProgrammaticBounds(changedWindow)) return null;
-    this.reconciling = true;
+    if (this.transitioning || this.movingWindowIds.has(changedWindow.id) ||
+      this.consumeProgrammaticBounds(changedWindow) ||
+      this.geometryState !== GEOMETRY_STATE.IDLE) return null;
+    this.geometryState = GEOMETRY_STATE.PROGRAMMATIC_UPDATE;
     try {
       const state = await this.state();
       if (state.drawerState !== "open" || !validWorkArea(state.workArea)) return null;
@@ -351,18 +362,11 @@ export class CarnivalWorkspaceController {
         existingWindow(this.chrome, state.contextWindowId),
       ]);
       if (!playhouseWindow || !contextWindow) return null;
-      const authorizedContextResize = changedWindow.id === state.contextWindowId &&
-        Math.abs(changedWindow.left - saved.context.left) <= GEOMETRY_TOLERANCE_PX &&
-        Math.abs(changedWindow.top - saved.context.top) <= GEOMETRY_TOLERANCE_PX &&
-        Math.abs(changedWindow.height - saved.context.height) <= GEOMETRY_TOLERANCE_PX;
-      const requestedTotal = authorizedContextResize
-        ? changedWindow.left + changedWindow.width - state.workArea.left
-        : saved.playhouse.width + saved.context.width;
       const target = coupledWorkspaceLayout(
         state.workArea,
         saved.playhouse.width,
         saved.context.width,
-        requestedTotal,
+        saved.playhouse.width + saved.context.width,
       );
       const current = {
         context: currentBounds(contextWindow, saved.context),
@@ -380,7 +384,7 @@ export class CarnivalWorkspaceController {
       }
       return { ...state, contextBounds: target.context, playhouseBounds: target.playhouse };
     } finally {
-      this.reconciling = false;
+      this.geometryState = GEOMETRY_STATE.IDLE;
     }
   }
 
@@ -506,7 +510,8 @@ export class CarnivalWorkspaceController {
   }
 
   async rememberVisibleBounds() {
-    if (this.nativeResizeInProgress || this.transitioning || this.movingWindowIds.size > 0) return null;
+    if (this.geometryState !== GEOMETRY_STATE.IDLE || this.transitioning ||
+      this.movingWindowIds.size > 0) return null;
     const state = await this.state();
     if (state.drawerState !== "open" || !validWorkArea(state.workArea)) return null;
     const [playhouseWindow, contextWindow] = await Promise.all([

@@ -12,7 +12,7 @@ using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
-    private const string HostMarker = "DRAWER-HOST-5";
+    private const string HostMarker = "DRAWER-HOST-6";
     private const int AnimationFramesPerSecond = 60;
     private const int HotCornerMaximumOffsetPixels = 4;
     private const int DwellMilliseconds = 200;
@@ -38,13 +38,14 @@ internal static class CarnivalWorkspaceHost
     private static readonly string PipeName = "CarnivalDesktopWorkspace-" + SafePipeSuffix();
     private static NamedPipeServerStream chromePipe;
     private static bool drawerOpen;
-    private static int contextRight;
+    private static PanelGeometryState panelGeometryState = PanelGeometryState.Idle;
+    private static int? offsetPointX;
     private static int configuredMonitorRight;
     private static int configuredMonitorTop;
     private static int configuredMonitorBottom;
     private static IntPtr playhouseHandle;
     private static IntPtr contextHandle;
-    private static ResizeSession resizeSession;
+    private static PanelResizeSession panelResizeSession;
     private static string pendingSummon;
     private static DateTime pendingSummonQueuedAt;
     private static DateTime pendingSummonSentAt;
@@ -79,15 +80,28 @@ internal static class CarnivalWorkspaceHost
         public Rect Rect;
     }
 
-    private sealed class ResizeSession
+    private enum PanelGeometryState
+    {
+        Idle,
+        Resizing,
+        ProgrammaticUpdate,
+    }
+
+    private sealed class PanelResizeSession
     {
         public IntPtr PlayhouseHandle;
         public IntPtr ContextHandle;
-        public int WorkspaceLeft;
+        public int PanelLeft;
         public int Top;
         public int Height;
         public int MonitorRight;
+        public int StartPlayhouseWidth;
+        public int StartContextWidth;
+        public int StartTotalWidth;
         public double PlayhouseRatio;
+        public double ContextRatio;
+        public int MinimumPanelRight;
+        public int MaximumPanelRight;
         public WindowBounds PlayhouseBounds;
         public WindowBounds ContextBounds;
     }
@@ -458,35 +472,27 @@ internal static class CarnivalWorkspaceHost
                 }
 
                 var leftButtonDown = (GetAsyncKeyState(VirtualKeyLeftButton) & 0x8000) != 0;
-                var suppressRetract = UpdateCoupledResize(pointer, leftButtonDown,
+                AdvancePanelResize(pointer, leftButtonDown,
                     leftButtonDown && !leftButtonWasDown);
                 leftButtonWasDown = leftButtonDown;
 
                 bool open;
-                int rightEdge;
+                int? currentOffsetPoint;
+                PanelGeometryState geometryState;
                 int monitorRight;
                 int monitorTop;
                 int monitorBottom;
-                IntPtr currentContextHandle;
                 lock (StateLock)
                 {
                     open = drawerOpen;
-                    rightEdge = contextRight;
+                    currentOffsetPoint = offsetPointX;
+                    geometryState = panelGeometryState;
                     monitorRight = configuredMonitorRight;
                     monitorTop = configuredMonitorTop;
                     monitorBottom = configuredMonitorBottom;
-                    currentContextHandle = contextHandle;
                 }
-                Rect liveContextRect;
-                if (open && currentContextHandle != IntPtr.Zero &&
-                    GetWindowRect(currentContextHandle, out liveContextRect))
-                {
-                    rightEdge = liveContextRect.Right;
-                    lock (StateLock) { contextRight = rightEdge; }
-                }
-                var retractThreshold = EffectiveRetractThreshold(rightEdge, monitorRight);
-                var inRetractZone = ShouldEnterRetract(open, suppressRetract, pointer.X,
-                    pointer.Y, retractThreshold, monitorTop, monitorBottom);
+                var inRetractZone = ShouldEnterRetract(open, geometryState, currentOffsetPoint,
+                    pointer.X, pointer.Y, monitorRight, monitorTop, monitorBottom);
                 if (!inRetractZone)
                 {
                     if (retractCandidateActive) WriteDiagnostic("retract zone candidate cancelled");
@@ -713,7 +719,9 @@ internal static class CarnivalWorkspaceHost
             lock (StateLock)
             {
                 drawerOpen = false;
-                resizeSession = null;
+                panelResizeSession = null;
+                panelGeometryState = PanelGeometryState.Idle;
+                offsetPointX = null;
             }
             WriteDiagnostic("workspace state received: retracted");
             return;
@@ -736,13 +744,14 @@ internal static class CarnivalWorkspaceHost
         var mappedContext = ClosestWindow(windows, new[] { parsedContext }, mappedPlayhouse);
         lock (StateLock)
         {
-            contextRight = parsedContextRight;
+            if (panelGeometryState != PanelGeometryState.Idle) return;
             configuredMonitorRight = parsedMonitorRight;
             configuredMonitorTop = parsedMonitorTop;
             configuredMonitorBottom = parsedMonitorBottom;
             playhouseHandle = mappedPlayhouse;
             contextHandle = mappedContext;
             drawerOpen = true;
+            offsetPointX = parsedContextRight + RetractOffsetPixels;
         }
         var retractThreshold = EffectiveRetractThreshold(parsedContextRight, parsedMonitorRight);
         WriteDiagnostic(string.Format(CultureInfo.InvariantCulture,
@@ -752,85 +761,126 @@ internal static class CarnivalWorkspaceHost
             WriteDiagnostic("retract threshold clamped to reachable monitor edge");
     }
 
-    private static bool UpdateCoupledResize(Point pointer, bool leftButtonDown, bool justPressed)
+    private static void AdvancePanelResize(Point pointer, bool leftButtonDown, bool justPressed)
     {
-        if (justPressed) TryStartCoupledResize(pointer);
-        ResizeSession session;
-        lock (StateLock) { session = resizeSession; }
-        if (session == null) return false;
+        if (justPressed) TryStartPanelResize(pointer);
+        PanelResizeSession session;
+        PanelGeometryState state;
+        lock (StateLock)
+        {
+            session = panelResizeSession;
+            state = panelGeometryState;
+        }
+        if (session == null || (state != PanelGeometryState.Resizing &&
+            state != PanelGeometryState.ProgrammaticUpdate)) return;
         if (!leftButtonDown)
         {
-            ApplyCoupledResize(session, pointer.X);
-            FinishCoupledResize(session);
-            return true;
+            ApplyPanelResize(session, pointer.X);
+            FinishPanelResize(session);
+            return;
         }
-        ApplyCoupledResize(session, pointer.X);
-        return true;
+        ApplyPanelResize(session, pointer.X);
     }
 
-    private static void TryStartCoupledResize(Point pointer)
+    private static void TryStartPanelResize(Point pointer)
     {
         bool open;
         IntPtr playhouse;
         IntPtr context;
         int monitorRight;
+        PanelGeometryState state;
         lock (StateLock)
         {
             open = drawerOpen;
             playhouse = playhouseHandle;
             context = contextHandle;
             monitorRight = configuredMonitorRight;
+            state = panelGeometryState;
         }
         Rect playhouseRect;
         Rect contextRect;
-        if (!open || playhouse == IntPtr.Zero || context == IntPtr.Zero ||
+        if (!open || state != PanelGeometryState.Idle || playhouse == IntPtr.Zero || context == IntPtr.Zero ||
             !IsWindow(playhouse) || !IsWindow(context) ||
             !GetWindowRect(playhouse, out playhouseRect) || !GetWindowRect(context, out contextRect) ||
             Math.Abs(pointer.X - contextRect.Right) > ResizeEdgeTolerancePixels ||
             pointer.Y < contextRect.Top || pointer.Y >= contextRect.Bottom ||
-            Math.Abs(playhouseRect.Right - contextRect.Left) > ResizeEdgeTolerancePixels) return;
+            !ConnectedRects(playhouseRect, contextRect)) return;
+        var session = CreatePanelResizeSession(playhouse, context, playhouseRect, contextRect, monitorRight);
+        if (session == null) return;
+        lock (StateLock)
+        {
+            if (panelGeometryState != PanelGeometryState.Idle) return;
+            panelResizeSession = session;
+            panelGeometryState = PanelGeometryState.Resizing;
+            offsetPointX = null;
+        }
+        SendToChrome("{\"type\":\"liveResizeStarted\"}");
+        WriteDiagnostic(string.Format(CultureInfo.InvariantCulture,
+            "panel resize started total={0} phRatio={1:F4} auxRatio={2:F4} minRight={3} maxRight={4}",
+            session.StartTotalWidth, session.PlayhouseRatio, session.ContextRatio,
+            session.MinimumPanelRight, session.MaximumPanelRight));
+    }
+
+    private static PanelResizeSession CreatePanelResizeSession(IntPtr playhouse, IntPtr context,
+        Rect playhouseRect, Rect contextRect, int monitorRight)
+    {
         var playhouseWidth = playhouseRect.Right - playhouseRect.Left;
         var contextWidth = contextRect.Right - contextRect.Left;
         var total = playhouseWidth + contextWidth;
-        if (total <= 0) return;
-        var session = new ResizeSession
+        if (total <= 0 || playhouseWidth <= 0 || contextWidth <= 0) return null;
+        var playhouseRatio = playhouseWidth / (double)total;
+        var contextRatio = contextWidth / (double)total;
+        var maximumPanelRight = monitorRight - RetractOffsetPixels;
+        var minimumTotal = Math.Max(
+            (int)Math.Ceiling(MinimumPlayHouseWidth / playhouseRatio),
+            (int)Math.Ceiling(MinimumContextWidth / contextRatio));
+        var minimumPanelRight = Math.Min(maximumPanelRight, playhouseRect.Left + minimumTotal);
+        return new PanelResizeSession
         {
             ContextHandle = context,
+            ContextRatio = contextRatio,
             Height = playhouseRect.Bottom - playhouseRect.Top,
+            MaximumPanelRight = maximumPanelRight,
+            MinimumPanelRight = minimumPanelRight,
             MonitorRight = monitorRight,
+            PanelLeft = playhouseRect.Left,
             PlayhouseHandle = playhouse,
-            PlayhouseRatio = playhouseWidth / (double)total,
+            PlayhouseRatio = playhouseRatio,
+            StartContextWidth = contextWidth,
+            StartPlayhouseWidth = playhouseWidth,
+            StartTotalWidth = total,
             Top = playhouseRect.Top,
-            WorkspaceLeft = playhouseRect.Left,
         };
-        lock (StateLock) { resizeSession = session; }
-        SendToChrome("{\"type\":\"liveResizeStarted\"}");
-        WriteDiagnostic(string.Format(CultureInfo.InvariantCulture,
-            "live coupled resize started ratio={0:F4}", session.PlayhouseRatio));
     }
 
-    private static void ApplyCoupledResize(ResizeSession session, int draggedRight)
+    private static void ApplyPanelResize(PanelResizeSession session, int draggedRight)
     {
-        var bounds = CalculateCoupledBounds(session, draggedRight);
-        if (!MovePair(session.PlayhouseHandle, bounds.Playhouse, session.ContextHandle, bounds.Context)) return;
-        session.PlayhouseBounds = bounds.Playhouse;
-        session.ContextBounds = bounds.Context;
         lock (StateLock)
         {
-            contextRight = bounds.Context.Left + bounds.Context.Width;
+            if (!ReferenceEquals(panelResizeSession, session) ||
+                panelGeometryState != PanelGeometryState.Resizing) return;
+            panelGeometryState = PanelGeometryState.ProgrammaticUpdate;
+        }
+        var bounds = CalculatePanelBounds(session, draggedRight);
+        var success = MovePair(session.PlayhouseHandle, bounds.Playhouse,
+            session.ContextHandle, bounds.Context);
+        lock (StateLock)
+        {
+            if (!ReferenceEquals(panelResizeSession, session)) return;
+            if (success)
+            {
+                session.PlayhouseBounds = bounds.Playhouse;
+                session.ContextBounds = bounds.Context;
+            }
+            panelGeometryState = PanelGeometryState.Resizing;
         }
     }
 
-    private static CoupledBounds CalculateCoupledBounds(ResizeSession session, int draggedRight)
+    private static CoupledBounds CalculatePanelBounds(PanelResizeSession session, int draggedRight)
     {
-        var maximumRight = session.MonitorRight - RetractOffsetPixels;
-        var minimumTotal = Math.Max(
-            (int)Math.Ceiling(MinimumPlayHouseWidth / session.PlayhouseRatio),
-            (int)Math.Ceiling(MinimumContextWidth / (1.0 - session.PlayhouseRatio)));
-        var maximumTotal = Math.Max(1, maximumRight - session.WorkspaceLeft);
-        minimumTotal = Math.Min(minimumTotal, maximumTotal);
-        var total = Math.Max(minimumTotal,
-            Math.Min(draggedRight - session.WorkspaceLeft, maximumTotal));
+        var panelRight = Math.Max(session.MinimumPanelRight,
+            Math.Min(draggedRight, session.MaximumPanelRight));
+        var total = panelRight - session.PanelLeft;
         var playhouseWidth = (int)Math.Round(total * session.PlayhouseRatio,
             MidpointRounding.AwayFromZero);
         return new CoupledBounds
@@ -838,14 +888,14 @@ internal static class CarnivalWorkspaceHost
             Playhouse = new WindowBounds
             {
                 Height = session.Height,
-                Left = session.WorkspaceLeft,
+                Left = session.PanelLeft,
                 Top = session.Top,
                 Width = playhouseWidth,
             },
             Context = new WindowBounds
             {
                 Height = session.Height,
-                Left = session.WorkspaceLeft + playhouseWidth,
+                Left = session.PanelLeft + playhouseWidth,
                 Top = session.Top,
                 Width = total - playhouseWidth,
             },
@@ -857,33 +907,75 @@ internal static class CarnivalWorkspaceHost
         return Math.Min(rightEdge + RetractOffsetPixels, monitorRight - 1);
     }
 
-    private static bool ShouldEnterRetract(bool open, bool resizing, int pointerX, int pointerY,
-        int threshold, int monitorTop, int monitorBottom)
+    private static bool ShouldEnterRetract(bool open, PanelGeometryState state, int? currentOffsetPoint,
+        int pointerX, int pointerY, int monitorRight, int monitorTop, int monitorBottom)
     {
-        return open && !resizing && pointerX >= threshold &&
+        if (!currentOffsetPoint.HasValue) return false;
+        var threshold = Math.Min(currentOffsetPoint.Value, monitorRight - 1);
+        return open && state == PanelGeometryState.Idle && pointerX >= threshold &&
                pointerY >= monitorTop && pointerY < monitorBottom;
     }
 
-    private static void FinishCoupledResize(ResizeSession session)
+    private static void FinishPanelResize(PanelResizeSession session)
     {
+        var playhouseRect = new Rect();
+        var contextRect = new Rect();
+        var actualValid = GetWindowRect(session.PlayhouseHandle, out playhouseRect) &&
+            GetWindowRect(session.ContextHandle, out contextRect) &&
+            ConnectedRects(playhouseRect, contextRect);
+        if (!actualValid && session.PlayhouseBounds != null && session.ContextBounds != null)
+        {
+            lock (StateLock) { panelGeometryState = PanelGeometryState.ProgrammaticUpdate; }
+            MovePair(session.PlayhouseHandle, session.PlayhouseBounds,
+                session.ContextHandle, session.ContextBounds);
+            actualValid = GetWindowRect(session.PlayhouseHandle, out playhouseRect) &&
+                GetWindowRect(session.ContextHandle, out contextRect) &&
+                ConnectedRects(playhouseRect, contextRect);
+        }
+        var playhouseBounds = actualValid ? BoundsFromRect(playhouseRect) : null;
+        var contextBounds = actualValid ? BoundsFromRect(contextRect) : null;
         lock (StateLock)
         {
-            if (!ReferenceEquals(resizeSession, session)) return;
-            resizeSession = null;
+            if (!ReferenceEquals(panelResizeSession, session)) return;
+            panelResizeSession = null;
+            panelGeometryState = PanelGeometryState.Idle;
+            offsetPointX = actualValid
+                ? contextBounds.Left + contextBounds.Width + RetractOffsetPixels
+                : (int?)null;
         }
-        if (session.PlayhouseBounds == null || session.ContextBounds == null)
+        if (!actualValid)
         {
             SendToChrome("{\"type\":\"liveResizeComplete\"}");
-            WriteDiagnostic("live coupled resize ended without applied bounds");
+            WriteDiagnostic("panel resize ended without valid connected bounds");
             return;
         }
         SendToChrome(string.Format(CultureInfo.InvariantCulture,
             "{{\"type\":\"liveResizeComplete\",\"playhouse\":{{\"left\":{0},\"top\":{1},\"width\":{2},\"height\":{3}}}," +
             "\"context\":{{\"left\":{4},\"top\":{5},\"width\":{6},\"height\":{7}}}}}",
-            session.PlayhouseBounds.Left, session.PlayhouseBounds.Top, session.PlayhouseBounds.Width,
-            session.PlayhouseBounds.Height, session.ContextBounds.Left, session.ContextBounds.Top,
-            session.ContextBounds.Width, session.ContextBounds.Height));
-        WriteDiagnostic("live coupled resize complete");
+            playhouseBounds.Left, playhouseBounds.Top, playhouseBounds.Width,
+            playhouseBounds.Height, contextBounds.Left, contextBounds.Top,
+            contextBounds.Width, contextBounds.Height));
+        WriteDiagnostic(string.Format(CultureInfo.InvariantCulture,
+            "panel resize complete phWidth={0} auxWidth={1} offsetPoint={2}",
+            playhouseBounds.Width, contextBounds.Width,
+            contextBounds.Left + contextBounds.Width + RetractOffsetPixels));
+    }
+
+    private static bool ConnectedRects(Rect playhouse, Rect context)
+    {
+        return playhouse.Right == context.Left && playhouse.Top == context.Top &&
+            playhouse.Bottom == context.Bottom;
+    }
+
+    private static WindowBounds BoundsFromRect(Rect rect)
+    {
+        return new WindowBounds
+        {
+            Height = rect.Bottom - rect.Top,
+            Left = rect.Left,
+            Top = rect.Top,
+            Width = rect.Right - rect.Left,
+        };
     }
 
     private static void ApplyAnimationRequest(string json)
@@ -903,8 +995,18 @@ internal static class CarnivalWorkspaceHost
                     ValidBounds(contextFrom) && ValidBounds(contextTo);
         var easeIn = Regex.IsMatch(json, "\\\"easing\\\"\\s*:\\s*\\\"in\\\"");
         WriteDiagnostic(easeIn ? "retract animation started" : "opening animation started");
-        var success = valid && AnimateChromeWindows(playhouseCurrent, playhouseFrom, playhouseTo,
+        bool geometryAvailable;
+        lock (StateLock)
+        {
+            geometryAvailable = panelGeometryState == PanelGeometryState.Idle;
+            if (geometryAvailable) panelGeometryState = PanelGeometryState.ProgrammaticUpdate;
+        }
+        var success = valid && geometryAvailable && AnimateChromeWindows(playhouseCurrent, playhouseFrom, playhouseTo,
             contextCurrent, contextFrom, contextTo, durationMs, easeIn);
+        lock (StateLock)
+        {
+            if (geometryAvailable) panelGeometryState = PanelGeometryState.Idle;
+        }
         WriteDiagnostic(string.Format(CultureInfo.InvariantCulture, "{0} animation {1}",
             easeIn ? "retract" : "opening", success ? "complete" : "failed"));
         SendToChrome(string.Format(CultureInfo.InvariantCulture,
@@ -931,6 +1033,13 @@ internal static class CarnivalWorkspaceHost
         var valid = TryReadInteger(json, "requestId", out requestId) &&
                     ValidBounds(playhouseCurrent) && ValidBounds(playhouseTarget) &&
                     ValidBounds(contextCurrent) && ValidBounds(contextTarget);
+        bool geometryAvailable;
+        lock (StateLock)
+        {
+            geometryAvailable = panelGeometryState == PanelGeometryState.Idle;
+            if (geometryAvailable) panelGeometryState = PanelGeometryState.ProgrammaticUpdate;
+        }
+        valid = valid && geometryAvailable;
         var windows = valid ? EnumerateChromeWindows() : new List<ChromeWindow>();
         var playhouse = valid
             ? ClosestWindow(windows, new[] { playhouseCurrent, playhouseTarget }, IntPtr.Zero)
@@ -940,6 +1049,10 @@ internal static class CarnivalWorkspaceHost
             : IntPtr.Zero;
         var success = playhouse != IntPtr.Zero && context != IntPtr.Zero &&
             MovePair(playhouse, playhouseTarget, context, contextTarget);
+        lock (StateLock)
+        {
+            if (geometryAvailable) panelGeometryState = PanelGeometryState.Idle;
+        }
         WriteDiagnostic("coupled workspace bounds " + (success ? "applied" : "failed"));
         SendToChrome(string.Format(CultureInfo.InvariantCulture,
             "{{\"type\":\"animationComplete\",\"requestId\":{0},\"ok\":{1}}}",
@@ -1104,14 +1217,18 @@ internal static class CarnivalWorkspaceHost
 
     private static void RunSelfTest()
     {
-        var session = new ResizeSession
-        {
-            Height = 900,
-            MonitorRight = 2000,
-            PlayhouseRatio = 0.6,
-            Top = 0,
-            WorkspaceLeft = 0,
-        };
+        var session = CreatePanelResizeSession(new IntPtr(1), new IntPtr(2),
+            new Rect { Left = 0, Top = 0, Right = 900, Bottom = 900 },
+            new Rect { Left = 900, Top = 0, Right = 1500, Bottom = 900 }, 2000);
+        AssertSelfTest(session != null, "valid connected panel must start a resize session");
+        AssertSelfTest(session.PanelLeft == 0 && session.StartPlayhouseWidth == 900 &&
+            session.StartContextWidth == 600 && session.StartTotalWidth == 1500,
+            "resize start must capture one complete geometry snapshot");
+        AssertSelfTest(Math.Abs(session.PlayhouseRatio - 0.6) < 0.0001 &&
+            Math.Abs(session.ContextRatio - 0.4) < 0.0001,
+            "resize start must freeze both panel ratios");
+        AssertSelfTest(session.MaximumPanelRight == 1900,
+            "resize maximum must reserve the 100px retract offset");
         var expected = new[]
         {
             new[] { 1450, 870, 580 },
@@ -1120,7 +1237,7 @@ internal static class CarnivalWorkspaceHost
         };
         foreach (var frame in expected)
         {
-            var bounds = CalculateCoupledBounds(session, frame[0]);
+            var bounds = CalculatePanelBounds(session, frame[0]);
             AssertSelfTest(bounds.Playhouse.Width == frame[1] && bounds.Context.Width == frame[2],
                 "frozen ratio must hold through every live frame");
             AssertSelfTest(bounds.Playhouse.Left + bounds.Playhouse.Width == bounds.Context.Left,
@@ -1128,18 +1245,28 @@ internal static class CarnivalWorkspaceHost
             AssertSelfTest(bounds.Context.Left + bounds.Context.Width == frame[0],
                 "Aux outer edge must track the dragged edge");
         }
-        var capped = CalculateCoupledBounds(session, 5000);
+        var capped = CalculatePanelBounds(session, 5000);
         AssertSelfTest(capped.Context.Left + capped.Context.Width == 1900,
             "drawer must stop 100px before monitor right");
+        var minimum = CalculatePanelBounds(session, -5000);
+        AssertSelfTest(minimum.Playhouse.Width >= MinimumPlayHouseWidth &&
+            minimum.Context.Width >= MinimumContextWidth,
+            "minimum clamp must keep both windows usable");
         AssertSelfTest(EffectiveRetractThreshold(1500, 2000) == 1600,
             "initial retract threshold must use current Aux edge");
         AssertSelfTest(EffectiveRetractThreshold(1650, 2000) == 1750,
             "expanded retract threshold must use live Aux edge");
-        AssertSelfTest(!ShouldEnterRetract(true, false, 1600, 100, 1750, 0, 900),
+        AssertSelfTest(!ShouldEnterRetract(true, PanelGeometryState.Idle, 1750,
+            1600, 100, 2000, 0, 900),
             "stale retract threshold must be ignored after expansion");
-        AssertSelfTest(!ShouldEnterRetract(true, true, 1800, 100, 1750, 0, 900),
+        AssertSelfTest(!ShouldEnterRetract(true, PanelGeometryState.Resizing, null,
+            1800, 100, 2000, 0, 900),
             "retract must be suppressed during live resize");
-        AssertSelfTest(ShouldEnterRetract(true, false, 1800, 100, 1750, 0, 900),
+        AssertSelfTest(!ShouldEnterRetract(true, PanelGeometryState.ProgrammaticUpdate, 1750,
+            1800, 100, 2000, 0, 900),
+            "retract must be suppressed during owned bounds updates");
+        AssertSelfTest(ShouldEnterRetract(true, PanelGeometryState.Idle, 1750,
+            1800, 100, 2000, 0, 900),
             "retract must resume after live resize");
         Console.WriteLine("Carnival Windows live resize self-test passed.");
     }

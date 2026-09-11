@@ -261,7 +261,7 @@ test("a missing workspace side is repaired without duplicating the surviving win
   assert.notEqual(repaired.contextWindowId, first.contextWindowId);
 });
 
-test("Aux outer-edge resize proportionally updates both connected windows", async () => {
+test("browser bounds changes outside a native session normalize to settled panel geometry", async () => {
   const chrome = fakeChrome();
   const updates = [];
   const workspace = new CarnivalWorkspaceController(chrome, {
@@ -277,10 +277,7 @@ test("Aux outer-edge resize proportionally updates both connected windows", asyn
 
   const reconciled = await workspace.reconcileWorkspace(changedContext);
 
-  assert.deepEqual(updates.at(-1).target, {
-    context: { height: 900, left: 839, top: 0, width: 560 },
-    playhouse: { height: 900, left: 0, top: 0, width: 839 },
-  });
+  assert.deepEqual(updates.at(-1).target, opened.savedVisibleBounds);
   assert.equal(reconciled.playhouseBounds.left + reconciled.playhouseBounds.width,
     reconciled.contextBounds.left);
   assert.equal(reconciled.playhouseBounds.top, reconciled.contextBounds.top);
@@ -303,7 +300,8 @@ test("native live resize suppresses intermediate reconciliation and persists onl
   });
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
   const opened = await workspace.summon(workArea, "display-1");
-  workspace.setNativeResizeInProgress(true);
+  assert.equal(workspace.beginNativeResize(), true);
+  assert.equal(workspace.beginNativeResize(), false);
   const intermediate = { height: 900, id: opened.contextWindowId, left: 840, top: 0, width: 560 };
   chrome.resizeWindow(opened.contextWindowId, intermediate);
 
@@ -320,6 +318,16 @@ test("native live resize suppresses intermediate reconciliation and persists onl
     context: { height: 900, left: 840, top: 0, width: 560 },
     playhouse: { height: 900, left: 0, top: 0, width: 840 },
   });
+  assert.equal(updates.length, 0);
+  assert.equal(await workspace.reconcileWorkspace({
+    ...settled.playhouseBounds,
+    id: opened.playhouseWindowId,
+  }), null);
+  assert.equal(await workspace.reconcileWorkspace({
+    ...settled.contextBounds,
+    id: opened.contextWindowId,
+  }), null);
+  assert.equal(updates.length, 0);
 });
 
 test("PH resize and independent window movement reconcile to the anchored saved layout", async () => {
