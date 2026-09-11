@@ -171,7 +171,7 @@ while !hostState.isClosed() {
         if let configuration = hostState.retractionConfiguration() {
             let primaryTop = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
             let chromePointerY = Int((primaryTop - pointer.y).rounded())
-            let threshold = min(configuration.contextRight + 150, configuration.monitorRight - 1)
+            let threshold = min(configuration.contextRight + 100, configuration.monitorRight - 1)
             let beyondRightEdge = Int(pointer.x.rounded()) >= threshold &&
                 chromePointerY >= configuration.monitorTop &&
                 chromePointerY < configuration.monitorBottom

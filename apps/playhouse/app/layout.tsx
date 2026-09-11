@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-COLDSTART-11
+          P3-GEOMETRY-FIX-12
         </small>
       </body>
     </html>

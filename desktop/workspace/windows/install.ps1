@@ -12,6 +12,7 @@ $installDirectory = Join-Path $env:LOCALAPPDATA 'Carnival\DesktopWorkspace'
 $hostExecutable = Join-Path $installDirectory 'CarnivalWorkspaceHost.exe'
 $temporaryExecutable = Join-Path $installDirectory 'CarnivalWorkspaceHost.new.exe'
 $manifestPath = Join-Path $installDirectory "$hostName.json"
+$registryPath = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$hostName"
 
 New-Item -ItemType Directory -Force -Path $installDirectory | Out-Null
 if (Test-Path -LiteralPath $temporaryExecutable) {
@@ -29,16 +30,35 @@ if ($LASTEXITCODE -ne 0) {
   throw 'Carnival native host compilation failed.'
 }
 
-Get-Process -Name 'CarnivalWorkspaceHost' -ErrorAction SilentlyContinue |
-  Where-Object { $_.Path -eq $hostExecutable } |
-  ForEach-Object {
-    Stop-Process -Id $_.Id -Force
-    Wait-Process -Id $_.Id -Timeout 5 -ErrorAction SilentlyContinue
-  }
-if (Test-Path -LiteralPath $hostExecutable) {
-  Remove-Item -LiteralPath $hostExecutable -Force
+if (Test-Path -LiteralPath $registryPath) {
+  Remove-Item -LiteralPath $registryPath -Recurse -Force
 }
-Move-Item -LiteralPath $temporaryExecutable -Destination $hostExecutable
+$stopDeadline = [DateTime]::UtcNow.AddSeconds(10)
+do {
+  $hostProcesses = @(
+    Get-CimInstance Win32_Process -Filter "Name='CarnivalWorkspaceHost.exe'" |
+      Where-Object { $_.ExecutablePath -eq $hostExecutable }
+  )
+  foreach ($hostProcess in $hostProcesses) {
+    Stop-Process -Id $hostProcess.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+  if ($hostProcesses.Count -gt 0) { Start-Sleep -Milliseconds 100 }
+} while ($hostProcesses.Count -gt 0 -and [DateTime]::UtcNow -lt $stopDeadline)
+if ($hostProcesses.Count -gt 0) {
+  throw "Carnival native host processes did not stop before the upgrade deadline."
+}
+for ($attempt = 1; $attempt -le 20; $attempt += 1) {
+  try {
+    if (Test-Path -LiteralPath $hostExecutable) {
+      Remove-Item -LiteralPath $hostExecutable -Force
+    }
+    Move-Item -LiteralPath $temporaryExecutable -Destination $hostExecutable
+    break
+  } catch {
+    if ($attempt -eq 20) { throw }
+    Start-Sleep -Milliseconds 100
+  }
+}
 
 $manifest = [ordered]@{
   name = $hostName
@@ -50,7 +70,6 @@ $manifest = [ordered]@{
 $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
 [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 3), $utf8WithoutBom)
 
-$registryPath = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$hostName"
 New-Item -Force -Path $registryPath | Out-Null
 Set-Item -LiteralPath $registryPath -Value $manifestPath
 

@@ -71,8 +71,8 @@ monitor. Closing either or both windows is repaired by the next summon; their
 saved visible geometry and last Context URL survive stale window IDs. Repeated
 summons do not create duplicate workspace windows or repeated Chrome launches.
 
-On normal desktop widths, the open workspace reserves a 151 pixel activation
-gutter to the right. Moving the pointer 150 pixels beyond the Context window's
+On normal desktop widths, the open workspace reserves a 101 pixel activation
+gutter to the right. Moving the pointer 100 pixels beyond the Context window's
 right edge for 150 ms retracts both live windows off the monitor's left edge. On
 an unusually narrow monitor, the gutter shrinks only enough to retain an 800
 pixel workspace and the rightmost available pixel becomes the monitor-aware

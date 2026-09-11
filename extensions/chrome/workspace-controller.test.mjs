@@ -21,6 +21,7 @@ function fakeChrome() {
   return {
     calls,
     closeWindow(id) { windows.delete(id); },
+    resizeWindow(id, bounds) { windows.set(id, { ...windows.get(id), ...bounds }); },
     storage: {
       local: {
         async get() { return state; },
@@ -80,8 +81,8 @@ function controller(chrome) {
 
 test("default workspace is a left PlayHouse 60/40 split across the monitor work area", () => {
   assert.deepEqual(defaultWorkspaceLayout({ height: 1000, left: 100, top: 20, width: 2000 }), {
-    context: { height: 1000, left: 1209, top: 20, width: 740 },
-    playhouse: { height: 1000, left: 100, top: 20, width: 1109 },
+    context: { height: 1000, left: 1239, top: 20, width: 760 },
+    playhouse: { height: 1000, left: 100, top: 20, width: 1139 },
   });
 });
 
@@ -127,9 +128,9 @@ test("invalid or swapped saved geometry falls back to the fresh 60/40 layout", (
   }, workArea, "display-1"), defaultWorkspaceLayout(workArea));
 });
 
-test("retract threshold uses 150px when available and monitor-edge fallback otherwise", () => {
-  assert.equal(effectiveRetractThreshold(1400, 1800), 1550);
-  assert.equal(effectiveRetractThreshold(1200, 1800), 1350);
+test("retract threshold uses 100px when available and monitor-edge fallback otherwise", () => {
+  assert.equal(effectiveRetractThreshold(1400, 1800), 1500);
+  assert.equal(effectiveRetractThreshold(1200, 1800), 1300);
   assert.equal(effectiveRetractThreshold(1920, 1920), 1919);
 });
 
@@ -198,20 +199,19 @@ test("both closed workspace windows are recreated with saved geometry and contex
   });
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
   const first = await workspace.summon(workArea, "display-1");
-  await workspace.rememberBounds({
+  chrome.resizeWindow(first.playhouseWindowId, {
     height: 820,
-    id: first.playhouseWindowId,
     left: 10,
     top: 20,
     width: 700,
   });
-  await workspace.rememberBounds({
+  chrome.resizeWindow(first.contextWindowId, {
     height: 820,
-    id: first.contextWindowId,
     left: 710,
     top: 20,
     width: 730,
   });
+  await workspace.rememberVisibleBounds();
   await workspace.openCarnivalContext("https://calendar.google.com/calendar/u/0/r/week", workArea, "display-1");
   chrome.closeWindow(first.playhouseWindowId);
   chrome.closeWindow(first.contextWindowId);
@@ -245,20 +245,19 @@ test("user-resized bounds are restored on the same monitor", async () => {
   const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
   const first = await workspace.summon(workArea, "display-1");
-  await workspace.rememberBounds({
+  chrome.resizeWindow(first.playhouseWindowId, {
     height: 820,
-    id: first.playhouseWindowId,
     left: 20,
     top: 30,
     width: 720,
   });
-  await workspace.rememberBounds({
+  chrome.resizeWindow(first.contextWindowId, {
     height: 820,
-    id: first.contextWindowId,
     left: 740,
     top: 30,
     width: 840,
   });
+  await workspace.rememberVisibleBounds();
 
   await workspace.summon(workArea, "display-1");
 
@@ -283,23 +282,22 @@ test("saved user widths survive retract, reopen, and controller restart", async 
   });
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
   const first = await workspace.summon(workArea, "display-1");
-  await workspace.rememberBounds({
+  chrome.resizeWindow(first.playhouseWindowId, {
     height: 820,
-    id: first.playhouseWindowId,
     left: 10,
     top: 20,
     width: 700,
   });
-  await workspace.rememberBounds({
+  chrome.resizeWindow(first.contextWindowId, {
     height: 820,
-    id: first.contextWindowId,
     left: 710,
     top: 20,
     width: 730,
   });
+  await workspace.rememberVisibleBounds();
   const resizedState = await workspace.state();
   assert.equal(resizedState.contextBounds.left + resizedState.contextBounds.width, 1440);
-  assert.equal(effectiveRetractThreshold(1440, 1600), 1590);
+  assert.equal(effectiveRetractThreshold(1440, 1600), 1540);
   await workspace.retract();
 
   workspace = new CarnivalWorkspaceController(chrome, {
@@ -333,11 +331,11 @@ test("native offscreen bounds are not persisted over the saved visible geometry"
   const visible = await workspace.state();
   await workspace.save({ ...visible, drawerState: "retracted" });
 
-  const result = await workspace.rememberBounds({
+  chrome.resizeWindow(opened.playhouseWindowId, {
     ...visible.playhouseBounds,
-    id: opened.playhouseWindowId,
     left: -1600,
   });
+  const result = await workspace.rememberVisibleBounds();
 
   assert.equal(result, null);
   assert.deepEqual((await workspace.state()).playhouseBounds, visible.playhouseBounds);
@@ -367,8 +365,8 @@ test("native open and retract animations move both windows with one shared offse
   assert.equal(chrome.calls.createWindow.length, createdCount);
 
   assert.equal(animations.length, 3);
-  assert.equal(animations[1].context.from.left - animations[1].playhouse.from.left, 869);
-  assert.equal(animations[2].context.from.left - animations[2].playhouse.from.left, 869);
+  assert.equal(animations[1].context.from.left - animations[1].playhouse.from.left, 899);
+  assert.equal(animations[2].context.from.left - animations[2].playhouse.from.left, 899);
 });
 
 test("Windows native animation receives the same paired geometry for summon and retract", async () => {
@@ -388,10 +386,10 @@ test("Windows native animation receives the same paired geometry for summon and 
   assert.equal(animations.length, 2);
   assert.equal(animations[0].durationMs, 450);
   assert.equal(animations[0].easing, "out");
-  assert.deepEqual(animations[0].playhouse.current, { height: 900, left: 0, top: 0, width: 869 });
-  assert.deepEqual(animations[0].playhouse.from, { height: 900, left: -1600, top: 0, width: 869 });
-  assert.deepEqual(animations[0].playhouse.to, { height: 900, left: 0, top: 0, width: 869 });
-  assert.equal(animations[0].context.from.left - animations[0].playhouse.from.left, 869);
+  assert.deepEqual(animations[0].playhouse.current, { height: 900, left: 0, top: 0, width: 899 });
+  assert.deepEqual(animations[0].playhouse.from, { height: 900, left: -1600, top: 0, width: 899 });
+  assert.deepEqual(animations[0].playhouse.to, { height: 900, left: 0, top: 0, width: 899 });
+  assert.equal(animations[0].context.from.left - animations[0].playhouse.from.left, 899);
   assert.equal(animations[1].easing, "in");
   assert.equal(animations[1].durationMs, 400);
   assert.deepEqual(animations[1].playhouse.from, animations[0].playhouse.to);
@@ -458,7 +456,7 @@ test("native opening failure falls back to final visible bounds without offscree
   assert.equal(chrome.calls.updateWindow.some(({ options }) => options.left < workArea.left), false);
   assert.deepEqual(
     chrome.calls.updateWindow.filter(({ options }) => Number.isInteger(options.left)).map(({ options }) => options.left),
-    [0, 869],
+    [0, 899],
   );
 });
 

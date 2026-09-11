@@ -17,6 +17,7 @@ internal static class CarnivalWorkspaceHost
     private const int HotCornerMaximumOffsetPixels = 4;
     private const int DwellMilliseconds = 200;
     private const int PendingSummonTimeoutMilliseconds = 15000;
+    private const int RetractOffsetPixels = 100;
     private const int RetractDwellMilliseconds = 150;
     private const string PlayHouseUrl = "https://carnival-playhouse.vercel.app/";
     private const int MonitorDefaultToNearest = 2;
@@ -410,7 +411,7 @@ internal static class CarnivalWorkspaceHost
                     monitorTop = configuredMonitorTop;
                     monitorBottom = configuredMonitorBottom;
                 }
-                var retractThreshold = Math.Min(rightEdge + 150, monitorRight - 1);
+                var retractThreshold = Math.Min(rightEdge + RetractOffsetPixels, monitorRight - 1);
                 var inRetractZone = open && pointer.X >= retractThreshold &&
                                     pointer.Y >= monitorTop && pointer.Y < monitorBottom;
                 if (!inRetractZone)
@@ -650,10 +651,11 @@ internal static class CarnivalWorkspaceHost
             configuredMonitorBottom = parsedMonitorBottom;
             drawerOpen = true;
         }
+        var retractThreshold = Math.Min(parsedContextRight + RetractOffsetPixels, parsedMonitorRight - 1);
         WriteDiagnostic(string.Format(CultureInfo.InvariantCulture,
-            "workspace state received: open contextRight={0} monitorRight={1}",
-            parsedContextRight, parsedMonitorRight));
-        if (parsedContextRight + 150 > parsedMonitorRight - 1)
+            "retract threshold contextRight={0} offset={1} threshold={2}",
+            parsedContextRight, RetractOffsetPixels, retractThreshold));
+        if (parsedContextRight + RetractOffsetPixels > parsedMonitorRight - 1)
             WriteDiagnostic("retract threshold clamped to reachable monitor edge");
     }
 

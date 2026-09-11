@@ -2,7 +2,7 @@ export const PLAYHOUSE_URL = "https://carnival-playhouse.vercel.app/";
 export const DEFAULT_CONTEXT_URL = "https://calendar.google.com/calendar/u/0/r";
 export const OPEN_ANIMATION_MS = 450;
 export const CLOSE_ANIMATION_MS = 400;
-export const RETRACT_DISTANCE_PX = 150;
+export const RETRACT_DISTANCE_PX = 100;
 export const DRAWER_RIGHT_GUTTER_PX = RETRACT_DISTANCE_PX + 1;
 
 const STORAGE_KEY = "carnivalDesktopWorkspace";
@@ -83,8 +83,8 @@ export function restoredWorkspaceLayout(prior, workArea, monitorId) {
     prior.workArea.width === workArea.width &&
     prior.workArea.height === workArea.height;
   if (prior.layoutVersion !== LAYOUT_VERSION) return fallback;
-  const playhouse = storedBounds(prior.playhouseBounds);
-  const context = storedBounds(prior.contextBounds);
+  const playhouse = storedBounds(prior.savedVisibleBounds?.playhouse ?? prior.playhouseBounds);
+  const context = storedBounds(prior.savedVisibleBounds?.context ?? prior.contextBounds);
   if (!playhouse || !context || playhouse.left >= context.left) return fallback;
   const sameMonitor = prior.monitorId === monitorId || sameWorkArea;
   if (sameMonitor && boundsFitWorkArea(playhouse, workArea) && boundsFitWorkArea(context, workArea)) {
@@ -266,6 +266,16 @@ export class CarnivalWorkspaceController {
   async summonDrawer(workArea, monitorId = null) {
     const prior = await this.state();
     const layout = restoredWorkspaceLayout(prior, workArea, monitorId);
+    const savedPlayhouse = storedBounds(prior.savedVisibleBounds?.playhouse ?? prior.playhouseBounds);
+    const savedContext = storedBounds(prior.savedVisibleBounds?.context ?? prior.contextBounds);
+    if (!savedPlayhouse || !savedContext) {
+      this.logger.info?.("Carnival: using default workspace bounds");
+    } else if (layout.playhouse.left === savedPlayhouse.left && layout.playhouse.width === savedPlayhouse.width &&
+      layout.context.left === savedContext.left && layout.context.width === savedContext.width) {
+      this.logger.info?.("Carnival: restoring saved visible workspace bounds");
+    } else {
+      this.logger.info?.("Carnival: normalizing saved bounds for new monitor");
+    }
     const [knownPlayhouse, knownContext] = await Promise.all([
       existingWindow(this.chrome, prior.playhouseWindowId),
       existingWindow(this.chrome, prior.contextWindowId),
@@ -306,7 +316,11 @@ export class CarnivalWorkspaceController {
         OPEN_ANIMATION_MS,
       );
     }
-    const openState = { ...openingState, drawerState: "open" };
+    const openState = {
+      ...openingState,
+      drawerState: "open",
+      savedVisibleBounds: { context: layout.context, playhouse: layout.playhouse },
+    };
     await this.save(openState);
     await this.chrome.windows.update(context.window.id, { focused: true });
     await this.chrome.windows.update(playhouse.window.id, { focused: true });
@@ -333,8 +347,8 @@ export class CarnivalWorkspaceController {
       return retracted;
     }
     const layout = {
-      context: storedBounds(state.contextBounds),
-      playhouse: storedBounds(state.playhouseBounds),
+      context: storedBounds(state.savedVisibleBounds?.context ?? state.contextBounds),
+      playhouse: storedBounds(state.savedVisibleBounds?.playhouse ?? state.playhouseBounds),
     };
     if (!layout.context || !layout.playhouse) return state;
     await this.save({ ...state, drawerState: "retracting" });
@@ -370,19 +384,30 @@ export class CarnivalWorkspaceController {
     await this.chrome.windows.update(state.contextWindowId, { focused: true });
   }
 
-  async rememberBounds(changedWindow) {
-    if (this.transitioning || this.movingWindowIds.has(changedWindow.id)) return null;
+  async rememberVisibleBounds() {
+    if (this.transitioning || this.movingWindowIds.size > 0) return null;
     const state = await this.state();
-    if (state.drawerState !== "open") return null;
-    const bounds = storedBounds(changedWindow);
-    if (!bounds) return null;
-    let nextState = null;
-    if (changedWindow.id === state.playhouseWindowId) {
-      nextState = { ...state, playhouseBounds: bounds };
-    } else if (changedWindow.id === state.contextWindowId) {
-      nextState = { ...state, contextBounds: bounds };
-    }
-    if (nextState) await this.save(nextState);
+    if (state.drawerState !== "open" || !validWorkArea(state.workArea)) return null;
+    const [playhouseWindow, contextWindow] = await Promise.all([
+      existingWindow(this.chrome, state.playhouseWindowId),
+      existingWindow(this.chrome, state.contextWindowId),
+    ]);
+    const playhouse = storedBounds(playhouseWindow);
+    const context = storedBounds(contextWindow);
+    if (!playhouse || !context || playhouse.left >= context.left ||
+      !boundsFitWorkArea(playhouse, state.workArea) || !boundsFitWorkArea(context, state.workArea)) return null;
+    const currentState = await this.state();
+    if (this.transitioning || currentState.drawerState !== "open" ||
+      currentState.playhouseWindowId !== state.playhouseWindowId ||
+      currentState.contextWindowId !== state.contextWindowId) return null;
+    const nextState = {
+      ...currentState,
+      contextBounds: context,
+      playhouseBounds: playhouse,
+      savedVisibleBounds: { context, playhouse },
+    };
+    await this.save(nextState);
+    this.logger.info?.("Carnival: saved visible workspace bounds");
     return nextState;
   }
 

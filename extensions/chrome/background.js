@@ -10,7 +10,6 @@ let nativeAnimationAvailable = false;
 let nativeAnimationRequestId = 0;
 let immediateNativeReconnectUsed = false;
 const nativeAnimationRequests = new Map();
-const pendingBounds = new Map();
 let geometrySaveTimer = null;
 
 function flattenBounds(prefix, bounds) {
@@ -156,18 +155,12 @@ chrome.action.onClicked.addListener(async () => {
   await workspaceActions.summon(display, "toolbar");
 });
 chrome.windows.onCreated.addListener(connectNativeHost);
-chrome.windows.onBoundsChanged.addListener((window) => {
-  pendingBounds.set(window.id, window);
+chrome.windows.onBoundsChanged.addListener(() => {
   clearTimeout(geometrySaveTimer);
   geometrySaveTimer = setTimeout(async () => {
-    const changedWindows = [...pendingBounds.values()];
-    pendingBounds.clear();
     geometrySaveTimer = null;
     try {
-      let state = null;
-      for (const changedWindow of changedWindows) {
-        state = await controller.rememberBounds(changedWindow) ?? state;
-      }
+      const state = await controller.rememberVisibleBounds();
       if (state) reportDrawerState(state);
     } catch (error) {
       console.error("Carnival layout save failed", error);
