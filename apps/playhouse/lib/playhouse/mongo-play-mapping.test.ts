@@ -60,8 +60,9 @@ describe("Mongo Play mapping", () => {
     expect(legacyTaskTypeForSave("U", "reminder")).toBe("S");
   });
 
-  it("always scopes active reads to the legacy user without filtering task_type", () => {
+  it("scopes Play reads to the legacy user and excludes Place context records", () => {
     expect(mongoActiveFilter()).toEqual({
+      "carnival_google.semantic_role": { $ne: "place" },
       is_active: true,
       is_deleted: false,
       user_id: MONGO_LEGACY_USER_ID,

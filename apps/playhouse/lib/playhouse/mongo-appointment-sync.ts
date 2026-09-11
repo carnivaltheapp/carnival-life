@@ -9,6 +9,7 @@ import type {
   GoogleInputCalendarRole,
   MappedGoogleAppointment,
 } from "../google/appointment-events";
+import { isIsoCalendarDate } from "../../domain/play-input";
 import {
   legacyPriorityNumber,
   MONGO_LEGACY_USER_ID,
@@ -60,13 +61,27 @@ function googleMetadataSet(
     "carnival_google.start": event.start,
     "carnival_google.status": event.status,
     "carnival_google.time_zone": event.timeZone,
+    ...(identity.semanticRole === "place"
+      ? { "carnival_google.blocked_dates": event.blockedDates ?? [] }
+      : {}),
   };
 }
 
-function appointmentOwnedSet(
+function calendarInputOwnedSet(
   identity: GoogleAppointmentIdentity,
   event: MappedGoogleAppointment,
 ) {
+  if (identity.semanticRole === "place") {
+    return {
+      action_type: event.title,
+      duration: 0,
+      event_id: event.eventId,
+      task_date: new Date(`${event.scheduledDate}T00:00:00.000Z`),
+      task_time: "",
+      time_task: false,
+      ...googleMetadataSet(identity, event),
+    } satisfies Record<string, unknown>;
+  }
   return {
     action_type: event.title,
     duration: event.durationMinutes,
@@ -78,12 +93,14 @@ function appointmentOwnedSet(
   } satisfies Record<string, unknown>;
 }
 
-function newAppointmentDocument({
+function newCalendarInputDocument({
   event,
+  identity,
   now,
   priorityIndex,
 }: {
   event: MappedGoogleAppointment;
+  identity: GoogleAppointmentIdentity;
   now: Date;
   priorityIndex: string;
 }): LegacyTaskDocument {
@@ -117,9 +134,9 @@ function newAppointmentDocument({
     task_date: new Date(`${event.scheduledDate}T00:00:00.000Z`),
     task_status: "",
     task_time: event.taskTime,
-    task_type: "A",
+    ...(identity.semanticRole === "place" ? {} : { task_type: "A" }),
     thread_id: "",
-    time_task: !event.allDay,
+    time_task: identity.semanticRole === "place" ? false : !event.allDay,
     updated_date: now,
     url: "",
     user_id: MONGO_LEGACY_USER_ID,
@@ -134,6 +151,9 @@ function dottedValue(document: LegacyTaskDocument, path: string) {
 }
 
 function sameValue(left: unknown, right: unknown) {
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((value, index) => value === right[index]);
+  }
   return left instanceof Date && right instanceof Date
     ? left.getTime() === right.getTime()
     : left === right;
@@ -211,16 +231,22 @@ export async function synchronizeMongoAppointments({
   }
 
   const eventIds = [...validEvents.keys()];
+  const isPlaceSync = identity.semanticRole === "place";
   const taskDateRange = {
     $gte: new Date(`${startDate}T00:00:00.000Z`),
     $lt: new Date(`${endDateExclusive}T00:00:00.000Z`),
   };
+  const placeDateRange = { $gte: startDate, $lt: endDateExclusive };
   const existingDocuments = await collection.find({
     is_deleted: { $ne: true },
-    task_type: "A",
+    ...(isPlaceSync
+      ? { "carnival_google.semantic_role": "place" }
+      : { task_type: "A" }),
     user_id: MONGO_LEGACY_USER_ID,
     $or: [
-      { task_date: taskDateRange },
+      ...(isPlaceSync
+        ? [{ "carnival_google.blocked_dates": { $elemMatch: placeDateRange } }]
+        : [{ task_date: taskDateRange }]),
       ...(eventIds.length ? [
         { event_id: { $in: eventIds } },
         {
@@ -238,7 +264,7 @@ export async function synchronizeMongoAppointments({
   const latestPriorityByDate = new Map<string, { order: number; value: string }>();
   for (const document of existingDocuments) {
     const carnivalEventId = text(dottedValue(document, "carnival_google.event_id"));
-    if (!carnivalEventId) {
+    if (!isPlaceSync && !carnivalEventId) {
       pushByEventId(legacyByEventId, text(document.event_id), document);
     }
     if (isLinkedToCalendar(document, identity)) {
@@ -268,7 +294,9 @@ export async function synchronizeMongoAppointments({
     if (exact.length > 1 || (exact.length === 0 && legacy.length > 1)) {
       result.failed.push({
         eventId: event.eventId,
-        reason: "Multiple legacy Appointments share this Google event ID.",
+        reason: isPlaceSync
+          ? "Multiple Places share this Google event ID."
+          : "Multiple legacy Appointments share this Google event ID.",
       });
       continue;
     }
@@ -296,7 +324,7 @@ export async function synchronizeMongoAppointments({
     }
 
     if (existing) {
-      const desired: Record<string, unknown> = appointmentOwnedSet(identity, event);
+      const desired: Record<string, unknown> = calendarInputOwnedSet(identity, event);
       const previousGoogleStatus = dottedValue(existing, "carnival_google.status");
       if (
         existing.is_active === false &&
@@ -330,7 +358,7 @@ export async function synchronizeMongoAppointments({
         filter: identityFilter(identity, event.eventId),
         update: {
           $set: googleMetadataSet(identity, event),
-          $setOnInsert: newAppointmentDocument({ event, now, priorityIndex }),
+          $setOnInsert: newCalendarInputDocument({ event, identity, now, priorityIndex }),
         },
         upsert: true,
       },
@@ -341,14 +369,19 @@ export async function synchronizeMongoAppointments({
   for (const document of existingDocuments) {
     const eventId = text(dottedValue(document, "carnival_google.event_id"));
     const taskDate = document.task_date;
+    const blockedDates = dottedValue(document, "carnival_google.blocked_dates");
+    const isInWindow = isPlaceSync
+      ? Array.isArray(blockedDates) && blockedDates.some((date) =>
+          typeof date === "string" && date >= startDate && date < endDateExclusive)
+      : taskDate instanceof Date &&
+        taskDate >= taskDateRange.$gte &&
+        taskDate < taskDateRange.$lt;
     if (
       !eventId ||
       !isLinkedToCalendar(document, identity) ||
       returnedEventIds.has(eventId) ||
       document.is_active === false ||
-      !(taskDate instanceof Date) ||
-      taskDate < taskDateRange.$gte ||
-      taskDate >= taskDateRange.$lt
+      !isInWindow
     ) {
       continue;
     }
@@ -383,4 +416,20 @@ export function appointmentMongoIdentityFilter(
   eventId: string,
 ) {
   return identityFilter(identity, eventId);
+}
+
+export async function isPlaceBlocked(
+  collection: Collection<LegacyTaskDocument>,
+  date: string,
+) {
+  if (!isIsoCalendarDate(date)) {
+    throw new Error("Place availability requires an ISO calendar date.");
+  }
+  return await collection.countDocuments({
+    "carnival_google.blocked_dates": date,
+    "carnival_google.semantic_role": "place",
+    is_active: true,
+    is_deleted: { $ne: true },
+    user_id: MONGO_LEGACY_USER_ID,
+  }, { limit: 1 }) > 0;
 }

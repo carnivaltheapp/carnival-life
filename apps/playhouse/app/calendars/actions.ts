@@ -10,8 +10,12 @@ import {
 import { isUuid } from "../../domain/play-input";
 import { discoverCalendarsForAccount } from "../../lib/google/calendar.server";
 import { GoogleCalendarApiError } from "../../lib/google/calendar";
-import { GoogleCalendarEventsApiError } from "../../lib/google/appointment-events";
-import { syncAppointmentCalendarsForAccount } from "../../lib/google/appointment-sync.server";
+import {
+  GOOGLE_INPUT_CALENDAR_ROLES,
+  GoogleCalendarEventsApiError,
+  type GoogleInputCalendarRole,
+} from "../../lib/google/appointment-events";
+import { syncInputCalendarsForAccount } from "../../lib/google/appointment-sync.server";
 import { GoogleAccountReconnectRequiredError } from "../../lib/google/token-broker";
 import { resolvePlayhouseDataSource } from "../../lib/playhouse/data-source";
 import { resolveTimeZone } from "../../lib/playhouse/time-zone";
@@ -193,7 +197,7 @@ export async function syncGoogleAppointments(
   const auth = await authenticatedClient();
   if (!auth) return errorState("Your session expired. Refresh and sign in again.");
   if (resolvePlayhouseDataSource() !== "mongo") {
-    return errorState("Appointment synchronization is unavailable for the active Play store.");
+    return errorState("Calendar input synchronization is unavailable for the active Play store.");
   }
 
   const [accountResult, calendarResult, profileResult] = await Promise.all([
@@ -208,7 +212,7 @@ export async function syncGoogleAppointments(
       .select("provider_calendar_id, semantic_role, time_zone")
       .eq("google_account_id", googleAccountId)
       .eq("owner_user_id", auth.userId)
-      .in("semantic_role", ["appointment", "event"]),
+      .in("semantic_role", [...GOOGLE_INPUT_CALENDAR_ROLES]),
     auth.supabase.from("users").select("timezone").eq("id", auth.userId).maybeSingle(),
   ]);
   if (accountResult.error || !accountResult.data) {
@@ -218,21 +222,21 @@ export async function syncGoogleAppointments(
     return errorState("That Google account is unavailable.");
   }
   if (accountResult.data.connection_status !== "connected") {
-    return errorState("Google authorization must be reconnected before appointments can sync.");
+    return errorState("Google authorization must be reconnected before calendar inputs can sync.");
   }
   if (calendarResult.error) {
     logCalendarFailure("appointment_calendar_read", { code: calendarResult.error.code });
-    return errorState("Appointment calendar settings could not be loaded.");
+    return errorState("Calendar input settings could not be loaded.");
   }
   if (!calendarResult.data.length) {
     return errorState("No Google input calendar is configured for this account.");
   }
 
   try {
-    const result = await syncAppointmentCalendarsForAccount({
+    const result = await syncInputCalendarsForAccount({
       calendars: calendarResult.data.map((calendar) => ({
         providerCalendarId: calendar.provider_calendar_id,
-        semanticRole: calendar.semantic_role as "appointment" | "event",
+        semanticRole: calendar.semantic_role as GoogleInputCalendarRole,
         timeZone: resolveTimeZone(calendar.time_zone, profileResult.data?.timezone),
       })),
       googleAccountId,
@@ -260,10 +264,18 @@ export async function syncGoogleAppointments(
     }
     revalidatePath("/");
     const changes = result.imported + result.updated + result.inactivated;
+    const roleSummary = (["appointment", "event", "place"] as const)
+      .map((role) => {
+        const values = result.byRole[role];
+        const count = values.imported + values.updated + values.inactivated;
+        const label = role === "appointment" ? "Appointments" : role === "event" ? "Events" : "Places";
+        return `${label}: ${count}`;
+      })
+      .join(", ");
     return {
       message: changes === 0 && result.failed === 0
         ? "Calendar inputs up to date."
-        : `Calendar inputs synced — ${result.imported} new, ${result.updated} updated, ${result.inactivated} removed, ${result.unchanged} unchanged${result.failed ? `, ${result.failed} failed` : ""}.`,
+        : `Calendar inputs synced — ${roleSummary}; ${result.unchanged} unchanged${result.failed ? `, ${result.failed} failed` : ""}.`,
       status: result.failed ? "error" : "success",
     };
   } catch (error) {

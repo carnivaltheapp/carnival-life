@@ -88,6 +88,7 @@ export function legacyTaskTypeForSave(existingTaskType: unknown, playType: PlayT
 
 export function mongoActiveFilter(): Filter<LegacyTaskDocument> {
   return {
+    "carnival_google.semantic_role": { $ne: "place" },
     is_active: true,
     is_deleted: false,
     user_id: MONGO_LEGACY_USER_ID,

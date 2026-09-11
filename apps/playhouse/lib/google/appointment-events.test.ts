@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  GOOGLE_INPUT_CALENDAR_ROLES,
   appointmentSyncWindow,
   listGoogleCalendarEvents,
   mapGoogleAppointmentEvent,
+  mapGooglePlaceEvent,
 } from "./appointment-events";
 import {
   GOOGLE_CALENDAR_EVENTS_READONLY_SCOPE,
@@ -11,6 +13,10 @@ import {
 } from "./scopes";
 
 describe("Google Appointment events", () => {
+  it("defines Appointment, Event, and Place as the shared input sync roles", () => {
+    expect(GOOGLE_INPUT_CALENDAR_ROLES).toEqual(["appointment", "event", "place"]);
+  });
+
   it("requests the read-only events scope", () => {
     expect(GOOGLE_OAUTH_SCOPES).toContain(GOOGLE_CALENDAR_EVENTS_READONLY_SCOPE);
     expect(GOOGLE_CALENDAR_EVENTS_READONLY_SCOPE).toMatch(/calendar\.events\.readonly$/);
@@ -72,6 +78,68 @@ describe("Google Appointment events", () => {
       now: new Date("2026-09-07T06:30:00Z"),
       timeZone: "America/Los_Angeles",
     })).toEqual({ endDateExclusive: "2026-12-06", startDate: "2026-09-06" });
+  });
+
+  it("maps a timed Place to its whole local calendar day", () => {
+    expect(mapGooglePlaceEvent({
+      end: { dateTime: "2026-09-15T07:00:00-07:00" },
+      id: "timed-place",
+      start: {
+        dateTime: "2026-09-15T06:00:00-07:00",
+        timeZone: "America/Los_Angeles",
+      },
+      summary: "Japan Cruise",
+    }, "America/Los_Angeles", {
+      endDateExclusive: "2026-12-15",
+      startDate: "2026-09-15",
+    })).toMatchObject({
+      allDay: false,
+      blockedDates: ["2026-09-15"],
+      durationMinutes: 0,
+      scheduledDate: "2026-09-15",
+      taskTime: "",
+    });
+  });
+
+  it("maps all-day and multi-day Places without including Google's exclusive end", () => {
+    expect(mapGooglePlaceEvent({
+      end: { date: "2026-09-21" },
+      id: "multi-place",
+      start: { date: "2026-09-15" },
+      summary: "Japan Cruise",
+    }, "America/Los_Angeles", {
+      endDateExclusive: "2026-12-15",
+      startDate: "2026-09-15",
+    })?.blockedDates).toEqual([
+      "2026-09-15",
+      "2026-09-16",
+      "2026-09-17",
+      "2026-09-18",
+      "2026-09-19",
+      "2026-09-20",
+    ]);
+  });
+
+  it("maps a one-day all-day Place to exactly one blocked day", () => {
+    expect(mapGooglePlaceEvent({
+      end: { date: "2026-09-16" },
+      id: "one-day-place",
+      start: { date: "2026-09-15" },
+    }, "America/Los_Angeles", {
+      endDateExclusive: "2026-12-15",
+      startDate: "2026-09-15",
+    })?.blockedDates).toEqual(["2026-09-15"]);
+  });
+
+  it("clips Place blocking to the bounded sync window", () => {
+    expect(mapGooglePlaceEvent({
+      end: { date: "2026-09-18" },
+      id: "overlapping-place",
+      start: { date: "2026-09-13" },
+    }, "America/Los_Angeles", {
+      endDateExclusive: "2026-09-17",
+      startDate: "2026-09-15",
+    })?.blockedDates).toEqual(["2026-09-15", "2026-09-16"]);
   });
 
   it("reads events with GET only and correct bounded RFC3339 instants", async () => {

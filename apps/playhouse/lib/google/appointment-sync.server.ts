@@ -5,12 +5,13 @@ import {
   type GoogleInputCalendarRole,
   listGoogleCalendarEvents,
   mapGoogleAppointmentEvent,
+  mapGooglePlaceEvent,
 } from "./appointment-events";
 import { getGoogleAccessToken } from "./token-broker.server";
 import { getLegacyTaskCollection } from "../playhouse/mongo-client";
 import { synchronizeMongoAppointments } from "../playhouse/mongo-appointment-sync";
 
-export async function syncAppointmentCalendarsForAccount({
+export async function syncInputCalendarsForAccount({
   calendars,
   googleAccountId,
   ownerUserId,
@@ -27,6 +28,11 @@ export async function syncAppointmentCalendarsForAccount({
   const accessToken = await getGoogleAccessToken({ googleAccountId, ownerUserId });
   const collection = await getLegacyTaskCollection();
   const totals = {
+    byRole: {
+      appointment: { imported: 0, inactivated: 0, unchanged: 0, updated: 0 },
+      event: { imported: 0, inactivated: 0, unchanged: 0, updated: 0 },
+      place: { imported: 0, inactivated: 0, unchanged: 0, updated: 0 },
+    },
     failed: 0,
     googleEvents: 0,
     googlePages: 0,
@@ -57,12 +63,13 @@ export async function syncAppointmentCalendarsForAccount({
     const result = await synchronizeMongoAppointments({
       collection,
       endDateExclusive: window.endDateExclusive,
-      events: googleResult.events.map((event) =>
-        mapGoogleAppointmentEvent(
-          event,
-          calendar.timeZone,
-          calendar.semanticRole === "event" ? "Untitled Event" : "Untitled Appointment",
-        )),
+      events: googleResult.events.map((event) => calendar.semanticRole === "place"
+        ? mapGooglePlaceEvent(event, calendar.timeZone, window)
+        : mapGoogleAppointmentEvent(
+            event,
+            calendar.timeZone,
+            calendar.semanticRole === "event" ? "Untitled Event" : "Untitled Appointment",
+          )),
       identity: {
         googleAccountId,
         googleCalendarId: calendar.providerCalendarId,
@@ -80,6 +87,10 @@ export async function syncAppointmentCalendarsForAccount({
     totals.mongoWrites += result.mongoWrites;
     totals.unchanged += result.unchanged;
     totals.updated += result.updated;
+    totals.byRole[calendar.semanticRole].imported += result.imported;
+    totals.byRole[calendar.semanticRole].inactivated += result.inactivated;
+    totals.byRole[calendar.semanticRole].unchanged += result.unchanged;
+    totals.byRole[calendar.semanticRole].updated += result.updated;
     console.info("[PlayHouse Calendar Input Sync] calendar complete", {
       durationMs: Date.now() - calendarStartedAt,
       failed: result.failed.length,

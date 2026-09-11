@@ -11,10 +11,13 @@ export type GoogleCalendarEvent = {
   updated?: unknown;
 };
 
-export type GoogleInputCalendarRole = "appointment" | "event";
+export type GoogleInputCalendarRole = "appointment" | "event" | "place";
+
+export const GOOGLE_INPUT_CALENDAR_ROLES = ["appointment", "event", "place"] as const;
 
 export type MappedGoogleAppointment = {
   allDay: boolean;
+  blockedDates?: string[];
   durationMinutes: number;
   end: string;
   eventId: string;
@@ -156,6 +159,101 @@ export function mapGoogleAppointmentEvent(
     taskTime: start,
     timeZone,
     title: text(event.summary) ?? untitledTitle,
+  };
+}
+
+function calendarDates(startDate: string, endDateExclusive: string) {
+  const dates: string[] = [];
+  for (let date = startDate; date < endDateExclusive; date = addDays(date, 1)) {
+    dates.push(date);
+  }
+  return dates;
+}
+
+export function mapGooglePlaceEvent(
+  event: GoogleCalendarEvent,
+  calendarTimeZone: string,
+  window: { endDateExclusive: string; startDate: string },
+): MappedGoogleAppointment | null {
+  const eventId = text(event.id);
+  const status = text(event.status) ?? "confirmed";
+  if (!eventId) return null;
+
+  if (status === "cancelled") {
+    return {
+      allDay: false,
+      blockedDates: [],
+      durationMinutes: 0,
+      end: "",
+      eventId,
+      googleUpdatedAt: text(event.updated),
+      scheduledDate: "",
+      start: "",
+      status,
+      taskTime: "",
+      timeZone: calendarTimeZone,
+      title: text(event.summary) ?? "Untitled Place",
+    };
+  }
+
+  const allDayStart = text(event.start?.date);
+  const allDayEnd = text(event.end?.date);
+  let sourceStart: string;
+  let sourceEnd: string;
+  let sourceStartDate: string;
+  let sourceEndDateExclusive: string;
+  let allDay: boolean;
+
+  if (allDayStart || allDayEnd) {
+    if (!allDayStart || !allDayEnd || allDayEnd <= allDayStart) return null;
+    sourceStart = allDayStart;
+    sourceEnd = allDayEnd;
+    sourceStartDate = allDayStart;
+    sourceEndDateExclusive = allDayEnd;
+    allDay = true;
+  } else {
+    const startDateTime = text(event.start?.dateTime);
+    const endDateTime = text(event.end?.dateTime);
+    if (!startDateTime || !endDateTime) return null;
+    const start = new Date(startDateTime);
+    const end = new Date(endDateTime);
+    if (
+      !Number.isFinite(start.getTime()) ||
+      !Number.isFinite(end.getTime()) ||
+      end <= start
+    ) {
+      return null;
+    }
+    const timeZone = text(event.start?.timeZone) ?? calendarTimeZone;
+    sourceStart = start.toISOString();
+    sourceEnd = end.toISOString();
+    sourceStartDate = dateInTimeZone(start, timeZone);
+    sourceEndDateExclusive = addDays(dateInTimeZone(new Date(end.getTime() - 1), timeZone), 1);
+    allDay = false;
+  }
+
+  const firstBlockedDate = sourceStartDate < window.startDate
+    ? window.startDate
+    : sourceStartDate;
+  const blockedEndExclusive = sourceEndDateExclusive > window.endDateExclusive
+    ? window.endDateExclusive
+    : sourceEndDateExclusive;
+  const blockedDates = calendarDates(firstBlockedDate, blockedEndExclusive);
+  if (!blockedDates.length) return null;
+
+  return {
+    allDay,
+    blockedDates,
+    durationMinutes: 0,
+    end: sourceEnd,
+    eventId,
+    googleUpdatedAt: text(event.updated),
+    scheduledDate: blockedDates[0],
+    start: sourceStart,
+    status,
+    taskTime: "",
+    timeZone: text(event.start?.timeZone) ?? calendarTimeZone,
+    title: text(event.summary) ?? "Untitled Place",
   };
 }
 
