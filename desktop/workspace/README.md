@@ -57,17 +57,19 @@ Chrome after installation.
 Move the pointer into the 5-by-5 pixel area at the top-left of any monitor and
 hold it there for 200 ms. The resident companion polls the global Windows cursor
 even when Chrome is not focused, then reports that monitor's usable work area
-through the connected native-messaging bridge. Chrome must be running; the
-resident companion logs an explicit no-bridge diagnostic rather than attempting
-to launch Chrome. The
-extension creates or restores PlayHouse on the left at 60% width and the normal
+through the connected native-messaging bridge. If the bridge is unavailable,
+the resident companion retains one summon for up to 15 seconds and opens a
+normal-profile Chrome window to wake the extension; the pending summon executes
+once the bridge reconnects. The extension creates or restores PlayHouse on the
+left at 60% width and the normal
 context window on the right at 40% width. On Windows, the resident companion
 maps the two Chrome HWNDs from their extension-supplied starting rectangles and
 moves them together with Win32 deferred window positioning through the same
 250 ms eased animation. User-resized split ratios are saved in
 `chrome.storage.local`, normalized into left/right roles, and reused on the same
-monitor. Closing either window is repaired by the next summon; repeated summons
-do not create duplicate workspace windows.
+monitor. Closing either or both windows is repaired by the next summon; their
+saved visible geometry and last Context URL survive stale window IDs. Repeated
+summons do not create duplicate workspace windows or repeated Chrome launches.
 
 On normal desktop widths, the open workspace reserves a 151 pixel activation
 gutter to the right. Moving the pointer 150 pixels beyond the Context window's

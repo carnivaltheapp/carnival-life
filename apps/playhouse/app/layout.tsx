@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-RETRACT-STABLE-10
+          P3-COLDSTART-11
         </small>
       </body>
     </html>

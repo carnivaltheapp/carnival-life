@@ -186,6 +186,60 @@ test("a missing workspace side is repaired without duplicating the surviving win
   assert.notEqual(repaired.contextWindowId, first.contextWindowId);
 });
 
+test("both closed workspace windows are recreated with saved geometry and context", async () => {
+  const chrome = fakeChrome();
+  const animations = [];
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { warn() {} },
+    nativeAnimate: async (animation) => {
+      animations.push(animation);
+      return true;
+    },
+  });
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const first = await workspace.summon(workArea, "display-1");
+  await workspace.rememberBounds({
+    height: 820,
+    id: first.playhouseWindowId,
+    left: 10,
+    top: 20,
+    width: 700,
+  });
+  await workspace.rememberBounds({
+    height: 820,
+    id: first.contextWindowId,
+    left: 710,
+    top: 20,
+    width: 730,
+  });
+  await workspace.openCarnivalContext("https://calendar.google.com/calendar/u/0/r/week", workArea, "display-1");
+  chrome.closeWindow(first.playhouseWindowId);
+  chrome.closeWindow(first.contextWindowId);
+
+  const recreated = await workspace.summon(workArea, "display-1");
+
+  assert.equal(chrome.calls.createWindow.length, 4);
+  assert.notEqual(recreated.playhouseWindowId, first.playhouseWindowId);
+  assert.notEqual(recreated.contextWindowId, first.contextWindowId);
+  assert.equal(
+    chrome.calls.createWindow.at(-1).url,
+    "https://calendar.google.com/calendar/u/0/r/week",
+  );
+  assert.deepEqual(animations.at(-1).playhouse.to, {
+    height: 820,
+    left: 10,
+    top: 20,
+    width: 700,
+  });
+  assert.deepEqual(animations.at(-1).context.to, {
+    height: 820,
+    left: 710,
+    top: 20,
+    width: 730,
+  });
+  assert.equal(chrome.calls.createWindow.some(({ left }) => left < workArea.left), false);
+});
+
 test("user-resized bounds are restored on the same monitor", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);

@@ -155,6 +155,7 @@ chrome.action.onClicked.addListener(async () => {
   const display = await currentWorkArea();
   await workspaceActions.summon(display, "toolbar");
 });
+chrome.windows.onCreated.addListener(connectNativeHost);
 chrome.windows.onBoundsChanged.addListener((window) => {
   pendingBounds.set(window.id, window);
   clearTimeout(geometrySaveTimer);

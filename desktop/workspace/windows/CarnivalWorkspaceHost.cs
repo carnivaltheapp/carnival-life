@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
@@ -15,7 +16,9 @@ internal static class CarnivalWorkspaceHost
     private const int AnimationFramesPerSecond = 60;
     private const int HotCornerMaximumOffsetPixels = 4;
     private const int DwellMilliseconds = 200;
+    private const int PendingSummonTimeoutMilliseconds = 15000;
     private const int RetractDwellMilliseconds = 150;
+    private const string PlayHouseUrl = "https://carnival-playhouse.vercel.app/";
     private const int MonitorDefaultToNearest = 2;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpNoOwnerZOrder = 0x0200;
@@ -32,6 +35,7 @@ internal static class CarnivalWorkspaceHost
     private static int configuredMonitorTop;
     private static int configuredMonitorBottom;
     private static string pendingSummon;
+    private static DateTime pendingSummonQueuedAt;
     private static DateTime pendingSummonSentAt;
     private static int pendingSummonRetries;
 
@@ -227,6 +231,7 @@ internal static class CarnivalWorkspaceHost
                 {
                     pipe.WaitForConnection();
                     lock (PipeLock) { chromePipe = pipe; }
+                    WriteDiagnostic("Carnival bridge connected");
                     TrySendPendingSummon();
                     string message;
                     while ((message = ReadFramedMessage(pipe)) != null) HandleChromeMessage(message);
@@ -451,11 +456,20 @@ internal static class CarnivalWorkspaceHost
             work.Right - work.Left, work.Bottom - work.Top);
         lock (SummonLock)
         {
+            if (pendingSummon != null)
+            {
+                WriteDiagnostic("pending summon already stored; duplicate ignored");
+                return false;
+            }
             pendingSummon = json;
+            pendingSummonQueuedAt = DateTime.UtcNow;
             pendingSummonRetries = 0;
             pendingSummonSentAt = DateTime.MinValue;
         }
-        return TrySendPendingSummon();
+        WriteDiagnostic("pending summon stored");
+        var sent = TrySendPendingSummon();
+        if (!sent) RequestChromeWake();
+        return sent;
     }
 
     private static bool TrySendPendingSummon()
@@ -463,6 +477,7 @@ internal static class CarnivalWorkspaceHost
         string json;
         lock (SummonLock) { json = pendingSummon; }
         if (json == null || !SendToChrome(json)) return false;
+        WriteDiagnostic("executing pending summon");
         lock (SummonLock)
         {
             if (pendingSummon == json) pendingSummonSentAt = DateTime.UtcNow;
@@ -475,13 +490,20 @@ internal static class CarnivalWorkspaceHost
         var recycle = false;
         lock (SummonLock)
         {
-            if (pendingSummon == null || pendingSummonSentAt == DateTime.MinValue ||
-                (DateTime.UtcNow - pendingSummonSentAt).TotalMilliseconds < 750) return;
+            if (pendingSummon == null) return;
+            if (pendingSummonSentAt == DateTime.MinValue)
+            {
+                if ((DateTime.UtcNow - pendingSummonQueuedAt).TotalMilliseconds <
+                    PendingSummonTimeoutMilliseconds) return;
+                WriteDiagnostic("pending summon timed out waiting for Carnival bridge");
+                ClearPendingSummon();
+                return;
+            }
+            if ((DateTime.UtcNow - pendingSummonSentAt).TotalMilliseconds < 750) return;
             if (pendingSummonRetries >= 1)
             {
                 WriteDiagnostic("summon delivery failed after one reconnect retry");
-                pendingSummon = null;
-                pendingSummonSentAt = DateTime.MinValue;
+                ClearPendingSummon();
                 return;
             }
             pendingSummonRetries += 1;
@@ -498,6 +520,79 @@ internal static class CarnivalWorkspaceHost
                 chromePipe = null;
             }
         }
+    }
+
+    private static void ClearPendingSummon()
+    {
+        pendingSummon = null;
+        pendingSummonQueuedAt = DateTime.MinValue;
+        pendingSummonSentAt = DateTime.MinValue;
+        pendingSummonRetries = 0;
+    }
+
+    private static void RequestChromeWake()
+    {
+        var chromeRunning = IsChromeRunning();
+        WriteDiagnostic(chromeRunning
+            ? "Chrome already running; bridge unavailable"
+            : "Chrome not running; launching Chrome");
+        var executable = FindChromeExecutable();
+        if (executable == null)
+        {
+            WriteDiagnostic("Chrome launch failed: executable not found");
+            return;
+        }
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                Arguments = "--new-window \"" + PlayHouseUrl + "\"",
+                FileName = executable,
+                UseShellExecute = true,
+            });
+            WriteDiagnostic("Chrome launch requested; waiting for Carnival bridge");
+        }
+        catch (Exception error)
+        {
+            WriteDiagnostic("Chrome launch failed: " + error.GetType().Name);
+        }
+    }
+
+    private static bool IsChromeRunning()
+    {
+        try { return Process.GetProcessesByName("chrome").Length > 0; }
+        catch { return false; }
+    }
+
+    private static string FindChromeExecutable()
+    {
+        var registryPaths = new[]
+        {
+            @"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
+            @"HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
+            @"HKEY_LOCAL_MACHINE\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
+        };
+        foreach (var registryPath in registryPaths)
+        {
+            try
+            {
+                var candidate = Registry.GetValue(registryPath, "", null) as string;
+                if (!string.IsNullOrWhiteSpace(candidate) && File.Exists(candidate)) return candidate;
+            }
+            catch { }
+        }
+        var candidates = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Google", "Chrome", "Application", "chrome.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Google", "Chrome", "Application", "chrome.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Google", "Chrome", "Application", "chrome.exe"),
+        };
+        foreach (var candidate in candidates)
+            if (File.Exists(candidate)) return candidate;
+        return null;
     }
 
     private static bool SendToChrome(string json)
@@ -523,11 +618,9 @@ internal static class CarnivalWorkspaceHost
         {
             lock (SummonLock)
             {
-                pendingSummon = null;
-                pendingSummonRetries = 0;
-                pendingSummonSentAt = DateTime.MinValue;
+                ClearPendingSummon();
             }
-            WriteDiagnostic("Chrome accepted native summon");
+            WriteDiagnostic("pending summon complete; Chrome accepted native summon");
         }
     }
 
