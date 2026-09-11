@@ -6,6 +6,32 @@ on:
     branches: [main]
 
 jobs:
+  desktop-native-host:
+    name: Desktop host (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Compile Windows host
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force desktop/workspace/dist | Out-Null
+          $compiler = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $compiler /nologo /target:exe "/out:desktop\workspace\dist\CarnivalWorkspaceHost.exe" desktop/workspace/windows/CarnivalWorkspaceHost.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compile macOS host
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p desktop/workspace/dist
+          swiftc -framework AppKit desktop/workspace/macos/CarnivalWorkspaceHost.swift -o desktop/workspace/dist/CarnivalWorkspaceHost
+
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -34,6 +60,9 @@ jobs:
 
       - name: Unit tests
         run: npm run test
+
+      - name: Desktop workspace tests
+        run: npm run test:desktop
 
       - name: Start isolated Supabase
         run: npm run db:start

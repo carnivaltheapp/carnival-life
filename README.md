@@ -9,6 +9,14 @@ Carnival Life is a suite of applications designed to help people manage what the
 
 Additional Carnival applications will be added to this monorepo over time.
 
+## Desktop workspace
+
+The first desktop workspace foundation is under [`extensions/chrome`](extensions/chrome)
+and [`desktop/workspace`](desktop/workspace). It uses two normal Chrome windows
+and a minimal Windows/macOS native hot-corner companion. Installation, security,
+and manual verification instructions are in
+[`desktop/workspace/README.md`](desktop/workspace/README.md).
+
 ## Prerequisites
 
 - Node.js 22 or newer
@@ -47,6 +55,7 @@ npm run dev
 npm run lint
 npm run typecheck
 npm run test
+npm run test:desktop
 npm run build
 ```
 

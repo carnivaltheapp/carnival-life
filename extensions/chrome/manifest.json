@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Carnival Desktop Workspace",
+  "version": "0.1.0",
+  "description": "Coordinates the PlayHouse and Carnival context Chrome windows.",
+  "permissions": [
+    "alarms",
+    "nativeMessaging",
+    "storage",
+    "system.display",
+    "tabs"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Summon Carnival workspace"
+  }
+}

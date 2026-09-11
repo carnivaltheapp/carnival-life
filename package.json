@@ -10,9 +10,11 @@
   },
   "scripts": {
     "dev": "npm run dev --workspace=@carnival/playhouse",
-    "lint": "npm run lint --workspace=@carnival/playhouse",
+    "lint": "npm run lint --workspace=@carnival/playhouse && npm run lint:desktop",
+    "lint:desktop": "eslint extensions/chrome --config extensions/chrome/eslint.config.mjs --max-warnings=0",
     "typecheck": "npm run typecheck --workspace=@carnival/playhouse",
     "test": "npm run test --workspace=@carnival/playhouse",
+    "test:desktop": "node --check extensions/chrome/background.js && node --check extensions/chrome/workspace-controller.js && node --test extensions/chrome/workspace-controller.test.mjs",
     "migration:legacy:dry-run": "node --env-file=.env.local --import tsx apps/playhouse/migration/legacy/cli.ts",
     "migration:legacy:full": "node --env-file=.env.local --env-file-if-exists=apps/playhouse/.env.local --import tsx apps/playhouse/migration/legacy/full-cli.ts",
     "migration:legacy:up": "node --env-file=.env.local --env-file-if-exists=apps/playhouse/.env.local --import tsx apps/playhouse/migration/legacy/full-cli.ts --task-types up",

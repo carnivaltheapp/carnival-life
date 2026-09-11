@@ -1,0 +1,69 @@
+import { CarnivalWorkspaceController, validWorkArea } from "./workspace-controller.js";
+
+const NATIVE_HOST = "com.carnival.workspace";
+const RECONNECT_ALARM = "carnival-native-host-reconnect";
+const controller = new CarnivalWorkspaceController(chrome);
+let nativePort = null;
+
+async function currentWorkArea() {
+  const displays = await chrome.system.display.getInfo();
+  const focused = await chrome.windows.getLastFocused();
+  const center = {
+    x: (focused.left ?? 0) + Math.round((focused.width ?? 0) / 2),
+    y: (focused.top ?? 0) + Math.round((focused.height ?? 0) / 2),
+  };
+  const display = displays.find(({ bounds }) => (
+    center.x >= bounds.left && center.x < bounds.left + bounds.width &&
+    center.y >= bounds.top && center.y < bounds.top + bounds.height
+  )) ?? displays.find(({ isPrimary }) => isPrimary) ?? displays[0];
+  if (!display || !validWorkArea(display.workArea)) {
+    throw new Error("Chrome could not determine a usable display work area.");
+  }
+  return { monitorId: display.id, workArea: display.workArea };
+}
+
+async function summonFromMessage(message) {
+  if (message?.type !== "summon" || !validWorkArea(message.workArea)) return;
+  await controller.summon(message.workArea, message.monitorId ?? null);
+}
+
+function connectNativeHost() {
+  if (nativePort) return;
+  try {
+    const port = chrome.runtime.connectNative(NATIVE_HOST);
+    nativePort = port;
+    port.onMessage.addListener((message) => {
+      summonFromMessage(message).catch((error) => console.error("Carnival summon failed", error));
+    });
+    port.onDisconnect.addListener(() => {
+      nativePort = null;
+      chrome.alarms.create(RECONNECT_ALARM, { delayInMinutes: 1 });
+    });
+  } catch (error) {
+    console.warn("Carnival native host is unavailable", error);
+    chrome.alarms.create(RECONNECT_ALARM, { delayInMinutes: 1 });
+  }
+}
+
+chrome.runtime.onInstalled.addListener(connectNativeHost);
+chrome.runtime.onStartup.addListener(connectNativeHost);
+chrome.alarms.onAlarm.addListener(({ name }) => {
+  if (name === RECONNECT_ALARM) connectNativeHost();
+});
+chrome.action.onClicked.addListener(async () => {
+  const display = await currentWorkArea();
+  await controller.summon(display.workArea, display.monitorId);
+});
+chrome.windows.onBoundsChanged.addListener((window) => {
+  controller.rememberBounds(window).catch((error) => console.error("Carnival layout save failed", error));
+});
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type !== "openCarnivalContext") return false;
+  currentWorkArea()
+    .then(({ monitorId, workArea }) => controller.openCarnivalContext(message.url, workArea, monitorId))
+    .then(() => sendResponse({ ok: true }))
+    .catch((error) => sendResponse({ error: error.message, ok: false }));
+  return true;
+});
+
+connectNativeHost();

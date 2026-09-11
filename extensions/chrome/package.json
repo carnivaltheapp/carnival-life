@@ -1,0 +1,5 @@
+{
+  "name": "@carnival/desktop-workspace-extension",
+  "private": true,
+  "type": "module"
+}
