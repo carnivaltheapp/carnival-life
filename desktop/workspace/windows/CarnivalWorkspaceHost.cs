@@ -23,6 +23,7 @@ internal static class CarnivalWorkspaceHost
     private static readonly object OutputLock = new object();
     private static readonly object PipeLock = new object();
     private static readonly object StateLock = new object();
+    private static readonly object SummonLock = new object();
     private static readonly string PipeName = "CarnivalDesktopWorkspace-" + SafePipeSuffix();
     private static NamedPipeServerStream chromePipe;
     private static bool drawerOpen;
@@ -30,6 +31,9 @@ internal static class CarnivalWorkspaceHost
     private static int configuredMonitorRight;
     private static int configuredMonitorTop;
     private static int configuredMonitorBottom;
+    private static string pendingSummon;
+    private static DateTime pendingSummonSentAt;
+    private static int pendingSummonRetries;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Point { public int X; public int Y; }
@@ -142,10 +146,17 @@ internal static class CarnivalWorkspaceHost
             return;
         }
         using (pipe)
+        using (var chromeInput = Console.OpenStandardInput())
+        using (var chromeOutput = Console.OpenStandardOutput())
         {
-            SendNative("{\"type\":\"hostReady\",\"version\":\"" + HostMarker + "\",\"nativeWindowAnimation\":true}");
-            new Thread(delegate() { ForwardPipeToChrome(pipe); }) { IsBackground = true }.Start();
-            ForwardChromeToPipe(pipe);
+            SendNative(chromeOutput, "{\"type\":\"hostReady\",\"version\":\"" + HostMarker + "\",\"nativeWindowAnimation\":true}");
+            new Thread(delegate()
+            {
+                ForwardPipeToChrome(pipe, chromeOutput);
+                WriteDiagnostic("bridge output ended; reconnect required");
+                Environment.Exit(0);
+            }) { IsBackground = true }.Start();
+            ForwardChromeToPipe(chromeInput, pipe);
         }
     }
 
@@ -204,6 +215,7 @@ internal static class CarnivalWorkspaceHost
                 {
                     pipe.WaitForConnection();
                     lock (PipeLock) { chromePipe = pipe; }
+                    TrySendPendingSummon();
                     string message;
                     while ((message = ReadFramedMessage(pipe)) != null) HandleChromeMessage(message);
                 }
@@ -219,20 +231,26 @@ internal static class CarnivalWorkspaceHost
         }
     }
 
-    private static void ForwardChromeToPipe(Stream pipe)
+    private static void ForwardChromeToPipe(Stream chromeInput, Stream pipe)
     {
-        var input = Console.OpenStandardInput();
         string message;
-        while ((message = ReadFramedMessage(input)) != null)
+        while ((message = ReadFramedMessage(chromeInput)) != null)
         {
             if (!WriteFramedMessage(pipe, message)) return;
         }
     }
 
-    private static void ForwardPipeToChrome(Stream pipe)
+    private static void ForwardPipeToChrome(Stream pipe, Stream chromeOutput)
     {
         string message;
-        while ((message = ReadFramedMessage(pipe)) != null) SendNative(message);
+        while ((message = ReadFramedMessage(pipe)) != null)
+        {
+            var summon = Regex.IsMatch(message, "\\\"type\\\"\\s*:\\s*\\\"summon\\\"");
+            if (summon) WriteDiagnostic("bridge forwarding summon to Chrome");
+            var written = SendNative(chromeOutput, message);
+            if (summon) WriteDiagnostic(written ? "bridge summon frame written" : "bridge summon frame write failed");
+            if (!written) return;
+        }
     }
 
     private static string ReadFramedMessage(Stream stream)
@@ -373,6 +391,7 @@ internal static class CarnivalWorkspaceHost
                         retractCandidateActive = false;
                     }
                 }
+                CheckPendingSummonAcknowledgement();
                 Thread.Sleep(16);
             }
         }
@@ -384,10 +403,59 @@ internal static class CarnivalWorkspaceHost
 
     private static bool SendSummon(IntPtr monitor, Rect work)
     {
-        return SendToChrome(string.Format(CultureInfo.InvariantCulture,
+        var json = string.Format(CultureInfo.InvariantCulture,
             "{{\"type\":\"summon\",\"monitorId\":\"windows-{0}\",\"workArea\":{{\"left\":{1},\"top\":{2},\"width\":{3},\"height\":{4}}}}}",
             monitor.ToInt64().ToString(CultureInfo.InvariantCulture), work.Left, work.Top,
-            work.Right - work.Left, work.Bottom - work.Top));
+            work.Right - work.Left, work.Bottom - work.Top);
+        lock (SummonLock)
+        {
+            pendingSummon = json;
+            pendingSummonRetries = 0;
+            pendingSummonSentAt = DateTime.MinValue;
+        }
+        return TrySendPendingSummon();
+    }
+
+    private static bool TrySendPendingSummon()
+    {
+        string json;
+        lock (SummonLock) { json = pendingSummon; }
+        if (json == null || !SendToChrome(json)) return false;
+        lock (SummonLock)
+        {
+            if (pendingSummon == json) pendingSummonSentAt = DateTime.UtcNow;
+        }
+        return true;
+    }
+
+    private static void CheckPendingSummonAcknowledgement()
+    {
+        var recycle = false;
+        lock (SummonLock)
+        {
+            if (pendingSummon == null || pendingSummonSentAt == DateTime.MinValue ||
+                (DateTime.UtcNow - pendingSummonSentAt).TotalMilliseconds < 750) return;
+            if (pendingSummonRetries >= 1)
+            {
+                WriteDiagnostic("summon delivery failed after one reconnect retry");
+                pendingSummon = null;
+                pendingSummonSentAt = DateTime.MinValue;
+                return;
+            }
+            pendingSummonRetries += 1;
+            pendingSummonSentAt = DateTime.MinValue;
+            recycle = true;
+        }
+        if (!recycle) return;
+        WriteDiagnostic("summon acknowledgement timed out; recycling bridge");
+        lock (PipeLock)
+        {
+            if (chromePipe != null)
+            {
+                chromePipe.Dispose();
+                chromePipe = null;
+            }
+        }
     }
 
     private static bool SendToChrome(string json)
@@ -408,6 +476,16 @@ internal static class CarnivalWorkspaceHost
         {
             WriteDiagnostic("native animation requested");
             ApplyAnimationRequest(json);
+        }
+        else if (Regex.IsMatch(json, "\\\"type\\\"\\s*:\\s*\\\"summonAccepted\\\""))
+        {
+            lock (SummonLock)
+            {
+                pendingSummon = null;
+                pendingSummonRetries = 0;
+                pendingSummonSentAt = DateTime.MinValue;
+            }
+            WriteDiagnostic("Chrome accepted native summon");
         }
     }
 
@@ -454,8 +532,12 @@ internal static class CarnivalWorkspaceHost
                     TryReadInteger(json, "durationMs", out durationMs) && durationMs >= 50 && durationMs <= 1000 &&
                     ValidBounds(playhouseFrom) && ValidBounds(playhouseTo) &&
                     ValidBounds(contextFrom) && ValidBounds(contextTo);
+        var easeIn = Regex.IsMatch(json, "\\\"easing\\\"\\s*:\\s*\\\"in\\\"");
+        WriteDiagnostic(easeIn ? "retract animation started" : "opening animation started");
         var success = valid && AnimateChromeWindows(playhouseFrom, playhouseTo, contextFrom, contextTo,
-            durationMs, Regex.IsMatch(json, "\\\"easing\\\"\\s*:\\s*\\\"in\\\""));
+            durationMs, easeIn);
+        WriteDiagnostic(string.Format(CultureInfo.InvariantCulture, "{0} animation {1}",
+            easeIn ? "retract" : "opening", success ? "complete" : "failed"));
         SendToChrome(string.Format(CultureInfo.InvariantCulture,
             "{{\"type\":\"animationComplete\",\"requestId\":{0},\"ok\":{1}}}",
             requestId, success ? "true" : "false"));
@@ -569,9 +651,9 @@ internal static class CarnivalWorkspaceHost
             CultureInfo.InvariantCulture, out value);
     }
 
-    private static void SendNative(string json)
+    private static bool SendNative(Stream chromeOutput, string json)
     {
-        lock (OutputLock) { WriteFramedMessage(Console.OpenStandardOutput(), json); }
+        lock (OutputLock) { return WriteFramedMessage(chromeOutput, json); }
     }
 
     private static void WriteDiagnostic(string detail)

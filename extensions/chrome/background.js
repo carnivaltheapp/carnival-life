@@ -1,4 +1,5 @@
 import { CarnivalWorkspaceController, validWorkArea } from "./workspace-controller.js";
+import { createWorkspaceActions } from "./workspace-summon.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
 const NATIVE_HOST_VERSION = "DRAWER-HOST-3";
@@ -21,13 +22,16 @@ function flattenBounds(prefix, bounds) {
 async function animateWindowsNatively(animation) {
   if (!nativePort || !nativeAnimationAvailable) return false;
   const requestId = ++nativeAnimationRequestId;
+  console.info(`Carnival: sending native ${animation.easing === "out" ? "open" : "retract"} animation`);
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
       nativeAnimationRequests.delete(requestId);
+      console.warn("Carnival: native animation timed out; using extension fallback");
       resolve(false);
     }, 1500);
     nativeAnimationRequests.set(requestId, (ok) => {
       clearTimeout(timeout);
+      console.info(`Carnival: native animation ${ok ? "complete" : "rejected"}`);
       resolve(ok);
     });
     nativePort.postMessage({
@@ -78,13 +82,11 @@ async function currentWorkArea() {
   return { monitorId: display.id, workArea: display.workArea };
 }
 
-async function summonFromMessage(message) {
-  if (message?.type === "summon" && validWorkArea(message.workArea)) {
-    reportDrawerState(await controller.summon(message.workArea, message.monitorId ?? null));
-  } else if (message?.type === "retract") {
-    reportDrawerState(await controller.retract());
-  }
-}
+const workspaceActions = createWorkspaceActions({
+  controller,
+  reportDrawerState,
+  validWorkArea,
+});
 
 function connectNativeHost() {
   if (nativePort) return;
@@ -92,6 +94,7 @@ function connectNativeHost() {
     const port = chrome.runtime.connectNative(NATIVE_HOST);
     nativePort = port;
     port.onMessage.addListener((message) => {
+      console.info(`Carnival native message: ${message?.type ?? "unknown"}`);
       if (message?.type === "hostReady") {
         immediateNativeReconnectUsed = false;
         nativeAnimationAvailable = message.version === NATIVE_HOST_VERSION && message.nativeWindowAnimation === true;
@@ -108,7 +111,8 @@ function connectNativeHost() {
         complete?.(message.ok === true);
         return;
       }
-      summonFromMessage(message).catch((error) => console.error("Carnival summon failed", error));
+      workspaceActions.handleNativeMessage(message, port)
+        .catch((error) => console.error("Carnival summon failed", error));
     });
     port.onDisconnect.addListener(() => {
       const reconnectImmediately = !immediateNativeReconnectUsed;
@@ -137,7 +141,7 @@ chrome.alarms.onAlarm.addListener(({ name }) => {
 });
 chrome.action.onClicked.addListener(async () => {
   const display = await currentWorkArea();
-  reportDrawerState(await controller.summon(display.workArea, display.monitorId));
+  await workspaceActions.summon(display, "toolbar");
 });
 chrome.windows.onBoundsChanged.addListener((window) => {
   controller.rememberBounds(window)
