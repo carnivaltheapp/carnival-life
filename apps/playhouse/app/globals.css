@@ -846,7 +846,7 @@ h1 {
 }
 
 .playList {
-  overflow-x: auto;
+  overflow-x: hidden;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -860,7 +860,7 @@ h1 {
 
 .playRow {
   position: relative;
-  min-width: 680px;
+  min-width: 0;
   font-size: var(--play-grid-font-size, 12px);
   color: var(--play-rank-foreground);
   border-bottom: 1px solid rgba(255, 255, 255, 0.65);
@@ -1000,10 +1000,15 @@ h1 {
 
 .playRowLine,
 .playGridHeader {
+  --play-description-group-min: 200px;
+  --play-description-group-preferred: 330px;
+  --play-action-columns-width: 143px;
   display: grid;
   padding: 3px clamp(8px, 1.4vw, 14px);
   grid-template-columns:
-    minmax(330px, 1.2fr) minmax(150px, 0.8fr) 143px;
+    minmax(var(--play-description-group-min), var(--play-description-group-preferred))
+    minmax(0, 1fr)
+    var(--play-action-columns-width);
   gap: 6px;
   align-items: center;
 }
@@ -1013,7 +1018,7 @@ h1 {
 }
 
 .playGridHeader {
-  min-width: 680px;
+  min-width: 0;
   min-height: 34px;
   color: #313b49;
   border-bottom: 1px solid #d6dee8;
@@ -1690,13 +1695,13 @@ h1 {
 .statusActionArea {
   position: relative;
   display: grid;
-  width: 114px;
+  width: 143px;
   justify-items: end;
 }
 
 .statusActions {
   display: grid;
-  width: 114px;
+  width: 143px;
   grid-template-columns: repeat(5, 27px);
   gap: 2px;
 }
