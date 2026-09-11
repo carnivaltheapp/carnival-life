@@ -5,10 +5,10 @@ This slice coordinates two ordinary Chrome windows:
 - left: [Carnival PlayHouse](https://carnival-playhouse.vercel.app/)
 - right: a normal Chrome context window, initially Google Calendar
 
-The Chrome extension owns window/tab identity, repair, positioning, saved bounds,
-and validated context navigation. A native messaging host only watches the global
-top-left hot corner and emits a fixed `summon` message after a 200 ms dwell. It
-does not execute commands or contain Carnival business logic.
+The Chrome extension owns window/tab identity, repair, positioning, drawer
+animation, saved bounds, and validated context navigation. A native messaging
+host watches the global pointer and emits only fixed `summon` or `retract`
+messages. It does not execute commands or contain Carnival business logic.
 
 ## One-time Chrome setup
 
@@ -50,15 +50,26 @@ Chrome after installation.
 
 Move the pointer into the extreme top-left corner of any monitor and hold it
 there for 200 ms. The companion reports that monitor's usable work area. The
-extension creates or restores PlayHouse at 40% width and the normal context
-window at 60% width. User-resized bounds are saved in `chrome.storage.local` and
-reused on the same monitor. Closing either window is repaired by the next summon;
-repeated summons do not create duplicate workspace windows.
+extension creates or restores PlayHouse on the left at 60% width and the normal
+context window on the right at 40% width. Both windows move through the same
+250 ms eased horizontal animation. User-resized split ratios are saved in
+`chrome.storage.local`, normalized into left/right roles, and reused on the same
+monitor. Closing either window is repaired by the next summon; repeated summons
+do not create duplicate workspace windows.
+
+On normal desktop widths, the open workspace reserves a 151 pixel activation
+gutter to the right. Moving the pointer 150 pixels beyond the Context window's
+right edge for 150 ms retracts both live windows off the monitor's left edge. On
+an unusually narrow monitor, the gutter shrinks only enough to retain an 800
+pixel workspace and the rightmost available pixel becomes the monitor-aware
+fallback. The next hot-corner or toolbar activation reuses the same tabs,
+browser history, and authentication.
 
 The right window remains an ordinary Chrome window with its normal cookies,
 authentication, tabs, Back, Forward, Refresh, and address bar. Internal extension
 callers can send `{ type: "openCarnivalContext", url }`; only HTTP(S) destinations
 are accepted. No PlayHouse bridge invokes that message in this foundation slice.
 
-Literal drawer animation and auto-hide are intentionally deferred. Instant
-restore/positioning is more reliable across Windows and macOS window managers.
+After updating the checked-out extension or native-host source, reload the
+extension at `chrome://extensions` and rerun the platform installer before
+manual verification.

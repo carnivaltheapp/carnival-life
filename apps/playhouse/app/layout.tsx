@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-DESKTOP-SHELL-1
+          P3-DRAWER-2
         </small>
       </body>
     </html>

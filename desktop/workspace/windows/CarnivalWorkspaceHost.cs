@@ -4,15 +4,23 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 
 internal static class CarnivalWorkspaceHost
 {
     private const int CornerTolerancePixels = 2;
     private const int DwellMilliseconds = 200;
+    private const int RetractDwellMilliseconds = 150;
     private const int MonitorDefaultToNearest = 2;
     private static readonly object OutputLock = new object();
+    private static readonly object StateLock = new object();
     private static volatile bool inputClosed;
+    private static bool drawerOpen;
+    private static int contextRight;
+    private static int configuredMonitorRight;
+    private static int configuredMonitorTop;
+    private static int configuredMonitorBottom;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Point { public int X; public int Y; }
@@ -44,6 +52,7 @@ internal static class CarnivalWorkspaceHost
         inputThread.Start();
 
         Stopwatch dwell = null;
+        Stopwatch retractDwell = null;
         var sentForCurrentEntry = false;
         while (!inputClosed)
         {
@@ -79,6 +88,37 @@ internal static class CarnivalWorkspaceHost
                 }
             }
 
+            bool open;
+            int rightEdge;
+            int monitorRight;
+            int monitorTop;
+            int monitorBottom;
+            lock (StateLock)
+            {
+                open = drawerOpen;
+                rightEdge = contextRight;
+                monitorRight = configuredMonitorRight;
+                monitorTop = configuredMonitorTop;
+                monitorBottom = configuredMonitorBottom;
+            }
+            var retractThreshold = Math.Min(rightEdge + 150, monitorRight - 1);
+            var beyondRightEdge = open && pointer.X >= retractThreshold &&
+                                  pointer.Y >= monitorTop && pointer.Y < monitorBottom;
+            if (!beyondRightEdge)
+            {
+                retractDwell = null;
+            }
+            else
+            {
+                if (retractDwell == null) retractDwell = Stopwatch.StartNew();
+                if (retractDwell.ElapsedMilliseconds >= RetractDwellMilliseconds)
+                {
+                    lock (StateLock) { drawerOpen = false; }
+                    SendNative("{\"type\":\"retract\"}");
+                    retractDwell = null;
+                }
+            }
+
             Thread.Sleep(25);
         }
     }
@@ -95,7 +135,7 @@ internal static class CarnivalWorkspaceHost
                 if (length < 0 || length > 4096) break;
                 var payload = new byte[length];
                 if (!ReadExactly(input, payload, length)) break;
-                // Input is intentionally ignored. This host emits only hot-corner summons.
+                ApplyWorkspaceState(Encoding.UTF8.GetString(payload));
             }
         }
         finally
@@ -128,6 +168,46 @@ internal static class CarnivalWorkspaceHost
             work.Right - work.Left,
             work.Bottom - work.Top
         );
+        SendNative(json);
+    }
+
+    private static void ApplyWorkspaceState(string json)
+    {
+        if (!Regex.IsMatch(json, "\\\"type\\\"\\s*:\\s*\\\"workspaceState\\\"")) return;
+        if (Regex.IsMatch(json, "\\\"state\\\"\\s*:\\s*\\\"retracted\\\""))
+        {
+            lock (StateLock) { drawerOpen = false; }
+            return;
+        }
+        if (!Regex.IsMatch(json, "\\\"state\\\"\\s*:\\s*\\\"open\\\"")) return;
+        int parsedContextRight;
+        int parsedMonitorRight;
+        int parsedMonitorTop;
+        int parsedMonitorBottom;
+        if (!TryReadInteger(json, "contextRight", out parsedContextRight) ||
+            !TryReadInteger(json, "monitorRight", out parsedMonitorRight) ||
+            !TryReadInteger(json, "monitorTop", out parsedMonitorTop) ||
+            !TryReadInteger(json, "monitorBottom", out parsedMonitorBottom) ||
+            parsedMonitorBottom <= parsedMonitorTop) return;
+        lock (StateLock)
+        {
+            contextRight = parsedContextRight;
+            configuredMonitorRight = parsedMonitorRight;
+            configuredMonitorTop = parsedMonitorTop;
+            configuredMonitorBottom = parsedMonitorBottom;
+            drawerOpen = true;
+        }
+    }
+
+    private static bool TryReadInteger(string json, string property, out int value)
+    {
+        value = 0;
+        var match = Regex.Match(json, "\\\"" + Regex.Escape(property) + "\\\"\\s*:\\s*(-?\\d+)");
+        return match.Success && int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
+    }
+
+    private static void SendNative(string json)
+    {
         var payload = Encoding.UTF8.GetBytes(json);
         lock (OutputLock)
         {

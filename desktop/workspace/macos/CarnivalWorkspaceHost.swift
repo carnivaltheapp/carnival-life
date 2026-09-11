@@ -3,11 +3,20 @@ import Foundation
 
 private let cornerTolerance: CGFloat = 2
 private let dwellSeconds = 0.2
+private let retractDwellSeconds = 0.15
 private let outputLock = NSLock()
+
+private struct RetractionConfiguration {
+    let contextRight: Int
+    let monitorBottom: Int
+    let monitorRight: Int
+    let monitorTop: Int
+}
 
 private final class HostState {
     private let lock = NSLock()
     private var closed = false
+    private var retraction: RetractionConfiguration?
 
     func close() {
         lock.lock()
@@ -19,6 +28,44 @@ private final class HostState {
         lock.lock()
         defer { lock.unlock() }
         return closed
+    }
+
+    func apply(_ payload: Data) {
+        guard
+            let message = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+            message["type"] as? String == "workspaceState"
+        else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        guard message["state"] as? String == "open" else {
+            retraction = nil
+            return
+        }
+        guard
+            let contextRight = message["contextRight"] as? Int,
+            let monitorRight = message["monitorRight"] as? Int,
+            let monitorTop = message["monitorTop"] as? Int,
+            let monitorBottom = message["monitorBottom"] as? Int,
+            monitorBottom > monitorTop
+        else { return }
+        retraction = RetractionConfiguration(
+            contextRight: contextRight,
+            monitorBottom: monitorBottom,
+            monitorRight: monitorRight,
+            monitorTop: monitorTop
+        )
+    }
+
+    func retractionConfiguration() -> RetractionConfiguration? {
+        lock.lock()
+        defer { lock.unlock() }
+        return retraction
+    }
+
+    func markRetracted() {
+        lock.lock()
+        retraction = nil
+        lock.unlock()
     }
 }
 
@@ -43,6 +90,16 @@ private func sendSummon(monitorId: String, workArea: WorkArea) {
         ],
     ]
     guard let payload = try? JSONSerialization.data(withJSONObject: message) else { return }
+    var length = UInt32(payload.count).littleEndian
+    let prefix = Data(bytes: &length, count: MemoryLayout<UInt32>.size)
+    outputLock.lock()
+    FileHandle.standardOutput.write(prefix)
+    FileHandle.standardOutput.write(payload)
+    outputLock.unlock()
+}
+
+private func sendRetract() {
+    let payload = Data("{\"type\":\"retract\"}".utf8)
     var length = UInt32(payload.count).littleEndian
     let prefix = Data(bytes: &length, count: MemoryLayout<UInt32>.size)
     outputLock.lock()
@@ -78,12 +135,13 @@ DispatchQueue.global(qos: .utility).async {
         if length > 4096 { break }
         let payload = input.readData(ofLength: Int(length))
         if payload.count != Int(length) { break }
-        // Input is intentionally ignored. This host emits only hot-corner summons.
+        hostState.apply(payload)
     }
     hostState.close()
 }
 
 var enteredAt: Date?
+var retractEnteredAt: Date?
 var sentForCurrentEntry = false
 while !hostState.isClosed() {
     autoreleasepool {
@@ -107,6 +165,28 @@ while !hostState.isClosed() {
                 )
                 sentForCurrentEntry = true
             }
+        }
+
+
+        if let configuration = hostState.retractionConfiguration() {
+            let primaryTop = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
+            let chromePointerY = Int((primaryTop - pointer.y).rounded())
+            let threshold = min(configuration.contextRight + 150, configuration.monitorRight - 1)
+            let beyondRightEdge = Int(pointer.x.rounded()) >= threshold &&
+                chromePointerY >= configuration.monitorTop &&
+                chromePointerY < configuration.monitorBottom
+            if !beyondRightEdge {
+                retractEnteredAt = nil
+            } else {
+                if retractEnteredAt == nil { retractEnteredAt = Date() }
+                if Date().timeIntervalSince(retractEnteredAt!) >= retractDwellSeconds {
+                    hostState.markRetracted()
+                    sendRetract()
+                    retractEnteredAt = nil
+                }
+            }
+        } else {
+            retractEnteredAt = nil
         }
     }
     Thread.sleep(forTimeInterval: 0.025)

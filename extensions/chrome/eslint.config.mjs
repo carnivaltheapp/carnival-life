@@ -7,6 +7,7 @@ export default [
         URL: "readonly",
         chrome: "readonly",
         console: "readonly",
+        setTimeout: "readonly",
       },
       sourceType: "module",
     },

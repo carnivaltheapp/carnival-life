@@ -5,7 +5,9 @@ import {
   CarnivalWorkspaceController,
   DEFAULT_CONTEXT_URL,
   defaultWorkspaceLayout,
+  effectiveRetractThreshold,
   isAllowedContextUrl,
+  restoredWorkspaceLayout,
 } from "./workspace-controller.js";
 
 function fakeChrome() {
@@ -35,7 +37,8 @@ function fakeChrome() {
         if (!tabs.has(id)) throw new Error("missing tab");
         return tabs.get(id);
       },
-      async query({ url }) {
+      async query({ url } = {}) {
+        if (!url) return [...tabs.values()];
         const prefix = url.replace("*", "");
         return [...tabs.values()].filter((tab) => tab.url.startsWith(prefix));
       },
@@ -69,11 +72,43 @@ function fakeChrome() {
   };
 }
 
-test("default workspace is a 40/60 split across the monitor work area", () => {
-  assert.deepEqual(defaultWorkspaceLayout({ height: 1000, left: 100, top: 20, width: 2000 }), {
-    context: { height: 1000, left: 900, top: 20, width: 1200 },
-    playhouse: { height: 1000, left: 100, top: 20, width: 800 },
+function controller(chrome) {
+  return new CarnivalWorkspaceController(chrome, {
+    animationSteps: 4,
+    sleep: async () => {},
   });
+}
+
+test("default workspace is a left PlayHouse 60/40 split across the monitor work area", () => {
+  assert.deepEqual(defaultWorkspaceLayout({ height: 1000, left: 100, top: 20, width: 2000 }), {
+    context: { height: 1000, left: 1209, top: 20, width: 740 },
+    playhouse: { height: 1000, left: 100, top: 20, width: 1109 },
+  });
+});
+
+test("stored split ratios are normalized and swapped roles fall back to 60/40", () => {
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  assert.deepEqual(restoredWorkspaceLayout({
+    contextBounds: { height: 800, left: 960, top: 30, width: 640 },
+    layoutVersion: 2,
+    monitorId: "display-1",
+    playhouseBounds: { height: 800, left: 0, top: 30, width: 960 },
+    workArea,
+  }, workArea, "chrome-display-1"), {
+    context: { height: 900, left: 869, top: 0, width: 580 },
+    playhouse: { height: 900, left: 0, top: 0, width: 869 },
+  });
+  assert.deepEqual(restoredWorkspaceLayout({
+    contextBounds: { height: 900, left: 0, top: 0, width: 640 },
+    layoutVersion: 2,
+    monitorId: "display-1",
+    playhouseBounds: { height: 900, left: 640, top: 0, width: 960 },
+  }, workArea, "display-1"), defaultWorkspaceLayout(workArea));
+});
+
+test("retract threshold uses 150px when available and monitor-edge fallback otherwise", () => {
+  assert.equal(effectiveRetractThreshold(1400, 1800), 1550);
+  assert.equal(effectiveRetractThreshold(1920, 1920), 1919);
 });
 
 test("context routing accepts browser URLs and rejects privileged schemes", () => {
@@ -85,11 +120,11 @@ test("context routing accepts browser URLs and rejects privileged schemes", () =
 
 test("repeated summons reuse both identified Chrome windows", async () => {
   const chrome = fakeChrome();
-  const controller = new CarnivalWorkspaceController(chrome);
+  const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
 
-  const first = await controller.summon(workArea, "display-1");
-  const second = await controller.summon(workArea, "display-1");
+  const first = await workspace.summon(workArea, "display-1");
+  const second = await workspace.summon(workArea, "display-1");
 
   assert.equal(chrome.calls.createWindow.length, 2);
   assert.equal(second.playhouseWindowId, first.playhouseWindowId);
@@ -99,10 +134,10 @@ test("repeated summons reuse both identified Chrome windows", async () => {
 
 test("opening context reuses the context tab and validates its URL", async () => {
   const chrome = fakeChrome();
-  const controller = new CarnivalWorkspaceController(chrome);
+  const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
 
-  await controller.openCarnivalContext("https://example.com/play", workArea, "display-1");
+  await workspace.openCarnivalContext("https://example.com/play", workArea, "display-1");
 
   assert.equal(chrome.calls.createWindow.length, 2);
   assert.deepEqual(chrome.calls.updateTab.at(-1)?.options, {
@@ -110,19 +145,19 @@ test("opening context reuses the context tab and validates its URL", async () =>
     url: "https://example.com/play",
   });
   await assert.rejects(
-    controller.openCarnivalContext("chrome://settings", workArea, "display-1"),
+    workspace.openCarnivalContext("chrome://settings", workArea, "display-1"),
     /HTTP or HTTPS/,
   );
 });
 
 test("a missing workspace side is repaired without duplicating the surviving window", async () => {
   const chrome = fakeChrome();
-  const controller = new CarnivalWorkspaceController(chrome);
+  const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
-  const first = await controller.summon(workArea, "display-1");
+  const first = await workspace.summon(workArea, "display-1");
   chrome.closeWindow(first.contextWindowId);
 
-  const repaired = await controller.summon(workArea, "display-1");
+  const repaired = await workspace.summon(workArea, "display-1");
 
   assert.equal(chrome.calls.createWindow.length, 3);
   assert.equal(repaired.playhouseWindowId, first.playhouseWindowId);
@@ -131,24 +166,57 @@ test("a missing workspace side is repaired without duplicating the surviving win
 
 test("user-resized bounds are restored on the same monitor", async () => {
   const chrome = fakeChrome();
-  const controller = new CarnivalWorkspaceController(chrome);
+  const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
-  const first = await controller.summon(workArea, "display-1");
-  await controller.rememberBounds({
+  const first = await workspace.summon(workArea, "display-1");
+  await workspace.rememberBounds({
     height: 820,
     id: first.playhouseWindowId,
     left: 20,
     top: 30,
     width: 720,
   });
+  await workspace.rememberBounds({
+    height: 820,
+    id: first.contextWindowId,
+    left: 740,
+    top: 30,
+    width: 880,
+  });
 
-  await controller.summon(workArea, "display-1");
+  await workspace.summon(workArea, "display-1");
 
   assert.deepEqual(chrome.calls.updateWindow.findLast(({ id }) => id === first.playhouseWindowId)?.options, {
     focused: true,
   });
   assert.deepEqual(
     chrome.calls.updateWindow.filter(({ id, options }) => id === first.playhouseWindowId && options.width).at(-1)?.options,
-    { focused: false, height: 820, left: 20, state: "normal", top: 30, width: 720 },
+    { focused: false, height: 900, left: 0, state: "normal", top: 0, width: 652 },
   );
+});
+
+test("open and retract animations move both windows with one shared offset and reuse them", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  const createdCount = chrome.calls.createWindow.length;
+
+  const retracted = await workspace.retract();
+  const reopened = await workspace.summon(workArea, "display-1");
+
+  assert.equal(retracted.drawerState, "retracted");
+  assert.equal(reopened.drawerState, "open");
+  assert.equal(reopened.playhouseWindowId, opened.playhouseWindowId);
+  assert.equal(reopened.contextWindowId, opened.contextWindowId);
+  assert.equal(chrome.calls.createWindow.length, createdCount);
+
+  const movementCalls = chrome.calls.updateWindow.filter(({ options }) => (
+    Object.keys(options).length === 1 && Number.isInteger(options.left)
+  ));
+  for (let index = 0; index < movementCalls.length; index += 2) {
+    const playhouse = movementCalls[index];
+    const context = movementCalls[index + 1];
+    assert.equal(context.options.left - playhouse.options.left, 869);
+  }
 });

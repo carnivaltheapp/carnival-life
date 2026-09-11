@@ -5,6 +5,22 @@ const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const controller = new CarnivalWorkspaceController(chrome);
 let nativePort = null;
 
+function reportDrawerState(state) {
+  if (!nativePort) return;
+  if (state?.drawerState !== "open" || !validWorkArea(state.workArea)) {
+    nativePort.postMessage({ state: "retracted", type: "workspaceState" });
+    return;
+  }
+  nativePort.postMessage({
+    contextRight: state.contextBounds.left + state.contextBounds.width,
+    monitorBottom: state.workArea.top + state.workArea.height,
+    monitorRight: state.workArea.left + state.workArea.width,
+    monitorTop: state.workArea.top,
+    state: "open",
+    type: "workspaceState",
+  });
+}
+
 async function currentWorkArea() {
   const displays = await chrome.system.display.getInfo();
   const focused = await chrome.windows.getLastFocused();
@@ -23,8 +39,11 @@ async function currentWorkArea() {
 }
 
 async function summonFromMessage(message) {
-  if (message?.type !== "summon" || !validWorkArea(message.workArea)) return;
-  await controller.summon(message.workArea, message.monitorId ?? null);
+  if (message?.type === "summon" && validWorkArea(message.workArea)) {
+    reportDrawerState(await controller.summon(message.workArea, message.monitorId ?? null));
+  } else if (message?.type === "retract") {
+    reportDrawerState(await controller.retract());
+  }
 }
 
 function connectNativeHost() {
@@ -39,6 +58,7 @@ function connectNativeHost() {
       nativePort = null;
       chrome.alarms.create(RECONNECT_ALARM, { delayInMinutes: 1 });
     });
+    controller.state().then(reportDrawerState).catch(() => {});
   } catch (error) {
     console.warn("Carnival native host is unavailable", error);
     chrome.alarms.create(RECONNECT_ALARM, { delayInMinutes: 1 });
@@ -52,15 +72,25 @@ chrome.alarms.onAlarm.addListener(({ name }) => {
 });
 chrome.action.onClicked.addListener(async () => {
   const display = await currentWorkArea();
-  await controller.summon(display.workArea, display.monitorId);
+  reportDrawerState(await controller.summon(display.workArea, display.monitorId));
 });
 chrome.windows.onBoundsChanged.addListener((window) => {
-  controller.rememberBounds(window).catch((error) => console.error("Carnival layout save failed", error));
+  controller.rememberBounds(window)
+    .then((state) => {
+      if (state) reportDrawerState(state);
+    })
+    .catch((error) => console.error("Carnival layout save failed", error));
+});
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  controller.rememberContextTab(tabId, changeInfo, tab)
+    .catch((error) => console.error("Carnival context save failed", error));
 });
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "openCarnivalContext") return false;
   currentWorkArea()
     .then(({ monitorId, workArea }) => controller.openCarnivalContext(message.url, workArea, monitorId))
+    .then(() => controller.state())
+    .then(reportDrawerState)
     .then(() => sendResponse({ ok: true }))
     .catch((error) => sendResponse({ error: error.message, ok: false }));
   return true;
