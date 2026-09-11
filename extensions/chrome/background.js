@@ -1,10 +1,48 @@
 import { CarnivalWorkspaceController, validWorkArea } from "./workspace-controller.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
-const NATIVE_HOST_VERSION = "DRAWER-HOST-2";
+const NATIVE_HOST_VERSION = "DRAWER-HOST-3";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
-const controller = new CarnivalWorkspaceController(chrome);
 let nativePort = null;
+let nativeAnimationAvailable = false;
+let nativeAnimationRequestId = 0;
+const nativeAnimationRequests = new Map();
+
+function flattenBounds(prefix, bounds) {
+  return {
+    [`${prefix}Height`]: bounds.height,
+    [`${prefix}Left`]: bounds.left,
+    [`${prefix}Top`]: bounds.top,
+    [`${prefix}Width`]: bounds.width,
+  };
+}
+
+async function animateWindowsNatively(animation) {
+  if (!nativePort || !nativeAnimationAvailable) return false;
+  const requestId = ++nativeAnimationRequestId;
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      nativeAnimationRequests.delete(requestId);
+      resolve(false);
+    }, 1500);
+    nativeAnimationRequests.set(requestId, (ok) => {
+      clearTimeout(timeout);
+      resolve(ok);
+    });
+    nativePort.postMessage({
+      ...flattenBounds("contextFrom", animation.context.from),
+      ...flattenBounds("contextTo", animation.context.to),
+      durationMs: animation.durationMs,
+      easing: animation.easing,
+      ...flattenBounds("playhouseFrom", animation.playhouse.from),
+      ...flattenBounds("playhouseTo", animation.playhouse.to),
+      requestId,
+      type: "animateWindows",
+    });
+  });
+}
+
+const controller = new CarnivalWorkspaceController(chrome, { nativeAnimate: animateWindowsNatively });
 
 function reportDrawerState(state) {
   if (!nativePort) return;
@@ -54,16 +92,26 @@ function connectNativeHost() {
     nativePort = port;
     port.onMessage.addListener((message) => {
       if (message?.type === "hostReady") {
-        if (message.version === NATIVE_HOST_VERSION) {
+        nativeAnimationAvailable = message.version === NATIVE_HOST_VERSION && message.nativeWindowAnimation === true;
+        if (nativeAnimationAvailable) {
           console.info(`Carnival native host: ${NATIVE_HOST_VERSION}`);
         } else {
           console.warn("Carnival native host version mismatch", message.version ?? "unknown");
         }
         return;
       }
+      if (message?.type === "animationComplete") {
+        const complete = nativeAnimationRequests.get(message.requestId);
+        nativeAnimationRequests.delete(message.requestId);
+        complete?.(message.ok === true);
+        return;
+      }
       summonFromMessage(message).catch((error) => console.error("Carnival summon failed", error));
     });
     port.onDisconnect.addListener(() => {
+      nativeAnimationAvailable = false;
+      for (const complete of nativeAnimationRequests.values()) complete(false);
+      nativeAnimationRequests.clear();
       nativePort = null;
       chrome.alarms.create(RECONNECT_ALARM, { delayInMinutes: 1 });
     });

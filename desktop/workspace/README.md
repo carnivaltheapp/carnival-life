@@ -5,10 +5,11 @@ This slice coordinates two ordinary Chrome windows:
 - left: [Carnival PlayHouse](https://carnival-playhouse.vercel.app/)
 - right: a normal Chrome context window, initially Google Calendar
 
-The Chrome extension owns window/tab identity, repair, positioning, drawer
-animation, saved bounds, and validated context navigation. A native messaging
-host watches the global pointer and emits only fixed `summon` or `retract`
-messages. It does not execute commands or contain Carnival business logic.
+The Chrome extension owns window/tab identity, repair, saved bounds, and
+validated context navigation. The resident Windows companion watches the global
+pointer and animates the two physical Chrome windows through bounded Win32
+positioning requests; its native-messaging bridge contains no Carnival business
+logic.
 
 ## One-time Chrome setup
 
@@ -30,10 +31,11 @@ powershell -ExecutionPolicy Bypass -File desktop/workspace/windows/install.ps1 `
 ```
 
 The installer compiles the small C# host into the current user's Local AppData,
-stops an older installed companion if necessary, atomically replaces its binary,
-writes a Chrome native-host manifest, and registers it under HKCU. It prints the
-installed path and native-host marker (`DRAWER-HOST-2`). Administrator access is
-not required. Restart Chrome after installation. Git updates do not update the
+stops an older installed companion if necessary, replaces its binary, writes a
+Chrome native-host manifest, registers it under HKCU, configures the resident
+companion in the current user's `Run` key, and starts it. It prints the installed
+path and native-host marker (`DRAWER-HOST-3`). Administrator access is not
+required. Restart Chrome after installation. Git updates do not update the
 installed native executable automatically, so rerun this command after native
 host source changes.
 
@@ -55,8 +57,10 @@ Chrome after installation.
 Move the pointer into the extreme top-left corner of any monitor and hold it
 there for 200 ms. The companion reports that monitor's usable work area. The
 extension creates or restores PlayHouse on the left at 60% width and the normal
-context window on the right at 40% width. Both windows move through the same
-250 ms eased horizontal animation. User-resized split ratios are saved in
+context window on the right at 40% width. On Windows, the resident companion
+maps the two Chrome HWNDs from their extension-supplied starting rectangles and
+moves them together with Win32 deferred window positioning through the same
+250 ms eased animation. User-resized split ratios are saved in
 `chrome.storage.local`, normalized into left/right roles, and reused on the same
 monitor. Closing either window is repaired by the next summon; repeated summons
 do not create duplicate workspace windows.
@@ -77,6 +81,6 @@ are accepted. No PlayHouse bridge invokes that message in this foundation slice.
 After updating the checked-out extension or native-host source, reload the
 extension at `chrome://extensions` and rerun the platform installer before
 manual verification. The extension service-worker console confirms the current
-Windows companion with `Carnival native host: DRAWER-HOST-2`; startup is also
+Windows companion with `Carnival native host: DRAWER-HOST-3`; startup is also
 recorded without credentials in
 `%LOCALAPPDATA%\Carnival\DesktopWorkspace\CarnivalWorkspaceHost.log`.

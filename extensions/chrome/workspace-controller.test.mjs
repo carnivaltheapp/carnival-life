@@ -220,3 +220,31 @@ test("open and retract animations move both windows with one shared offset and r
     assert.equal(context.options.left - playhouse.options.left, 869);
   }
 });
+
+test("Windows native animation receives the same paired geometry for summon and retract", async () => {
+  const chrome = fakeChrome();
+  const animations = [];
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    nativeAnimate: async (animation) => {
+      animations.push(animation);
+      return true;
+    },
+  });
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+
+  await workspace.summon(workArea, "display-1");
+  await workspace.retract();
+
+  assert.equal(animations.length, 2);
+  assert.equal(animations[0].durationMs, 250);
+  assert.equal(animations[0].easing, "out");
+  assert.deepEqual(animations[0].playhouse.from, { height: 900, left: -1600, top: 0, width: 869 });
+  assert.deepEqual(animations[0].playhouse.to, { height: 900, left: 0, top: 0, width: 869 });
+  assert.equal(animations[0].context.from.left - animations[0].playhouse.from.left, 869);
+  assert.equal(animations[1].easing, "in");
+  assert.deepEqual(animations[1].playhouse.from, animations[0].playhouse.to);
+  assert.deepEqual(animations[1].playhouse.to, animations[0].playhouse.from);
+  assert.equal(chrome.calls.updateWindow.filter(({ options }) => (
+    Object.keys(options).length === 1 && Number.isInteger(options.left)
+  )).length, 0);
+});

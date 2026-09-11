@@ -130,6 +130,7 @@ export class CarnivalWorkspaceController {
   constructor(chromeApi, options = {}) {
     this.chrome = chromeApi;
     this.animationSteps = options.animationSteps ?? Math.ceil(DRAWER_ANIMATION_MS / ANIMATION_FRAME_MS);
+    this.nativeAnimate = options.nativeAnimate ?? null;
     this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.movingWindowIds = new Set();
     this.transitioning = false;
@@ -212,6 +213,18 @@ export class CarnivalWorkspaceController {
     this.movingWindowIds.add(playhouseWindowId);
     this.movingWindowIds.add(contextWindowId);
     try {
+      if (this.nativeAnimate && await this.nativeAnimate({
+        context: {
+          from: shifted(layout.context, startOffset),
+          to: shifted(layout.context, endOffset),
+        },
+        durationMs: DRAWER_ANIMATION_MS,
+        easing: easing === easeInCubic ? "in" : "out",
+        playhouse: {
+          from: shifted(layout.playhouse, startOffset),
+          to: shifted(layout.playhouse, endOffset),
+        },
+      })) return;
       for (let step = 1; step <= this.animationSteps; step += 1) {
         const progress = easing(step / this.animationSteps);
         const offset = Math.round(startOffset + ((endOffset - startOffset) * progress));

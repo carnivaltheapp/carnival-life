@@ -6,7 +6,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $hostName = 'com.carnival.workspace'
-$hostMarker = 'DRAWER-HOST-2'
+$hostMarker = 'DRAWER-HOST-3'
 $source = Join-Path $PSScriptRoot 'CarnivalWorkspaceHost.cs'
 $installDirectory = Join-Path $env:LOCALAPPDATA 'Carnival\DesktopWorkspace'
 $hostExecutable = Join-Path $installDirectory 'CarnivalWorkspaceHost.exe'
@@ -54,7 +54,14 @@ $registryPath = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$hostName"
 New-Item -Force -Path $registryPath | Out-Null
 Set-Item -LiteralPath $registryPath -Value $manifestPath
 
+$startupRegistryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$startupName = 'CarnivalDesktopWorkspace'
+$startupCommand = '"{0}" --resident' -f $hostExecutable
+Set-ItemProperty -LiteralPath $startupRegistryPath -Name $startupName -Value $startupCommand
+Start-Process -FilePath $hostExecutable -ArgumentList '--resident' -WindowStyle Hidden
+
 Write-Host "Installed $hostName for Chrome extension $ExtensionId."
 Write-Host "Installed binary: $hostExecutable"
 Write-Host "Native host marker: $hostMarker"
+Write-Host "Current-user auto-start: $startupName"
 Write-Host 'Restart Chrome to activate the companion.'

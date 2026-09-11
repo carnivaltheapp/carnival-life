@@ -6,6 +6,7 @@ export default [
       globals: {
         URL: "readonly",
         chrome: "readonly",
+        clearTimeout: "readonly",
         console: "readonly",
         setTimeout: "readonly",
       },
