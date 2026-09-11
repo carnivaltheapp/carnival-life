@@ -8,6 +8,8 @@ const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 const GMAIL_DRAG_TTL_MS = 10_000;
 const TAB_SAVE_DELAY_MS = 300;
+const DIAGNOSTIC_STORAGE_KEY = "carnivalWorkspaceDiagnostics";
+const DIAGNOSTIC_LIMIT = 500;
 let nativePort = null;
 let nativeAnimationAvailable = false;
 let nativeAnimationRequestId = 0;
@@ -17,6 +19,32 @@ let geometrySaveTimer = null;
 let pendingGmailDrag = null;
 const tabSaveTimers = new Map();
 const tabSaveReasons = new Map();
+let diagnosticWriteQueue = Promise.resolve();
+
+function recordDiagnostic(level, event, details = null) {
+  console[level]?.(event, details ?? "");
+  const entry = {
+    component: "chrome-extension",
+    details,
+    event,
+    level,
+    timestamp: new Date().toISOString(),
+  };
+  diagnosticWriteQueue = diagnosticWriteQueue.then(async () => {
+    const stored = await chrome.storage.local.get(DIAGNOSTIC_STORAGE_KEY);
+    const entries = Array.isArray(stored[DIAGNOSTIC_STORAGE_KEY])
+      ? stored[DIAGNOSTIC_STORAGE_KEY]
+      : [];
+    await chrome.storage.local.set({
+      [DIAGNOSTIC_STORAGE_KEY]: [...entries, entry].slice(-DIAGNOSTIC_LIMIT),
+    });
+  }).catch((error) => console.error("Carnival diagnostic persistence failed", error));
+}
+
+const diagnosticLogger = {
+  info(event, details) { recordDiagnostic("info", event, details); },
+  warn(event, details) { recordDiagnostic("warn", event, details); },
+};
 
 function scheduleTabSave(windowId, reason) {
   if (!Number.isInteger(windowId)) return;
@@ -93,6 +121,7 @@ async function activateWindowsNatively({ context, playhouse }) {
 }
 
 const controller = new CarnivalWorkspaceController(chrome, {
+  logger: diagnosticLogger,
   nativeActivate: activateWindowsNatively,
   nativeAnimate: animateWindowsNatively,
 });
