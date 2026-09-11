@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   displayBranch,
   displayPlayDestination,
+  gmailAccountIndexFromMetadata,
   gmailThreadIdFromMetadata,
   gmailThreadUrl,
   playRowLeadingLabel,
@@ -43,6 +44,12 @@ describe("Play row display helpers", () => {
     expect(gmailThreadUrl("thread/123")).toBe(
       "https://mail.google.com/mail/u/0/#all/thread%2F123",
     );
+    expect(gmailThreadUrl("thread-123", 2)).toBe(
+      "https://mail.google.com/mail/u/2/#all/thread-123",
+    );
+    expect(gmailAccountIndexFromMetadata({
+      gmail_attachment: { account_index: 2 },
+    })).toBe(2);
   });
 
   it("exposes only usable saved HTTP URLs for the row action", () => {

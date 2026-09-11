@@ -20,7 +20,11 @@
         "https://carnival-playhouse.vercel.app/*",
         "http://localhost/*"
       ],
-      "js": ["playhouse-bridge.js"]
+      "js": ["gmail-drag-bridge.js", "playhouse-bridge.js"]
+    },
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["gmail-drag-bridge.js"]
     }
   ],
   "action": {

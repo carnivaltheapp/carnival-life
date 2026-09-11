@@ -2,7 +2,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { NextPlayOption, PlayListItem } from "../../domain/play";
 import type { BulkPlayChange } from "../../domain/play-bulk-change";
-import { gmailThreadIdFromMetadata } from "../../domain/play-display";
+import { gmailMetadataWithAttachment } from "../../domain/gmail-attachment";
+import {
+  gmailAccountIndexFromMetadata,
+  gmailThreadIdFromMetadata,
+} from "../../domain/play-display";
 import { orderUpdatesForInsertion } from "../../domain/play-order";
 import { searchableMetadataText } from "../../domain/play-search";
 import { promotionOrderUpdates } from "../../domain/reminder";
@@ -11,6 +15,7 @@ import type { Database } from "../supabase/database.types";
 import type { SelectedView } from "./data";
 import type {
   FlipPlayRankRequest,
+  AttachGmailRequest,
   PlayRepository,
   RepositoryPlayList,
   RepositionPlaysRequest,
@@ -42,6 +47,34 @@ export class SupabasePlayRepository implements PlayRepository {
     private readonly ownerUserId: string,
   ) {}
 
+  async attachGmail({ attachment, playId }: AttachGmailRequest) {
+    const { data: existing, error: existingError } = await this.supabase
+      .from("plays")
+      .select("source_metadata")
+      .eq("id", playId)
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", "open")
+      .maybeSingle();
+    if (existingError || !existing) return false;
+    const metadata = existing.source_metadata &&
+        typeof existing.source_metadata === "object" &&
+        !Array.isArray(existing.source_metadata)
+      ? existing.source_metadata
+      : {};
+    if (legacyTaskTypeFromMetadata(metadata) === "A") return false;
+    const { data, error } = await this.supabase
+      .from("plays")
+      .update({
+        source_metadata: gmailMetadataWithAttachment(metadata, attachment),
+      })
+      .eq("id", playId)
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", "open")
+      .select("id")
+      .maybeSingle();
+    return !error && data?.id === playId;
+  }
+
   async get(playId: string) {
     const { data, error } = await this.supabase
       .from("plays")
@@ -67,6 +100,7 @@ export class SupabasePlayRepository implements PlayRepository {
       basketId: data.basket_id,
       branch: data.branch,
       durationMinutes: data.duration_minutes,
+      gmailAccountIndex: gmailAccountIndexFromMetadata(data.source_metadata),
       gmailThreadId: gmailThreadIdFromMetadata(data.source_metadata),
       id: data.id,
       nextPlayId: null,
@@ -173,6 +207,7 @@ export class SupabasePlayRepository implements PlayRepository {
       basketId: play.basket_id,
       branch: play.branch,
       durationMinutes: play.duration_minutes,
+      gmailAccountIndex: gmailAccountIndexFromMetadata(play.source_metadata),
       gmailThreadId: gmailThreadIdFromMetadata(play.source_metadata),
       id: play.id,
       nextPlayId: nextByPlayId.get(play.id) ?? null,

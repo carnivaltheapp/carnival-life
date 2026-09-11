@@ -49,6 +49,40 @@ describe("MongoPlayRepository mutations", () => {
     );
   });
 
+  it("attaches one Gmail thread with an exact active user scope and targeted fields", async () => {
+    const id = new ObjectId();
+    const updateOne = vi.fn().mockResolvedValue({ matchedCount: 1 });
+    expect(await repository({ updateOne: updateOne as never }).attachGmail({
+      attachment: {
+        accountIndex: 2,
+        canonicalUrl: "https://mail.google.com/mail/u/2/#all/FMnew",
+        threadRef: "FMnew",
+      },
+      playId: id.toHexString(),
+    })).toBe(true);
+
+    expect(updateOne.mock.calls[0][0]).toEqual({
+      _id: id,
+      "carnival_google.semantic_role": { $ne: "place" },
+      is_active: true,
+      is_deleted: false,
+      task_type: { $ne: "A" },
+      user_id: 43,
+    });
+    expect(updateOne.mock.calls[0][1].$set).toMatchObject({
+      "carnival_google.gmail_attachment": {
+        account_index: 2,
+        canonical_url: "https://mail.google.com/mail/u/2/#all/FMnew",
+        thread_ref: "FMnew",
+      },
+      thread_id: "FMnew",
+      updated_date: expect.any(Date),
+    });
+    expect(updateOne.mock.calls[0][1].$set).not.toHaveProperty("action_type");
+    expect(updateOne.mock.calls[0][1].$set).not.toHaveProperty("regarding");
+    expect(updateOne.mock.calls[0][1].$set).not.toHaveProperty("url");
+  });
+
   it.each([
     ["done", { is_active: false }],
     ["trash", { is_active: false, is_deleted: true }],

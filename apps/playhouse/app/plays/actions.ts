@@ -15,6 +15,7 @@ import {
 import type { BasketSummary } from "../../domain/play";
 import type { PlayPlacement } from "../../domain/play";
 import type { BulkPlayChange } from "../../domain/play-bulk-change";
+import { parseGmailAttachmentUrl } from "../../domain/gmail-attachment";
 import { reminderContextDate } from "../../domain/reminder";
 import { applyPlayLifecycle } from "../../lib/google/gmail-lifecycle";
 import { unstarGmailPlayThread } from "../../lib/google/gmail-lifecycle.server";
@@ -325,6 +326,61 @@ export async function repositionPlays(request: {
     };
   } catch {
     return errorState("PlayHouse could not move these Plays. The previous order was restored.");
+  }
+}
+
+export async function attachGmailToPlay(request: {
+  correlationId: string;
+  playId: string;
+  url: string;
+}): Promise<PlayMutationState> {
+  const attachment = parseGmailAttachmentUrl(request.url);
+  const diagnostic = {
+    correlationId: request.correlationId.slice(0, 100),
+    gmailAccountIndex: attachment?.accountIndex,
+    gmailHost: attachment ? "mail.google.com" : undefined,
+    gmailThreadRef: attachment?.threadRef,
+    playId: request.playId.slice(0, 100),
+  };
+  console.info("GMAIL_ATTACHMENT_SAVE_STARTED", diagnostic);
+  try {
+    if (
+      !attachment ||
+      !request.playId ||
+      request.playId.length > 100 ||
+      !request.correlationId ||
+      request.correlationId.length > 100
+    ) {
+      console.warn("GMAIL_ATTACHMENT_SAVE_FAILED", diagnostic);
+      return errorState("That Gmail item could not be attached.");
+    }
+    const auth = await authenticatedClient();
+    if (!auth) {
+      console.warn("GMAIL_ATTACHMENT_SAVE_FAILED", diagnostic);
+      return errorState("Your session expired. Refresh the page and sign in again.");
+    }
+    const source = resolvePlayhouseDataSource();
+    if (source === "supabase" && !isUuid(request.playId)) {
+      console.warn("GMAIL_ATTACHMENT_SAVE_FAILED", diagnostic);
+      return errorState("That Play could not be identified. Refresh and try again.");
+    }
+    const repository = await createPlayRepository({
+      baskets: [],
+      ownerUserId: auth.userId,
+      source,
+      supabase: auth.supabase,
+    });
+    const saved = await repository.attachGmail({ attachment, playId: request.playId });
+    if (!saved) {
+      console.warn("GMAIL_ATTACHMENT_SAVE_FAILED", diagnostic);
+      return errorState("Gmail could not be attached to this Play.");
+    }
+    revalidatePath("/");
+    console.info("GMAIL_ATTACHMENT_SAVE_COMPLETE", diagnostic);
+    return { message: "Gmail attached.", status: "success" };
+  } catch {
+    console.warn("GMAIL_ATTACHMENT_SAVE_FAILED", diagnostic);
+    return errorState("Gmail could not be attached to this Play.");
   }
 }
 

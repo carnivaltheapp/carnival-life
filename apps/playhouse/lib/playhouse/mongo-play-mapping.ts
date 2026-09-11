@@ -22,6 +22,7 @@ export type LegacyTaskDocument = Record<string, unknown> & {
   contact_id?: unknown;
   created_date?: unknown;
   duration?: unknown;
+  carnival_google?: unknown;
   email?: unknown;
   first?: unknown;
   is_active?: unknown;
@@ -329,12 +330,24 @@ export function mapMongoPlay(
   const sourceType: PlaySourceType = task.regarding === "email" ? "gmail" : "user";
   const resourceName = mongoContactResourceName(task);
   const contextType = mongoPlaceBlockedDates(task).length ? "place" as const : null;
+  const gmailAttachment = task.carnival_google &&
+      typeof task.carnival_google === "object" &&
+      !Array.isArray(task.carnival_google)
+    ? (task.carnival_google as Record<string, unknown>).gmail_attachment
+    : null;
+  const gmailAccountIndex = gmailAttachment &&
+      typeof gmailAttachment === "object" &&
+      !Array.isArray(gmailAttachment) &&
+      typeof (gmailAttachment as Record<string, unknown>).account_index === "number"
+    ? (gmailAttachment as Record<string, unknown>).account_index as number
+    : null;
 
   return {
     basketId: basket?.id ?? null,
     branch: text(task.branch),
     contextType,
     durationMinutes: number(task.duration),
+    gmailAccountIndex,
     gmailThreadId: text(task.thread_id),
     id: task._id.toHexString(),
     legacyTaskType: text(task.task_type),

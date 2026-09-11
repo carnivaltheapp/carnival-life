@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-MULTI-DRAG-26
+          P3-GMAIL-PHYSICAL-DROP-27
         </small>
       </body>
     </html>

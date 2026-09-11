@@ -115,6 +115,78 @@ test("Email and URL row actions route to Aux without changing PlayHouse", async 
   await expect(row).toBeVisible();
 });
 
+test("physical Gmail drop attaches only the row under the pointer and persists replacement", async ({ auth }) => {
+  await auth.page.goto("/");
+  await createPlay(auth.page, "Gmail drop target");
+  await createPlay(auth.page, "Other selected Play");
+  const target = playRow(auth.page, "Gmail drop target");
+  const other = playRow(auth.page, "Other selected Play");
+  await target.locator(".playSelectControl").click();
+  await other.locator(".playSelectControl").click();
+
+  async function drop(type: string, value: string, row = target) {
+    await row.evaluate((element, payload) => {
+      const transfer = new DataTransfer();
+      transfer.setData(payload.type, payload.value);
+      element.dispatchEvent(new DragEvent("dragover", {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+      }));
+      element.dispatchEvent(new DragEvent("drop", {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+      }));
+    }, { type, value });
+  }
+
+  await drop(
+    "text/uri-list",
+    "https://mail.google.com/mail/u/2/#all/FMfirst",
+  );
+  await expect(target.getByRole("button", { name: "Open Gmail thread" })).toBeVisible();
+  await expect(other.getByRole("button", { name: "Open Gmail thread" })).toHaveCount(0);
+
+  await drop(
+    "text/html",
+    '<a href="https://mail.google.com/mail/u/3/#all/FMreplacement">Gmail</a>',
+  );
+  await expect.poll(async () => {
+    const { data } = await auth.user
+      .from("plays")
+      .select("source_metadata")
+      .eq("owner_user_id", auth.userId)
+      .eq("title", "Gmail drop target")
+      .single();
+    return data?.source_metadata;
+  }).toMatchObject({
+    external_ids: { thread_id: "FMreplacement" },
+    gmail_attachment: {
+      account_index: 3,
+      thread_ref: "FMreplacement",
+    },
+  });
+
+  await drop("text/uri-list", "https://example.com/not-gmail", other);
+  await expect(other.getByRole("button", { name: "Open Gmail thread" })).toHaveCount(0);
+  await auth.page.reload();
+  await auth.page.evaluate(() => {
+    window.addEventListener("message", (event) => {
+      if (event.data?.source === "carnival-playhouse" && event.data?.type === "openInAux") {
+        sessionStorage.setItem("gmail-drop-route", event.data.url);
+      }
+    });
+  });
+  const gmailButton = playRow(auth.page, "Gmail drop target")
+    .getByRole("button", { name: "Open Gmail thread" });
+  await expect(gmailButton).toBeVisible();
+  await gmailButton.click();
+  await expect.poll(() => auth.page.evaluate(
+    () => sessionStorage.getItem("gmail-drop-route"),
+  )).toBe("https://mail.google.com/mail/u/3/#all/FMreplacement");
+});
+
 test("invalid Create stays open and preserves every entered value", async ({ auth }) => {
   await auth.page.goto("/");
   const form = await openCreatePlay(auth.page);
@@ -191,7 +263,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-MULTI-DRAG-26", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-GMAIL-PHYSICAL-DROP-27", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');

@@ -26,8 +26,13 @@ export function gmailThreadIdFromMetadata(sourceMetadata: unknown) {
     nonblankString(objectValue(metadata.legacy_source)?.thread_id);
 }
 
-export function gmailThreadUrl(threadId: string) {
-  return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}`;
+export function gmailAccountIndexFromMetadata(sourceMetadata: unknown) {
+  const value = objectValue(objectValue(sourceMetadata)?.gmail_attachment)?.account_index;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+export function gmailThreadUrl(threadId: string, accountIndex = 0) {
+  return `https://mail.google.com/mail/u/${accountIndex}/#all/${encodeURIComponent(threadId)}`;
 }
 
 export function usablePlayUrl(value: string | null) {

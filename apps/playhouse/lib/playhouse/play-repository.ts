@@ -8,6 +8,7 @@ import type {
 } from "../../domain/play";
 import type { PlayInput } from "../../domain/play-input";
 import type { BulkPlayChange } from "../../domain/play-bulk-change";
+import type { GmailAttachment } from "../../domain/gmail-attachment";
 import type { Database } from "../supabase/database.types";
 import type { SelectedView } from "./data";
 import type { PlayhouseDataSource } from "./data-source";
@@ -36,8 +37,14 @@ export type FlipPlayRankRequest = {
   reminderDate: string;
 };
 
+export type AttachGmailRequest = {
+  attachment: GmailAttachment;
+  playId: string;
+};
+
 export interface PlayRepository {
   readonly supportsWorkflows: boolean;
+  attachGmail(request: AttachGmailRequest): Promise<boolean>;
   get(playId: string): Promise<PlayListItem | null>;
   getLifecycleIdentity(playId: string): Promise<Pick<PlayListItem, "gmailThreadId" | "sourceType"> | null>;
   list(selectedView?: SelectedView): Promise<RepositoryPlayList>;

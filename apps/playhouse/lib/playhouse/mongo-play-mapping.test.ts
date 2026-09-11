@@ -141,6 +141,9 @@ describe("Mongo Play mapping", () => {
       _id: new ObjectId(),
       action_type: "Legacy title",
       branch: "Branch",
+      carnival_google: {
+        gmail_attachment: { account_index: 2 },
+      },
       contact_id: "people/legacy-player",
       duration: 45,
       is_active: true,
@@ -162,6 +165,7 @@ describe("Mongo Play mapping", () => {
       basketId: baskets[0].id,
       branch: "Branch",
       durationMinutes: 45,
+      gmailAccountIndex: 2,
       gmailThreadId: "gmail-thread-id",
       note: "Legacy note",
       place: "outside",

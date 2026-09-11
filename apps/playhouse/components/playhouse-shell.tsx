@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   useEffect,
+  useCallback,
   useMemo,
   useRef,
   useState,
@@ -15,7 +16,12 @@ import {
   type ReactNode,
 } from "react";
 
-import { bulkUpdatePlays, flipPlayRank, repositionPlays } from "../app/plays/actions";
+import {
+  attachGmailToPlay,
+  bulkUpdatePlays,
+  flipPlayRank,
+  repositionPlays,
+} from "../app/plays/actions";
 import type {
   BasketSummary,
   NextPlayOption,
@@ -23,6 +29,14 @@ import type {
   PlayPlacement,
 } from "../domain/play";
 import type { CalendarSettingsAccount } from "../domain/calendar-settings";
+import {
+  gmailAttachmentFromDragData,
+  gmailCorrelationIdFromDragData,
+  gmailMetadataWithAttachment,
+  mayContainGmailDrag,
+  parseGmailAttachmentUrl,
+  type GmailAttachment,
+} from "../domain/gmail-attachment";
 import type { SelectedView } from "../lib/playhouse/data";
 import {
   displayBranch,
@@ -231,6 +245,9 @@ function PlayhouseShellView({
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
   const [draggedIds, setDraggedIds] = useState<string[]>([]);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const gmailCorrelationIdRef = useRef<string | null>(null);
+  const gmailDropTargetRef = useRef<string | null>(null);
+  const [gmailDropTarget, setGmailDropTarget] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [gridSort, setGridSort] = useState<PlayGridSort | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -247,6 +264,7 @@ function PlayhouseShellView({
   const [movePending, startMove] = useTransition();
   const [bulkPending, startBulk] = useTransition();
   const [flipPending, startFlip] = useTransition();
+  const [gmailAttachPending, startGmailAttach] = useTransition();
   const localPlays = optimisticPlays?.source === plays ? optimisticPlays.value : plays;
   const playCountLabel = `${localPlays.length} ${localPlays.length === 1 ? "Play" : "Plays"}`;
   const viewTitle = !searchQuery && selectedView.kind === "calendar" &&
@@ -320,6 +338,88 @@ function PlayhouseShellView({
     setDraggedIds([]);
     setDropTarget(null);
   }
+
+  const persistGmailAttachment = useCallback((
+    playId: string,
+    attachment: GmailAttachment,
+    correlationId: string,
+  ) => {
+    if (!eligiblePlayIds.has(playId) || gmailAttachPending) return;
+    const previousOptimisticPlays = optimisticPlays;
+    const diagnostic = {
+      correlationId,
+      gmailAccountIndex: attachment.accountIndex,
+      gmailHost: "mail.google.com",
+      gmailPath: `/mail/u/${attachment.accountIndex}/`,
+      gmailThreadRef: attachment.threadRef,
+      playId,
+    };
+    console.info("GMAIL_DROP_ON_PLAY", diagnostic);
+    console.info("GMAIL_URL_PARSED", diagnostic);
+    setOptimisticPlays({
+      source: plays,
+      value: localPlays.map((play) => play.id === playId
+        ? {
+            ...play,
+            gmailAccountIndex: attachment.accountIndex,
+            gmailThreadId: attachment.threadRef,
+            sourceMetadata: gmailMetadataWithAttachment(play.sourceMetadata, attachment),
+          }
+        : play),
+    });
+    gmailDropTargetRef.current = null;
+    gmailCorrelationIdRef.current = null;
+    setGmailDropTarget(null);
+    startGmailAttach(async () => {
+      try {
+        const result = await attachGmailToPlay({
+          correlationId,
+          playId,
+          url: attachment.canonicalUrl,
+        });
+        if (result.status === "success") {
+          setMoveError(null);
+          return;
+        }
+        setOptimisticPlays(previousOptimisticPlays);
+        setMoveError(result.message);
+      } catch {
+        setOptimisticPlays(previousOptimisticPlays);
+        setMoveError("Gmail could not be attached to this Play.");
+      }
+    });
+  }, [eligiblePlayIds, gmailAttachPending, localPlays, optimisticPlays, plays]);
+
+  useEffect(() => {
+    function acceptExtensionFallback(event: Event) {
+      if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
+      try {
+        const detail = JSON.parse(event.detail) as {
+          correlationId?: unknown;
+          playId?: unknown;
+          url?: unknown;
+        };
+        if (
+          typeof detail.playId !== "string" ||
+          typeof detail.url !== "string"
+        ) return;
+        const attachment = parseGmailAttachmentUrl(detail.url);
+        if (!attachment) return;
+        persistGmailAttachment(
+          detail.playId,
+          attachment,
+          typeof detail.correlationId === "string" ? detail.correlationId : crypto.randomUUID(),
+        );
+      } catch {
+        // Ignore malformed cross-context extension events.
+      }
+    }
+    window.addEventListener("carnival:gmail-drop-fallback", acceptExtensionFallback);
+    return () => window.removeEventListener(
+      "carnival:gmail-drop-fallback",
+      acceptExtensionFallback,
+    );
+  }, [persistGmailAttachment]);
 
   function beginDrag(playId: string, event: DragEvent<HTMLLIElement>) {
     const ids = playIdsForDrag({
@@ -928,6 +1028,7 @@ function PlayhouseShellView({
                   className={`playRow ${playVisual.className}`}
                   data-dragging={draggedIds.includes(play.id) || undefined}
                   data-drop-target={dropTarget === `play:${play.id}` || undefined}
+                  data-gmail-drop-target={gmailDropTarget === play.id || undefined}
                   data-selected={selectedIds.has(play.id) || undefined}
                   data-testid="play-row"
                   data-play-row-id={play.id}
@@ -947,6 +1048,17 @@ function PlayhouseShellView({
                   }}
                   onContextMenu={(event) => openBulkMenu(play.id, event)}
                   onDragEnd={clearDragState}
+                  onDragLeave={(event) => {
+                    if (
+                      gmailDropTargetRef.current === play.id &&
+                      (!(event.relatedTarget instanceof Node) ||
+                        !event.currentTarget.contains(event.relatedTarget))
+                    ) {
+                      gmailDropTargetRef.current = null;
+                      gmailCorrelationIdRef.current = null;
+                      setGmailDropTarget(null);
+                    }
+                  }}
                   onDragStart={(event) => beginDrag(play.id, event)}
                   onPointerDownCapture={rememberDragOrigin}
                   style={{
@@ -954,6 +1066,25 @@ function PlayhouseShellView({
                     "--play-rank-foreground": playVisual.foregroundColor,
                   } as CSSProperties}
                   onDragOver={(event) => {
+                    if (
+                      !draggedIds.length &&
+                      !isPlaceContext &&
+                      eligiblePlayIds.has(play.id) &&
+                      mayContainGmailDrag(event.dataTransfer)
+                    ) {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "link";
+                      if (gmailDropTargetRef.current !== play.id) {
+                        const correlationId = gmailCorrelationIdFromDragData(event.dataTransfer);
+                        gmailCorrelationIdRef.current = correlationId;
+                        gmailDropTargetRef.current = play.id;
+                        setGmailDropTarget(play.id);
+                        if (correlationId) {
+                          console.info("GMAIL_DRAG_ENTER_PH", { correlationId, playId: play.id });
+                        }
+                      }
+                      return;
+                    }
                     if (
                       isPlaceContext ||
                       !reorderPlacement ||
@@ -967,6 +1098,27 @@ function PlayhouseShellView({
                     setDropTarget(`play:${play.id}`);
                   }}
                   onDrop={(event) => {
+                    if (!draggedIds.length && eligiblePlayIds.has(play.id)) {
+                      const attachment = gmailAttachmentFromDragData(event.dataTransfer);
+                      if (attachment) {
+                        event.preventDefault();
+                        const correlationId = gmailCorrelationIdFromDragData(event.dataTransfer) ??
+                          gmailCorrelationIdRef.current ??
+                          crypto.randomUUID();
+                        if (!gmailCorrelationIdRef.current) {
+                          console.info("GMAIL_DRAG_ENTER_PH", { correlationId, playId: play.id });
+                        }
+                        persistGmailAttachment(
+                          play.id,
+                          attachment,
+                          correlationId,
+                        );
+                        return;
+                      }
+                    }
+                    gmailDropTargetRef.current = null;
+                    gmailCorrelationIdRef.current = null;
+                    setGmailDropTarget(null);
                     if (isPlaceContext || !reorderPlacement || draggedIds.includes(play.id)) return;
                     event.preventDefault();
                     persistMove(reorderPlacement, play.id);

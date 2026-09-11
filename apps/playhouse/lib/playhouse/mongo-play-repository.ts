@@ -40,6 +40,7 @@ import {
 } from "./mongo-play-mapping";
 import type {
   FlipPlayRankRequest,
+  AttachGmailRequest,
   PlayRepository,
   RepositoryPlayList,
   RepositionPlaysRequest,
@@ -63,6 +64,31 @@ export class MongoPlayRepository implements PlayRepository {
     supabase: SupabaseClient<Database>;
   }) {
     assertMongoUserMapping(dependencies.ownerUserId);
+  }
+
+  async attachGmail({ attachment, playId }: AttachGmailRequest) {
+    let filter: Filter<LegacyTaskDocument>;
+    try {
+      filter = {
+        ...mongoActiveFilter(),
+        ...mongoMutationFilter(playId),
+        task_type: { $ne: "A" },
+      };
+    } catch {
+      return false;
+    }
+    const result = await this.dependencies.collection.updateOne(filter, {
+      $set: {
+        "carnival_google.gmail_attachment": {
+          account_index: attachment.accountIndex,
+          canonical_url: attachment.canonicalUrl,
+          thread_ref: attachment.threadRef,
+        },
+        thread_id: attachment.threadRef,
+        updated_date: new Date(),
+      },
+    });
+    return result.matchedCount === 1;
   }
 
   private async contactMap(

@@ -6,12 +6,14 @@ const NATIVE_HOST = "com.carnival.workspace";
 const NATIVE_HOST_VERSION = "DRAWER-HOST-7";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
+const GMAIL_DRAG_TTL_MS = 10_000;
 let nativePort = null;
 let nativeAnimationAvailable = false;
 let nativeAnimationRequestId = 0;
 let immediateNativeReconnectUsed = false;
 const nativeAnimationRequests = new Map();
 let geometrySaveTimer = null;
+let pendingGmailDrag = null;
 
 function flattenBounds(prefix, bounds) {
   return {
@@ -200,6 +202,34 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     .catch((error) => console.error("Carnival context save failed", error));
 });
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "gmailDragStarted") {
+    const attachment = message.attachment;
+    if (
+      typeof message.correlationId === "string" &&
+      typeof attachment?.canonicalUrl === "string" &&
+      typeof attachment?.threadRef === "string" &&
+      Number.isSafeInteger(attachment?.accountIndex)
+    ) {
+      pendingGmailDrag = {
+        attachment,
+        correlationId: message.correlationId,
+        startedAt: Date.now(),
+      };
+    }
+    sendResponse({ ok: Boolean(pendingGmailDrag) });
+    return false;
+  }
+  if (message?.type === "getPendingGmailDrag") {
+    if (pendingGmailDrag && Date.now() - pendingGmailDrag.startedAt <= GMAIL_DRAG_TTL_MS) {
+      const response = pendingGmailDrag;
+      pendingGmailDrag = null;
+      sendResponse(response);
+    } else {
+      pendingGmailDrag = null;
+      sendResponse({ attachment: null });
+    }
+    return false;
+  }
   if (!isOpenInAuxMessage(message)) return false;
   routeOpenInAuxMessage({ controller, currentWorkArea, message, reportDrawerState })
     .then(() => sendResponse({ ok: true }))

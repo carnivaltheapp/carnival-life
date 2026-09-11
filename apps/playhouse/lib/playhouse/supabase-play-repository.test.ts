@@ -92,6 +92,71 @@ describe("Supabase Play lifecycle identity", () => {
   });
 });
 
+describe("Supabase Gmail attachment", () => {
+  it("merges and replaces Gmail metadata without changing source or unrelated fields", async () => {
+    const existing = query({
+      data: {
+        source_metadata: {
+          external_ids: { event_id: "event-1", thread_id: "old" },
+          legacy_source: { task_type: "H" },
+        },
+      },
+      error: null,
+    });
+    const update = query({ data: { id: "play-1" }, error: null });
+    const from = vi.fn().mockReturnValueOnce(existing).mockReturnValueOnce(update);
+
+    expect(await new SupabasePlayRepository(
+      { from } as never,
+      "owner-user",
+    ).attachGmail({
+      attachment: {
+        accountIndex: 3,
+        canonicalUrl: "https://mail.google.com/mail/u/3/#all/FMnew",
+        threadRef: "FMnew",
+      },
+      playId: "play-1",
+    })).toBe(true);
+
+    expect(existing.eq).toHaveBeenCalledWith("owner_user_id", "owner-user");
+    expect(existing.eq).toHaveBeenCalledWith("status", "open");
+    expect(update.update).toHaveBeenCalledWith({
+      source_metadata: {
+        external_ids: { event_id: "event-1", thread_id: "FMnew" },
+        gmail_attachment: {
+          account_index: 3,
+          canonical_url: "https://mail.google.com/mail/u/3/#all/FMnew",
+          thread_ref: "FMnew",
+        },
+        legacy_source: { task_type: "H" },
+      },
+    });
+    expect(update.eq).toHaveBeenCalledWith("owner_user_id", "owner-user");
+    expect(update.eq).toHaveBeenCalledWith("status", "open");
+  });
+
+  it("rejects Appointment attachment before issuing an update", async () => {
+    const existing = query({
+      data: { source_metadata: { legacy_source: { task_type: "A" } } },
+      error: null,
+    });
+    const from = vi.fn().mockReturnValue(existing);
+    expect(await new SupabasePlayRepository(
+      { from } as never,
+      "owner-user",
+    ).attachGmail({
+      attachment: {
+        accountIndex: 0,
+        canonicalUrl: "https://mail.google.com/mail/u/0/#all/FMnew",
+        threadRef: "FMnew",
+      },
+      playId: "appointment-1",
+    })).toBe(false);
+    expect(from).toHaveBeenCalledOnce();
+    expect(existing.update).not.toHaveBeenCalled();
+  });
+});
+
 describe("Supabase rank flip", () => {
   it("owner-scopes the Play and moves it to the top of its new rank", async () => {
     const play = query({
