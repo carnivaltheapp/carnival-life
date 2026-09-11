@@ -10,8 +10,8 @@ import {
 } from "../app/calendars/actions";
 import {
   INITIAL_CALENDAR_SETTINGS_STATE,
+  calendarBlockPresentation,
   getCarnivalCalendarSemantic,
-  type CalendarAvailabilityMode,
   type CalendarSettingsAccount,
   type CalendarSettingsCalendar,
 } from "../domain/calendar-settings";
@@ -83,36 +83,45 @@ function CalendarModeControl({
     if (state.status === "success") router.refresh();
   }, [router, state.status]);
 
+  const presentation = calendarBlockPresentation(calendar.semanticRole, calendar.mode);
+
   return (
     <form action={action} className="calendarModeControl">
       <input name="calendarId" type="hidden" value={calendar.id} />
-      {(["blocking", "ignored"] as const).map((mode: CalendarAvailabilityMode) => (
-        <button
-          aria-pressed={calendar.mode === mode}
-          disabled={pending}
-          key={mode}
-          name="mode"
-          type="submit"
-          value={mode}
-        >
-          {mode === "blocking" ? "Blocking" : "Ignored"}
-        </button>
-      ))}
+      <input
+        name="mode"
+        type="hidden"
+        value={presentation.checked ? "ignored" : "blocking"}
+      />
+      <input
+        aria-label={`Block ${calendar.summary}`}
+        checked={presentation.checked}
+        disabled={pending}
+        onChange={(event) => event.currentTarget.form?.requestSubmit()}
+        title={presentation.title}
+        type="checkbox"
+      />
       {state.status === "error" ? <small role="alert">{state.message}</small> : null}
     </form>
   );
 }
 
-function CalendarBehavior({ calendar }: { calendar: CalendarSettingsCalendar }) {
+function CalendarBlockControl({ calendar }: { calendar: CalendarSettingsCalendar }) {
   const semantic = getCarnivalCalendarSemantic(calendar.semanticRole);
 
   if (!semantic) return <CalendarModeControl calendar={calendar} />;
 
+  const presentation = calendarBlockPresentation(calendar.semanticRole, calendar.mode);
+
   return (
-    <span className="calendarSemanticBehavior">
-      <strong>{semantic.label}</strong>
-      <small>{semantic.description}</small>
-    </span>
+    <input
+      aria-label={`Block ${calendar.summary}`}
+      checked={presentation.checked}
+      disabled
+      readOnly
+      title={presentation.title}
+      type="checkbox"
+    />
   );
 }
 
@@ -145,17 +154,42 @@ export function CalendarSettings({
             </div>
           </div>
           {account.calendars.length ? (
-            <ul>
-              {account.calendars.map((calendar) => (
-                <li key={calendar.id}>
-                  <span title={calendar.summary}>
-                    {calendar.summary}
-                    {calendar.isPrimary ? <small>Primary</small> : null}
-                  </span>
-                  <CalendarBehavior calendar={calendar} />
-                </li>
-              ))}
-            </ul>
+            <div className="calendarTableViewport">
+              <table className="calendarTable">
+                <thead>
+                  <tr>
+                    <th>Block</th>
+                    <th>Calendar</th>
+                    <th>Type</th>
+                    <th>Behavior</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {account.calendars.map((calendar) => {
+                    const semantic = getCarnivalCalendarSemantic(calendar.semanticRole);
+                    const presentation = calendarBlockPresentation(
+                      calendar.semanticRole,
+                      calendar.mode,
+                    );
+                    return (
+                      <tr key={calendar.id}>
+                        <td className="calendarBlockCell" data-label="Block">
+                          <CalendarBlockControl calendar={calendar} />
+                        </td>
+                        <td className="calendarNameCell" data-label="Calendar" title={calendar.summary}>
+                          <strong>{calendar.summary}</strong>
+                          {calendar.isPrimary ? <small>Primary</small> : null}
+                        </td>
+                        <td data-label="Type">
+                          {semantic ? <span className="calendarTypeBadge">{semantic.label}</span> : "—"}
+                        </td>
+                        <td data-label="Behavior">{presentation.behavior}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <p>No calendars discovered yet.</p>
           )}

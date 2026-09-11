@@ -146,7 +146,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P2-EVENTS-1", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("CAL-SETTINGS-2", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');
@@ -621,7 +621,13 @@ test("grid font setting updates immediately and persists locally", async ({ auth
 
   await settingsButton.click();
   const menu = auth.page.getByRole("dialog", { name: "Settings menu" });
+  await expect(menu.getByRole("button", { name: "General" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await expect(menu.getByRole("button", { name: "Calendars" })).toBeVisible();
   await expect(menu.getByText("Font Size", { exact: true })).toHaveCount(1);
+  await expect(menu.getByRole("heading", { name: "Calendars" })).toHaveCount(0);
   await expect(menu.locator(".fontSizeSetting").getByRole("button")).toHaveCount(2);
   await menu.getByRole("button", { name: "Increase font size" }).click();
   await expect(row).toHaveCSS("font-size", "13px");
@@ -651,6 +657,77 @@ test("grid font setting updates immediately and persists locally", async ({ auth
   await expect(description).toHaveCSS("text-overflow", "ellipsis");
   await description.click();
   await expect(restoredRow.getByTestId("edit-play")).toHaveAttribute("open", "");
+});
+
+test("Calendar settings use a separate table with authoritative Block controls", async ({ auth }) => {
+  const { data: account, error: accountError } = await auth.user
+    .from("google_accounts")
+    .select("id")
+    .single();
+  expect(accountError).toBeNull();
+  expect(account).not.toBeNull();
+
+  const calendarRows = [
+    ["AT_Appointments", "appointment", false],
+    ["AT_Events", "event", false],
+    ["AT_Places", "place", false],
+    ["AT_Plays", "play", true],
+    ["AT_Reminders", "reminder", true],
+    ["AT_Done", "done", true],
+    ["Work", "none", true],
+    ["Airbnb 24", "none", false],
+  ] as const;
+  const { error: calendarError } = await auth.user.from("google_calendars").insert(
+    calendarRows.map(([summary, semanticRole, isBlocking]) => ({
+      google_account_id: account!.id,
+      is_blocking: isBlocking,
+      owner_user_id: auth.userId,
+      provider_calendar_id: `e2e-${summary}`,
+      semantic_role: semanticRole,
+      summary,
+    })),
+  );
+  expect(calendarError).toBeNull();
+
+  await auth.page.goto("/");
+  await auth.page.getByRole("button", { name: "User menu" }).click();
+  await auth.page.getByRole("button", { name: "Settings" }).click();
+  const settings = auth.page.getByRole("dialog", { name: "Settings menu" });
+  await expect(settings.getByText("Font Size", { exact: true })).toBeVisible();
+  await expect(settings.getByText("AT_Appointments", { exact: true })).toHaveCount(0);
+
+  await settings.getByRole("button", { name: "Calendars" }).click();
+  await expect(settings.getByRole("columnheader", { name: "Block", exact: true })).toBeVisible();
+  await expect(settings.getByRole("button", { name: "Refresh", exact: true })).toBeVisible();
+  await expect(settings.getByRole("button", { name: "Sync Calendar Inputs" })).toBeVisible();
+
+  for (const name of ["AT_Appointments", "AT_Events", "AT_Places"]) {
+    await expect(settings.getByRole("checkbox", { name: `Block ${name}` })).toBeChecked();
+    await expect(settings.getByRole("checkbox", { name: `Block ${name}` })).toBeDisabled();
+  }
+  for (const name of ["AT_Plays", "AT_Reminders", "AT_Done"]) {
+    await expect(settings.getByRole("checkbox", { name: `Block ${name}` })).not.toBeChecked();
+    await expect(settings.getByRole("checkbox", { name: `Block ${name}` })).toBeDisabled();
+  }
+
+  const work = settings.getByRole("checkbox", { name: "Block Work" });
+  const ignored = settings.getByRole("checkbox", { name: "Block Airbnb 24" });
+  await expect(work).toBeChecked();
+  await expect(work).toBeEnabled();
+  await expect(ignored).not.toBeChecked();
+  await ignored.check();
+  await expect(ignored).toBeChecked();
+  await expect
+    .poll(async () => {
+      const { data } = await auth.user
+        .from("google_calendars")
+        .select("is_blocking")
+        .eq("google_account_id", account!.id)
+        .eq("provider_calendar_id", "e2e-Airbnb 24")
+        .single();
+      return data?.is_blocking;
+    })
+    .toBe(true);
 });
 
 test("Play moved from Backlog to Today remains visible after refresh", async ({ auth }) => {

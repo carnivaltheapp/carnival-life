@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CARNIVAL_CALENDAR_SEMANTICS,
+  calendarBlockPresentation,
   calendarDiscoveryRows,
   detectCarnivalCalendarSemanticRole,
   getCarnivalCalendarSemantic,
@@ -129,4 +130,35 @@ describe("Calendar discovery persistence", () => {
 
     expect(row).toMatchObject({ is_blocking: true, semantic_role: "none" });
   });
+
+  it("maps ordinary Blocking and Ignored modes to editable checkbox states", () => {
+    expect(calendarBlockPresentation("none", "blocking")).toMatchObject({
+      behavior: "Blocks event time",
+      checked: true,
+      disabled: false,
+    });
+    expect(calendarBlockPresentation("none", "ignored")).toMatchObject({
+      behavior: "Ignored",
+      checked: false,
+      disabled: false,
+    });
+  });
+
+  it.each([
+    ["appointment", true, "Google → Carnival · event time"],
+    ["event", true, "Google → Carnival · event time"],
+    ["place", true, "Google → Carnival · whole day"],
+    ["play", false, "Carnival → Google"],
+    ["reminder", false, "Carnival → Google"],
+    ["done", false, "Carnival → Google"],
+  ] satisfies [Exclude<CarnivalCalendarSemanticRole, "none">, boolean, string][])(
+    "renders %s blocking as authoritative and read-only",
+    (role, checked, behavior) => {
+      expect(calendarBlockPresentation(role, "ignored")).toMatchObject({
+        behavior,
+        checked,
+        disabled: true,
+      });
+    },
+  );
 });

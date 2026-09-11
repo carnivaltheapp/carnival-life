@@ -78,6 +78,45 @@ export function getCarnivalCalendarSemantic(
   return role === "none" ? null : CARNIVAL_CALENDAR_SEMANTICS[role];
 }
 
+export function calendarBlockPresentation(
+  role: CarnivalCalendarSemanticRole,
+  mode: CalendarAvailabilityMode,
+) {
+  const semantic = getCarnivalCalendarSemantic(role);
+
+  if (!semantic) {
+    const checked = mode === "blocking";
+    return {
+      behavior: checked ? "Blocks event time" : "Ignored",
+      checked,
+      disabled: false,
+      title: checked
+        ? "This calendar blocks event time."
+        : "This calendar does not block Roller availability.",
+    };
+  }
+
+  const checked = semantic.blockingScope !== "none";
+  const title =
+    semantic.blockingScope === "event_time"
+      ? `${semantic.label} always block their event time.`
+      : semantic.blockingScope === "whole_day"
+        ? `${semantic.label} always block the whole day.`
+        : `Carnival ${semantic.label} are managed by Carnival and are not external blocking calendars.`;
+
+  return {
+    behavior:
+      semantic.blockingScope === "event_time"
+        ? "Google → Carnival · event time"
+        : semantic.blockingScope === "whole_day"
+          ? "Google → Carnival · whole day"
+          : "Carnival → Google",
+    checked,
+    disabled: true,
+    title,
+  };
+}
+
 export type DiscoveredGoogleCalendar = {
   accessRole: string | null;
   isPrimary: boolean;

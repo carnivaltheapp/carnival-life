@@ -71,6 +71,7 @@ export function GridSettings({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
+  const [section, setSection] = useState<"general" | "calendars">("general");
 
   useEffect(() => {
     if (!open) return;
@@ -103,28 +104,57 @@ export function GridSettings({
         {trigger === "menu" ? "Settings" : <GearIcon />}
       </button>
       {open ? (
-        <div aria-label="Settings menu" className="settingsPopover" role="dialog">
-          <div className="fontSizeSetting">
-            <span>Font Size</span>
-            <output aria-label="Current grid font size">{fontSize}px</output>
+        <div
+          aria-label="Settings menu"
+          className={`settingsPopover settingsPopover--${section}`}
+          role="dialog"
+        >
+          <nav aria-label="Settings sections" className="settingsNav">
+            <span>Settings</span>
             <button
-              aria-label="Decrease font size"
-              disabled={fontSize <= MIN_GRID_FONT_SIZE}
-              onClick={() => persistGridFontSize(stepGridFontSize(fontSize, -1))}
+              aria-current={section === "general" ? "page" : undefined}
+              onClick={() => setSection("general")}
               type="button"
             >
-              ↓
+              General
             </button>
             <button
-              aria-label="Increase font size"
-              disabled={fontSize >= MAX_GRID_FONT_SIZE}
-              onClick={() => persistGridFontSize(stepGridFontSize(fontSize, 1))}
+              aria-current={section === "calendars" ? "page" : undefined}
+              onClick={() => setSection("calendars")}
               type="button"
             >
-              ↑
+              Calendars
             </button>
+          </nav>
+          <div className="settingsContent">
+            {section === "general" ? (
+              <section aria-labelledby="general-settings-heading">
+                <h2 id="general-settings-heading">General</h2>
+                <div className="fontSizeSetting">
+                  <span>Font Size</span>
+                  <output aria-label="Current grid font size">{fontSize}px</output>
+                  <button
+                    aria-label="Decrease font size"
+                    disabled={fontSize <= MIN_GRID_FONT_SIZE}
+                    onClick={() => persistGridFontSize(stepGridFontSize(fontSize, -1))}
+                    type="button"
+                  >
+                    ↓
+                  </button>
+                  <button
+                    aria-label="Increase font size"
+                    disabled={fontSize >= MAX_GRID_FONT_SIZE}
+                    onClick={() => persistGridFontSize(stepGridFontSize(fontSize, 1))}
+                    type="button"
+                  >
+                    ↑
+                  </button>
+                </div>
+              </section>
+            ) : (
+              <CalendarSettings accounts={calendarAccounts} error={calendarSettingsError} />
+            )}
           </div>
-          <CalendarSettings accounts={calendarAccounts} error={calendarSettingsError} />
         </div>
       ) : null}
     </div>
