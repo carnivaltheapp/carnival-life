@@ -1,6 +1,7 @@
 import { CarnivalWorkspaceController, validWorkArea } from "./workspace-controller.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
+const NATIVE_HOST_VERSION = "DRAWER-HOST-2";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const controller = new CarnivalWorkspaceController(chrome);
 let nativePort = null;
@@ -52,6 +53,14 @@ function connectNativeHost() {
     const port = chrome.runtime.connectNative(NATIVE_HOST);
     nativePort = port;
     port.onMessage.addListener((message) => {
+      if (message?.type === "hostReady") {
+        if (message.version === NATIVE_HOST_VERSION) {
+          console.info(`Carnival native host: ${NATIVE_HOST_VERSION}`);
+        } else {
+          console.warn("Carnival native host version mismatch", message.version ?? "unknown");
+        }
+        return;
+      }
       summonFromMessage(message).catch((error) => console.error("Carnival summon failed", error));
     });
     port.onDisconnect.addListener(() => {

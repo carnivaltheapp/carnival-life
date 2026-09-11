@@ -30,8 +30,12 @@ powershell -ExecutionPolicy Bypass -File desktop/workspace/windows/install.ps1 `
 ```
 
 The installer compiles the small C# host into the current user's Local AppData,
-writes a Chrome native-host manifest, and registers it under HKCU. Administrator
-access is not required. Restart Chrome after installation.
+stops an older installed companion if necessary, atomically replaces its binary,
+writes a Chrome native-host manifest, and registers it under HKCU. It prints the
+installed path and native-host marker (`DRAWER-HOST-2`). Administrator access is
+not required. Restart Chrome after installation. Git updates do not update the
+installed native executable automatically, so rerun this command after native
+host source changes.
 
 ## macOS host
 
@@ -72,4 +76,7 @@ are accepted. No PlayHouse bridge invokes that message in this foundation slice.
 
 After updating the checked-out extension or native-host source, reload the
 extension at `chrome://extensions` and rerun the platform installer before
-manual verification.
+manual verification. The extension service-worker console confirms the current
+Windows companion with `Carnival native host: DRAWER-HOST-2`; startup is also
+recorded without credentials in
+`%LOCALAPPDATA%\Carnival\DesktopWorkspace\CarnivalWorkspaceHost.log`.

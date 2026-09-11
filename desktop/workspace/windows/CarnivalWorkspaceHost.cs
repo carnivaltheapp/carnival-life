@@ -9,6 +9,7 @@ using System.Threading;
 
 internal static class CarnivalWorkspaceHost
 {
+    private const string HostMarker = "DRAWER-HOST-2";
     private const int CornerTolerancePixels = 2;
     private const int DwellMilliseconds = 200;
     private const int RetractDwellMilliseconds = 150;
@@ -48,6 +49,9 @@ internal static class CarnivalWorkspaceHost
 
     private static void Main()
     {
+        WriteStartupDiagnostic();
+        SendNative("{\"type\":\"hostReady\",\"version\":\"" + HostMarker + "\"}");
+
         var inputThread = new Thread(DrainChromeInput) { IsBackground = true };
         inputThread.Start();
 
@@ -120,6 +124,34 @@ internal static class CarnivalWorkspaceHost
             }
 
             Thread.Sleep(25);
+        }
+    }
+
+    private static void WriteStartupDiagnostic()
+    {
+        try
+        {
+            var directory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Carnival",
+                "DesktopWorkspace"
+            );
+            Directory.CreateDirectory(directory);
+            File.AppendAllText(
+                Path.Combine(directory, "CarnivalWorkspaceHost.log"),
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0:u} Carnival native host: {1} (pid {2}){3}",
+                    DateTime.UtcNow,
+                    HostMarker,
+                    Process.GetCurrentProcess().Id,
+                    Environment.NewLine
+                )
+            );
+        }
+        catch
+        {
+            // Diagnostics must never prevent the native host from starting.
         }
     }
 
