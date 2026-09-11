@@ -518,6 +518,8 @@ internal static class CarnivalWorkspaceHost
         WriteDiagnostic(string.Format(CultureInfo.InvariantCulture,
             "workspace state received: open contextRight={0} monitorRight={1}",
             parsedContextRight, parsedMonitorRight));
+        if (parsedContextRight + 150 > parsedMonitorRight - 1)
+            WriteDiagnostic("retract threshold clamped to reachable monitor edge");
     }
 
     private static void ApplyAnimationRequest(string json)

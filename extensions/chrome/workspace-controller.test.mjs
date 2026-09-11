@@ -87,7 +87,7 @@ test("default workspace is a left PlayHouse 60/40 split across the monitor work 
   });
 });
 
-test("stored split ratios are normalized and swapped roles fall back to 60/40", () => {
+test("valid saved geometry is restored exactly on the same work area", () => {
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
   assert.deepEqual(restoredWorkspaceLayout({
     contextBounds: { height: 800, left: 960, top: 30, width: 640 },
@@ -96,9 +96,31 @@ test("stored split ratios are normalized and swapped roles fall back to 60/40", 
     playhouseBounds: { height: 800, left: 0, top: 30, width: 960 },
     workArea,
   }, workArea, "chrome-display-1"), {
-    context: { height: 900, left: 869, top: 0, width: 580 },
-    playhouse: { height: 900, left: 0, top: 0, width: 869 },
+    context: { height: 800, left: 960, top: 30, width: 640 },
+    playhouse: { height: 800, left: 0, top: 30, width: 960 },
   });
+});
+
+test("missing-monitor geometry is normalized onto the current work area with its split ratio", () => {
+  const priorWorkArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const workArea = { height: 1000, left: 100, top: 20, width: 2000 };
+  const restored = restoredWorkspaceLayout({
+    contextBounds: { height: 800, left: 720, top: 30, width: 880 },
+    layoutVersion: 2,
+    monitorId: "missing-display",
+    playhouseBounds: { height: 800, left: 0, top: 30, width: 720 },
+    workArea: priorWorkArea,
+  }, workArea, "current-display");
+
+  assert.equal(restored.playhouse.left, workArea.left);
+  assert.equal(restored.playhouse.top, workArea.top);
+  assert.equal(restored.context.left + restored.context.width <= workArea.left + workArea.width, true);
+  assert.ok(Math.abs(restored.playhouse.width /
+    (restored.playhouse.width + restored.context.width) - 0.45) < 0.01);
+});
+
+test("invalid or swapped saved geometry falls back to the fresh 60/40 layout", () => {
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
   assert.deepEqual(restoredWorkspaceLayout({
     contextBounds: { height: 900, left: 0, top: 0, width: 640 },
     layoutVersion: 2,
@@ -109,6 +131,7 @@ test("stored split ratios are normalized and swapped roles fall back to 60/40", 
 
 test("retract threshold uses 150px when available and monitor-edge fallback otherwise", () => {
   assert.equal(effectiveRetractThreshold(1400, 1800), 1550);
+  assert.equal(effectiveRetractThreshold(1200, 1800), 1350);
   assert.equal(effectiveRetractThreshold(1920, 1920), 1919);
 });
 
@@ -182,7 +205,7 @@ test("user-resized bounds are restored on the same monitor", async () => {
     id: first.contextWindowId,
     left: 740,
     top: 30,
-    width: 880,
+    width: 840,
   });
 
   await workspace.summon(workArea, "display-1");
@@ -192,8 +215,80 @@ test("user-resized bounds are restored on the same monitor", async () => {
   });
   assert.deepEqual(
     chrome.calls.updateWindow.filter(({ id, options }) => id === first.playhouseWindowId && options.width).at(-1)?.options,
-    { focused: false, height: 900, left: 0, state: "normal", top: 0, width: 652 },
+    { focused: false, height: 820, left: 20, state: "normal", top: 30, width: 720 },
   );
+});
+
+test("saved user widths survive retract, reopen, and controller restart", async () => {
+  const chrome = fakeChrome();
+  const animations = [];
+  let workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { warn() {} },
+    nativeAnimate: async (animation) => {
+      animations.push(animation);
+      return true;
+    },
+  });
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const first = await workspace.summon(workArea, "display-1");
+  await workspace.rememberBounds({
+    height: 820,
+    id: first.playhouseWindowId,
+    left: 10,
+    top: 20,
+    width: 700,
+  });
+  await workspace.rememberBounds({
+    height: 820,
+    id: first.contextWindowId,
+    left: 710,
+    top: 20,
+    width: 730,
+  });
+  const resizedState = await workspace.state();
+  assert.equal(resizedState.contextBounds.left + resizedState.contextBounds.width, 1440);
+  assert.equal(effectiveRetractThreshold(1440, 1600), 1590);
+  await workspace.retract();
+
+  workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { warn() {} },
+    nativeAnimate: async (animation) => {
+      animations.push(animation);
+      return true;
+    },
+  });
+  await workspace.summon(workArea, "display-1");
+
+  assert.deepEqual(animations.at(-1).playhouse.to, {
+    height: 820,
+    left: 10,
+    top: 20,
+    width: 700,
+  });
+  assert.deepEqual(animations.at(-1).context.to, {
+    height: 820,
+    left: 710,
+    top: 20,
+    width: 730,
+  });
+});
+
+test("native offscreen bounds are not persisted over the saved visible geometry", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  const visible = await workspace.state();
+  await workspace.save({ ...visible, drawerState: "retracted" });
+
+  const result = await workspace.rememberBounds({
+    ...visible.playhouseBounds,
+    id: opened.playhouseWindowId,
+    left: -1600,
+  });
+
+  assert.equal(result, null);
+  assert.deepEqual((await workspace.state()).playhouseBounds, visible.playhouseBounds);
 });
 
 test("native open and retract animations move both windows with one shared offset and reuse them", async () => {

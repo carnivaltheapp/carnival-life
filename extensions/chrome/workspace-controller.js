@@ -69,6 +69,12 @@ function storedBounds(value) {
     : null;
 }
 
+function boundsFitWorkArea(bounds, workArea) {
+  return bounds.left >= workArea.left && bounds.top >= workArea.top &&
+    bounds.left + bounds.width <= workArea.left + workArea.width &&
+    bounds.top + bounds.height <= workArea.top + workArea.height;
+}
+
 export function restoredWorkspaceLayout(prior, workArea, monitorId) {
   const fallback = defaultWorkspaceLayout(workArea);
   const sameWorkArea = validWorkArea(prior.workArea) &&
@@ -76,13 +82,14 @@ export function restoredWorkspaceLayout(prior, workArea, monitorId) {
     prior.workArea.top === workArea.top &&
     prior.workArea.width === workArea.width &&
     prior.workArea.height === workArea.height;
-  if (
-    prior.layoutVersion !== LAYOUT_VERSION ||
-    (prior.monitorId !== monitorId && !sameWorkArea)
-  ) return fallback;
+  if (prior.layoutVersion !== LAYOUT_VERSION) return fallback;
   const playhouse = storedBounds(prior.playhouseBounds);
   const context = storedBounds(prior.contextBounds);
   if (!playhouse || !context || playhouse.left >= context.left) return fallback;
+  const sameMonitor = prior.monitorId === monitorId || sameWorkArea;
+  if (sameMonitor && boundsFitWorkArea(playhouse, workArea) && boundsFitWorkArea(context, workArea)) {
+    return { context, playhouse };
+  }
   const combinedWidth = playhouse.width + context.width;
   if (!combinedWidth) return fallback;
   const ratio = Math.min(

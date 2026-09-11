@@ -4,11 +4,14 @@ import { createWorkspaceActions } from "./workspace-summon.js";
 const NATIVE_HOST = "com.carnival.workspace";
 const NATIVE_HOST_VERSION = "DRAWER-HOST-3";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
+const GEOMETRY_SAVE_DELAY_MS = 350;
 let nativePort = null;
 let nativeAnimationAvailable = false;
 let nativeAnimationRequestId = 0;
 let immediateNativeReconnectUsed = false;
 const nativeAnimationRequests = new Map();
+const pendingBounds = new Map();
+let geometrySaveTimer = null;
 
 function flattenBounds(prefix, bounds) {
   return {
@@ -153,11 +156,22 @@ chrome.action.onClicked.addListener(async () => {
   await workspaceActions.summon(display, "toolbar");
 });
 chrome.windows.onBoundsChanged.addListener((window) => {
-  controller.rememberBounds(window)
-    .then((state) => {
+  pendingBounds.set(window.id, window);
+  clearTimeout(geometrySaveTimer);
+  geometrySaveTimer = setTimeout(async () => {
+    const changedWindows = [...pendingBounds.values()];
+    pendingBounds.clear();
+    geometrySaveTimer = null;
+    try {
+      let state = null;
+      for (const changedWindow of changedWindows) {
+        state = await controller.rememberBounds(changedWindow) ?? state;
+      }
       if (state) reportDrawerState(state);
-    })
-    .catch((error) => console.error("Carnival layout save failed", error));
+    } catch (error) {
+      console.error("Carnival layout save failed", error);
+    }
+  }, GEOMETRY_SAVE_DELAY_MS);
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   controller.rememberContextTab(tabId, changeInfo, tab)
