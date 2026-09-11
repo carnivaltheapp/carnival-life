@@ -2,7 +2,7 @@ import { CarnivalWorkspaceController, validWorkArea } from "./workspace-controll
 import { createWorkspaceActions } from "./workspace-summon.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
-const NATIVE_HOST_VERSION = "DRAWER-HOST-5";
+const NATIVE_HOST_VERSION = "DRAWER-HOST-6";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 let nativePort = null;

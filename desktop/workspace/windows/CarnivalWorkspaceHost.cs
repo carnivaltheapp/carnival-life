@@ -12,7 +12,7 @@ using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
-    private const string HostMarker = "DRAWER-HOST-5";
+    private const string HostMarker = "DRAWER-HOST-6";
     private const int AnimationFramesPerSecond = 60;
     private const int HotCornerMaximumOffsetPixels = 4;
     private const int DwellMilliseconds = 200;
@@ -39,6 +39,7 @@ internal static class CarnivalWorkspaceHost
     private static NamedPipeServerStream chromePipe;
     private static bool drawerOpen;
     private static int contextRight;
+    private static int offsetPointX;
     private static int configuredMonitorRight;
     private static int configuredMonitorTop;
     private static int configuredMonitorBottom;
@@ -463,7 +464,7 @@ internal static class CarnivalWorkspaceHost
                 leftButtonWasDown = leftButtonDown;
 
                 bool open;
-                int rightEdge;
+                int configuredOffsetPoint;
                 int monitorRight;
                 int monitorTop;
                 int monitorBottom;
@@ -471,22 +472,26 @@ internal static class CarnivalWorkspaceHost
                 lock (StateLock)
                 {
                     open = drawerOpen;
-                    rightEdge = contextRight;
                     monitorRight = configuredMonitorRight;
                     monitorTop = configuredMonitorTop;
                     monitorBottom = configuredMonitorBottom;
                     currentContextHandle = contextHandle;
+                    configuredOffsetPoint = offsetPointX;
                 }
                 Rect liveContextRect;
-                if (open && currentContextHandle != IntPtr.Zero &&
+                if (!suppressRetract && open && currentContextHandle != IntPtr.Zero &&
                     GetWindowRect(currentContextHandle, out liveContextRect))
                 {
-                    rightEdge = liveContextRect.Right;
-                    lock (StateLock) { contextRight = rightEdge; }
+                    lock (StateLock)
+                    {
+                        contextRight = liveContextRect.Right;
+                        offsetPointX = OffsetPointForAuxRight(liveContextRect.Right);
+                        configuredOffsetPoint = offsetPointX;
+                    }
                 }
-                var retractThreshold = EffectiveRetractThreshold(rightEdge, monitorRight);
                 var inRetractZone = ShouldEnterRetract(open, suppressRetract, pointer.X,
-                    pointer.Y, retractThreshold, monitorTop, monitorBottom);
+                    pointer.Y, ReachableOffsetPoint(configuredOffsetPoint, monitorRight),
+                    monitorTop, monitorBottom);
                 if (!inRetractZone)
                 {
                     if (retractCandidateActive) WriteDiagnostic("retract zone candidate cancelled");
@@ -714,6 +719,7 @@ internal static class CarnivalWorkspaceHost
             {
                 drawerOpen = false;
                 resizeSession = null;
+                offsetPointX = 0;
             }
             WriteDiagnostic("workspace state received: retracted");
             return;
@@ -737,6 +743,7 @@ internal static class CarnivalWorkspaceHost
         lock (StateLock)
         {
             contextRight = parsedContextRight;
+            offsetPointX = OffsetPointForAuxRight(parsedContextRight);
             configuredMonitorRight = parsedMonitorRight;
             configuredMonitorTop = parsedMonitorTop;
             configuredMonitorBottom = parsedMonitorBottom;
@@ -744,11 +751,12 @@ internal static class CarnivalWorkspaceHost
             contextHandle = mappedContext;
             drawerOpen = true;
         }
-        var retractThreshold = EffectiveRetractThreshold(parsedContextRight, parsedMonitorRight);
+        var configuredOffsetPoint = OffsetPointForAuxRight(parsedContextRight);
+        var retractThreshold = ReachableOffsetPoint(configuredOffsetPoint, parsedMonitorRight);
         WriteDiagnostic(string.Format(CultureInfo.InvariantCulture,
-            "retract threshold contextRight={0} offset={1} threshold={2}",
-            parsedContextRight, RetractOffsetPixels, retractThreshold));
-        if (parsedContextRight + RetractOffsetPixels > parsedMonitorRight - 1)
+            "retract threshold contextRight={0} offsetPoint={1} reachableThreshold={2}",
+            parsedContextRight, configuredOffsetPoint, retractThreshold));
+        if (configuredOffsetPoint > parsedMonitorRight - 1)
             WriteDiagnostic("retract threshold clamped to reachable monitor edge");
     }
 
@@ -852,9 +860,14 @@ internal static class CarnivalWorkspaceHost
         };
     }
 
-    private static int EffectiveRetractThreshold(int rightEdge, int monitorRight)
+    private static int ReachableOffsetPoint(int configuredOffsetPoint, int monitorRight)
     {
-        return Math.Min(rightEdge + RetractOffsetPixels, monitorRight - 1);
+        return Math.Min(configuredOffsetPoint, monitorRight - 1);
+    }
+
+    private static int OffsetPointForAuxRight(int auxRight)
+    {
+        return auxRight + RetractOffsetPixels;
     }
 
     private static bool ShouldEnterRetract(bool open, bool resizing, int pointerX, int pointerY,
@@ -866,9 +879,22 @@ internal static class CarnivalWorkspaceHost
 
     private static void FinishCoupledResize(ResizeSession session)
     {
+        Rect playhouseRect;
+        Rect contextRect;
+        if (GetWindowRect(session.PlayhouseHandle, out playhouseRect) &&
+            GetWindowRect(session.ContextHandle, out contextRect))
+        {
+            session.PlayhouseBounds = BoundsFromRect(playhouseRect);
+            session.ContextBounds = BoundsFromRect(contextRect);
+        }
         lock (StateLock)
         {
             if (!ReferenceEquals(resizeSession, session)) return;
+            if (session.ContextBounds != null)
+            {
+                contextRight = session.ContextBounds.Left + session.ContextBounds.Width;
+                offsetPointX = OffsetPointForAuxRight(contextRight);
+            }
             resizeSession = null;
         }
         if (session.PlayhouseBounds == null || session.ContextBounds == null)
@@ -884,6 +910,17 @@ internal static class CarnivalWorkspaceHost
             session.PlayhouseBounds.Height, session.ContextBounds.Left, session.ContextBounds.Top,
             session.ContextBounds.Width, session.ContextBounds.Height));
         WriteDiagnostic("live coupled resize complete");
+    }
+
+    private static WindowBounds BoundsFromRect(Rect rect)
+    {
+        return new WindowBounds
+        {
+            Height = rect.Bottom - rect.Top,
+            Left = rect.Left,
+            Top = rect.Top,
+            Width = rect.Right - rect.Left,
+        };
     }
 
     private static void ApplyAnimationRequest(string json)
@@ -1131,16 +1168,22 @@ internal static class CarnivalWorkspaceHost
         var capped = CalculateCoupledBounds(session, 5000);
         AssertSelfTest(capped.Context.Left + capped.Context.Width == 1900,
             "drawer must stop 100px before monitor right");
-        AssertSelfTest(EffectiveRetractThreshold(1500, 2000) == 1600,
+        AssertSelfTest(ReachableOffsetPoint(1600, 2000) == 1600,
             "initial retract threshold must use current Aux edge");
-        AssertSelfTest(EffectiveRetractThreshold(1650, 2000) == 1750,
+        AssertSelfTest(ReachableOffsetPoint(1750, 2000) == 1750,
             "expanded retract threshold must use live Aux edge");
+        AssertSelfTest(OffsetPointForAuxRight(1650) == 1750,
+            "settled offset point must be final Aux right plus 100px");
         AssertSelfTest(!ShouldEnterRetract(true, false, 1600, 100, 1750, 0, 900),
             "stale retract threshold must be ignored after expansion");
         AssertSelfTest(!ShouldEnterRetract(true, true, 1800, 100, 1750, 0, 900),
             "retract must be suppressed during live resize");
         AssertSelfTest(ShouldEnterRetract(true, false, 1800, 100, 1750, 0, 900),
             "retract must resume after live resize");
+        var cappedAgain = CalculateCoupledBounds(session, 6000);
+        AssertSelfTest(cappedAgain.Playhouse.Width == capped.Playhouse.Width &&
+            cappedAgain.Context.Width == capped.Context.Width,
+            "repeated drag frames beyond the expansion limit must not oscillate");
         Console.WriteLine("Carnival Windows live resize self-test passed.");
     }
 
