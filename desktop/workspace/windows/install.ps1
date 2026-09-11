@@ -59,9 +59,20 @@ $startupName = 'CarnivalDesktopWorkspace'
 $startupCommand = '"{0}" --resident' -f $hostExecutable
 Set-ItemProperty -LiteralPath $startupRegistryPath -Name $startupName -Value $startupCommand
 Start-Process -FilePath $hostExecutable -ArgumentList '--resident' -WindowStyle Hidden
+Start-Sleep -Milliseconds 500
+$residentProcesses = @(
+  Get-CimInstance Win32_Process -Filter "Name='CarnivalWorkspaceHost.exe'" |
+    Where-Object {
+      $_.ExecutablePath -eq $hostExecutable -and $_.CommandLine -match '(?:^|\s)--resident(?:\s|$)'
+    }
+)
+if ($residentProcesses.Count -ne 1) {
+  throw "Expected exactly one Carnival resident process; found $($residentProcesses.Count)."
+}
 
 Write-Host "Installed $hostName for Chrome extension $ExtensionId."
 Write-Host "Installed binary: $hostExecutable"
 Write-Host "Native host marker: $hostMarker"
-Write-Host "Current-user auto-start: $startupName"
+Write-Host "Current-user auto-start: $startupCommand"
+Write-Host "Resident PID: $($residentProcesses[0].ProcessId)"
 Write-Host 'Restart Chrome to activate the companion.'

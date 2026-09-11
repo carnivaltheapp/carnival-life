@@ -6,6 +6,7 @@ const RECONNECT_ALARM = "carnival-native-host-reconnect";
 let nativePort = null;
 let nativeAnimationAvailable = false;
 let nativeAnimationRequestId = 0;
+let immediateNativeReconnectUsed = false;
 const nativeAnimationRequests = new Map();
 
 function flattenBounds(prefix, bounds) {
@@ -92,6 +93,7 @@ function connectNativeHost() {
     nativePort = port;
     port.onMessage.addListener((message) => {
       if (message?.type === "hostReady") {
+        immediateNativeReconnectUsed = false;
         nativeAnimationAvailable = message.version === NATIVE_HOST_VERSION && message.nativeWindowAnimation === true;
         if (nativeAnimationAvailable) {
           console.info(`Carnival native host: ${NATIVE_HOST_VERSION}`);
@@ -109,11 +111,14 @@ function connectNativeHost() {
       summonFromMessage(message).catch((error) => console.error("Carnival summon failed", error));
     });
     port.onDisconnect.addListener(() => {
+      const reconnectImmediately = !immediateNativeReconnectUsed;
+      immediateNativeReconnectUsed = true;
       nativeAnimationAvailable = false;
       for (const complete of nativeAnimationRequests.values()) complete(false);
       nativeAnimationRequests.clear();
       nativePort = null;
       chrome.alarms.create(RECONNECT_ALARM, { delayInMinutes: 1 });
+      if (reconnectImmediately) connectNativeHost();
     });
     controller.state().then(reportDrawerState).catch(() => {});
   } catch (error) {
@@ -125,7 +130,10 @@ function connectNativeHost() {
 chrome.runtime.onInstalled.addListener(connectNativeHost);
 chrome.runtime.onStartup.addListener(connectNativeHost);
 chrome.alarms.onAlarm.addListener(({ name }) => {
-  if (name === RECONNECT_ALARM) connectNativeHost();
+  if (name === RECONNECT_ALARM) {
+    immediateNativeReconnectUsed = false;
+    connectNativeHost();
+  }
 });
 chrome.action.onClicked.addListener(async () => {
   const display = await currentWorkArea();

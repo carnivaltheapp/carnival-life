@@ -54,8 +54,12 @@ Chrome after installation.
 
 ## Behavior and verification
 
-Move the pointer into the extreme top-left corner of any monitor and hold it
-there for 200 ms. The companion reports that monitor's usable work area. The
+Move the pointer into the 5-by-5 pixel area at the top-left of any monitor and
+hold it there for 200 ms. The resident companion polls the global Windows cursor
+even when Chrome is not focused, then reports that monitor's usable work area
+through the connected native-messaging bridge. Chrome must be running; the
+resident companion logs an explicit no-bridge diagnostic rather than attempting
+to launch Chrome. The
 extension creates or restores PlayHouse on the left at 60% width and the normal
 context window on the right at 40% width. On Windows, the resident companion
 maps the two Chrome HWNDs from their extension-supplied starting rectangles and
@@ -83,4 +87,7 @@ extension at `chrome://extensions` and rerun the platform installer before
 manual verification. The extension service-worker console confirms the current
 Windows companion with `Carnival native host: DRAWER-HOST-3`; startup is also
 recorded without credentials in
-`%LOCALAPPDATA%\Carnival\DesktopWorkspace\CarnivalWorkspaceHost.log`.
+`%LOCALAPPDATA%\Carnival\DesktopWorkspace\CarnivalWorkspaceHost.log`. The log
+records pointer-monitor startup, hot-corner entry/cancellation/activation,
+bridge availability, and retract-zone activation without logging pointer motion
+continuously.

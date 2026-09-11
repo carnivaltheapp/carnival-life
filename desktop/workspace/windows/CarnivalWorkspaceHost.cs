@@ -13,7 +13,7 @@ internal static class CarnivalWorkspaceHost
 {
     private const string HostMarker = "DRAWER-HOST-3";
     private const int AnimationFramesPerSecond = 60;
-    private const int CornerTolerancePixels = 2;
+    private const int HotCornerMaximumOffsetPixels = 4;
     private const int DwellMilliseconds = 200;
     private const int RetractDwellMilliseconds = 150;
     private const int MonitorDefaultToNearest = 2;
@@ -121,7 +121,11 @@ internal static class CarnivalWorkspaceHost
         bool created;
         using (var mutex = new Mutex(true, "Local\\CarnivalDesktopWorkspace-" + SafePipeSuffix(), out created))
         {
-            if (!created) return;
+            if (!created)
+            {
+                WriteDiagnostic("duplicate resident rejected");
+                return;
+            }
             WriteDiagnostic("resident started");
             new Thread(RunPipeServer) { IsBackground = true }.Start();
             MonitorGlobalPointer();
@@ -279,75 +283,118 @@ internal static class CarnivalWorkspaceHost
         Stopwatch summonDwell = null;
         Stopwatch retractDwell = null;
         var summonedForCurrentEntry = false;
-        while (true)
+        var retractCandidateActive = false;
+        var firstPointerSampleLogged = false;
+        WriteDiagnostic("resident pointer monitor started");
+        try
         {
-            Point pointer;
-            if (!GetCursorPos(out pointer)) { Thread.Sleep(25); continue; }
-            var monitor = MonitorFromPoint(pointer, MonitorDefaultToNearest);
-            var info = new MonitorInfo { Size = Marshal.SizeOf(typeof(MonitorInfo)) };
-            if (!GetMonitorInfo(monitor, ref info)) { Thread.Sleep(25); continue; }
-
-            var inCorner = pointer.X <= info.Monitor.Left + CornerTolerancePixels &&
-                           pointer.Y <= info.Monitor.Top + CornerTolerancePixels;
-            if (!inCorner)
+            while (true)
             {
-                summonDwell = null;
-                summonedForCurrentEntry = false;
-            }
-            else if (!summonedForCurrentEntry)
-            {
-                if (summonDwell == null) summonDwell = Stopwatch.StartNew();
-                if (summonDwell.ElapsedMilliseconds >= DwellMilliseconds)
+                Point pointer;
+                if (!GetCursorPos(out pointer)) { Thread.Sleep(25); continue; }
+                var monitor = MonitorFromPoint(pointer, MonitorDefaultToNearest);
+                var info = new MonitorInfo { Size = Marshal.SizeOf(typeof(MonitorInfo)) };
+                if (!GetMonitorInfo(monitor, ref info)) { Thread.Sleep(25); continue; }
+                if (!firstPointerSampleLogged)
                 {
-                    SendSummon(monitor, info.Work);
-                    summonedForCurrentEntry = true;
+                    WriteDiagnostic(string.Format(CultureInfo.InvariantCulture,
+                        "resident pointer first sample x={0} y={1} monitorLeft={2} monitorTop={3}",
+                        pointer.X, pointer.Y, info.Monitor.Left, info.Monitor.Top));
+                    firstPointerSampleLogged = true;
                 }
-            }
 
-            bool open;
-            int rightEdge;
-            int monitorRight;
-            int monitorTop;
-            int monitorBottom;
-            lock (StateLock)
-            {
-                open = drawerOpen;
-                rightEdge = contextRight;
-                monitorRight = configuredMonitorRight;
-                monitorTop = configuredMonitorTop;
-                monitorBottom = configuredMonitorBottom;
-            }
-            var retractThreshold = Math.Min(rightEdge + 150, monitorRight - 1);
-            var inRetractZone = open && pointer.X >= retractThreshold &&
-                                pointer.Y >= monitorTop && pointer.Y < monitorBottom;
-            if (!inRetractZone) retractDwell = null;
-            else
-            {
-                if (retractDwell == null) retractDwell = Stopwatch.StartNew();
-                if (retractDwell.ElapsedMilliseconds >= RetractDwellMilliseconds)
+                var relativeX = pointer.X - info.Monitor.Left;
+                var relativeY = pointer.Y - info.Monitor.Top;
+                var inCorner = relativeX >= 0 && relativeX <= HotCornerMaximumOffsetPixels &&
+                               relativeY >= 0 && relativeY <= HotCornerMaximumOffsetPixels;
+                if (!inCorner)
                 {
-                    lock (StateLock) { drawerOpen = false; }
-                    SendToChrome("{\"type\":\"retract\"}");
+                    if (summonDwell != null && !summonedForCurrentEntry)
+                        WriteDiagnostic("hot corner candidate cancelled");
+                    summonDwell = null;
+                    summonedForCurrentEntry = false;
+                }
+                else if (!summonedForCurrentEntry)
+                {
+                    if (summonDwell == null)
+                    {
+                        summonDwell = Stopwatch.StartNew();
+                        WriteDiagnostic(string.Format(CultureInfo.InvariantCulture,
+                            "hot corner candidate entered x={0} y={1}", pointer.X, pointer.Y));
+                    }
+                    if (summonDwell.ElapsedMilliseconds >= DwellMilliseconds)
+                    {
+                        var connected = SendSummon(monitor, info.Work);
+                        WriteDiagnostic(connected
+                            ? "hot corner activated; bridge connected"
+                            : "hot corner activated; no bridge available");
+                        summonedForCurrentEntry = true;
+                    }
+                }
+
+                bool open;
+                int rightEdge;
+                int monitorRight;
+                int monitorTop;
+                int monitorBottom;
+                lock (StateLock)
+                {
+                    open = drawerOpen;
+                    rightEdge = contextRight;
+                    monitorRight = configuredMonitorRight;
+                    monitorTop = configuredMonitorTop;
+                    monitorBottom = configuredMonitorBottom;
+                }
+                var retractThreshold = Math.Min(rightEdge + 150, monitorRight - 1);
+                var inRetractZone = open && pointer.X >= retractThreshold &&
+                                    pointer.Y >= monitorTop && pointer.Y < monitorBottom;
+                if (!inRetractZone)
+                {
+                    if (retractCandidateActive) WriteDiagnostic("retract zone candidate cancelled");
                     retractDwell = null;
+                    retractCandidateActive = false;
                 }
+                else
+                {
+                    if (retractDwell == null)
+                    {
+                        retractDwell = Stopwatch.StartNew();
+                        retractCandidateActive = true;
+                        WriteDiagnostic("retract zone candidate entered");
+                    }
+                    if (retractDwell.ElapsedMilliseconds >= RetractDwellMilliseconds)
+                    {
+                        lock (StateLock) { drawerOpen = false; }
+                        var connected = SendToChrome("{\"type\":\"retract\"}");
+                        WriteDiagnostic(connected
+                            ? "retract activated; bridge connected"
+                            : "retract activated; no bridge available");
+                        retractDwell = null;
+                        retractCandidateActive = false;
+                    }
+                }
+                Thread.Sleep(16);
             }
-            Thread.Sleep(16);
+        }
+        finally
+        {
+            WriteDiagnostic("resident pointer monitor stopped");
         }
     }
 
-    private static void SendSummon(IntPtr monitor, Rect work)
+    private static bool SendSummon(IntPtr monitor, Rect work)
     {
-        SendToChrome(string.Format(CultureInfo.InvariantCulture,
+        return SendToChrome(string.Format(CultureInfo.InvariantCulture,
             "{{\"type\":\"summon\",\"monitorId\":\"windows-{0}\",\"workArea\":{{\"left\":{1},\"top\":{2},\"width\":{3},\"height\":{4}}}}}",
             monitor.ToInt64().ToString(CultureInfo.InvariantCulture), work.Left, work.Top,
             work.Right - work.Left, work.Bottom - work.Top));
     }
 
-    private static void SendToChrome(string json)
+    private static bool SendToChrome(string json)
     {
         lock (PipeLock)
         {
-            if (chromePipe != null && chromePipe.IsConnected) WriteFramedMessage(chromePipe, json);
+            return chromePipe != null && chromePipe.IsConnected && WriteFramedMessage(chromePipe, json);
         }
     }
 
@@ -355,7 +402,6 @@ internal static class CarnivalWorkspaceHost
     {
         if (Regex.IsMatch(json, "\\\"type\\\"\\s*:\\s*\\\"workspaceState\\\""))
         {
-            WriteDiagnostic("workspace state received");
             ApplyWorkspaceState(json);
         }
         else if (Regex.IsMatch(json, "\\\"type\\\"\\s*:\\s*\\\"animateWindows\\\""))
@@ -370,6 +416,7 @@ internal static class CarnivalWorkspaceHost
         if (Regex.IsMatch(json, "\\\"state\\\"\\s*:\\s*\\\"retracted\\\""))
         {
             lock (StateLock) { drawerOpen = false; }
+            WriteDiagnostic("workspace state received: retracted");
             return;
         }
         if (!Regex.IsMatch(json, "\\\"state\\\"\\s*:\\s*\\\"open\\\"")) return;
@@ -390,6 +437,9 @@ internal static class CarnivalWorkspaceHost
             configuredMonitorBottom = parsedMonitorBottom;
             drawerOpen = true;
         }
+        WriteDiagnostic(string.Format(CultureInfo.InvariantCulture,
+            "workspace state received: open contextRight={0} monitorRight={1}",
+            parsedContextRight, parsedMonitorRight));
     }
 
     private static void ApplyAnimationRequest(string json)
