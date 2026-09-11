@@ -1,0 +1,38 @@
+Mongo Field,What I Think It Is
+_id,Legacy Mongo Play ID / unique migration identity
+created_date,Date/time the legacy Play record was created
+updated_date,Date/time the legacy Play record was last updated
+is_deleted,Whether the Play is deleted
+is_active,Whether the Play is active
+user_id,Legacy owner/user ID
+category_id,Legacy category ID; exact PlayHouse use uncertain
+action_type,Play description/title
+first,"Contact/player first name, likely legacy cached value"
+last,"Contact/player last name, likely legacy cached value"
+amount,Amount/value associated with Play; exact purpose uncertain
+task_date,Scheduled Play date or legacy Basket sentinel date
+task_time,"Scheduled Play time, if any"
+task_type,Legacy Play type/status code; code meanings need mapping
+duration,Play duration in minutes
+url,URL associated with the Play
+phone,"Contact/player phone number, likely legacy cached value"
+ptype,Phone type/label; exact values need mapping
+email,"Contact/player email address, likely legacy cached value"
+etype,Email type/label; exact values need mapping
+contact_id,Legacy Player/contact identifier
+note,Play note
+priority_index,Sort/order position of the Play
+old_task_id,Previous/legacy task identifier; exact historical use uncertain
+push_type,"Push/rescheduling rule, e.g. Everyday"
+time_task,Time-related task value; exact purpose uncertain
+is_pushed,Whether the Play has been pushed/rescheduled
+g_address,Google/location address associated with the Play
+branch,Branch/project/folder associated with the Play
+event_id,Google Calendar event ID
+long_id,Google Calendar long/encoded event identifier
+thread_id,Gmail thread ID
+message_id,Gmail message ID
+last_id,Legacy last-related ID; exact purpose uncertain
+place,"Place/location category, e.g. office"
+regarding,What/person the Play is regarding; exact semantics need confirmation
+task_status,Legacy task/Play status
