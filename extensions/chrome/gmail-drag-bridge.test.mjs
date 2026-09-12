@@ -82,7 +82,7 @@ test("Gmail dragstart adds canonical standard and Carnival payloads", async () =
   );
   assert.deepEqual(
     JSON.parse(JSON.stringify(
-      diagnostics.find(({ event }) => event === "GMAIL_DRAG_SOURCE_PAYLOAD")?.payload.gmailParticipants,
+      diagnostics.find(({ event }) => event === "GMAIL_SOURCE_STRUCTURED_PAYLOAD")?.payload.gmailParticipants,
     )),
     {
       from: { email: "me@example.com", name: "Me" },

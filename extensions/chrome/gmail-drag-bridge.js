@@ -94,10 +94,9 @@ if (window.location.hostname === "mail.google.com") {
       gmailParticipants,
       url: attachment.canonicalUrl,
     };
-    console.info("GMAIL_DRAG_SOURCE_PAYLOAD", {
-      from: payload.gmailParticipants?.from,
-      gmailParticipants: payload.gmailParticipants,
-      toCount: payload.gmailParticipants?.to.length ?? 0,
+    console.info("GMAIL_SOURCE_STRUCTURED_PAYLOAD", {
+      correlationId: payload.correlationId,
+      gmailParticipants: payload.gmailParticipants ?? null,
       url: payload.url,
     });
     try {
@@ -143,6 +142,11 @@ if (window.location.hostname === "mail.google.com") {
       const url = transferredAttachment?.canonicalUrl ?? response?.attachment?.canonicalUrl;
       if (!url) return;
       const correlationId = response?.correlationId ?? crypto.randomUUID();
+      console.info("GMAIL_MERGED_ATTACHMENT_PAYLOAD", {
+        correlationId,
+        gmailParticipants: response?.attachment?.gmailParticipants ?? null,
+        url,
+      });
       console.info("GMAIL_DRAG_ENTER_PH", { correlationId, playId });
       window.dispatchEvent(new CustomEvent("carnival:gmail-drop-fallback", {
         detail: JSON.stringify({
@@ -154,6 +158,11 @@ if (window.location.hostname === "mail.google.com") {
       }));
     };
     chrome.runtime.sendMessage({ type: GET_PENDING_GMAIL_DRAG }).then((response) => {
+      console.info("GMAIL_PENDING_PAYLOAD_RETURNED", {
+        correlationId: response?.correlationId ?? null,
+        gmailParticipants: response?.attachment?.gmailParticipants ?? null,
+        url: response?.attachment?.canonicalUrl ?? null,
+      });
       dispatchFallback(response);
     }).catch(() => dispatchFallback(null));
   }, true);

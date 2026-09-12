@@ -137,14 +137,18 @@ function inspectGmailDropDataTransfer(
   });
 }
 
-function inspectParsedGmailAttachment(attachment: GmailAttachment | null) {
+function inspectParsedGmailAttachment(
+  attachment: GmailAttachment | null,
+  correlationId: string | null,
+) {
   console.info("GMAIL_DROP_PARSED_ATTACHMENT", {
     canonicalUrl: attachment?.canonicalUrl,
+    correlationId,
     gmailHost: attachment ? "mail.google.com" : undefined,
     gmailAccountIndex: attachment?.accountIndex,
     gmailThreadRef: attachment?.threadRef,
     hasGmailParticipants: Boolean(attachment?.gmailParticipants),
-    gmailParticipants: attachment?.gmailParticipants,
+    gmailParticipants: attachment?.gmailParticipants ?? null,
   });
 }
 
@@ -417,7 +421,10 @@ function PlayhouseShellView({
           playId,
           url: attachment.canonicalUrl,
         };
-        console.info("GMAIL_ATTACH_ACTION_INPUT", request);
+        console.info("GMAIL_ATTACH_ACTION_INPUT", {
+          ...request,
+          gmailParticipants: request.gmailParticipants ?? null,
+        });
         const result = await attachGmailToPlay(request);
         if (result.status === "success") {
           if (result.values?.playerContactId && result.values.playerDisplayName) {
@@ -465,7 +472,10 @@ function PlayhouseShellView({
         const attachment = parsedAttachment && gmailParticipants
           ? { ...parsedAttachment, gmailParticipants }
           : parsedAttachment;
-        inspectParsedGmailAttachment(attachment);
+        inspectParsedGmailAttachment(
+          attachment,
+          typeof detail.correlationId === "string" ? detail.correlationId : null,
+        );
         if (!attachment) return;
         persistGmailAttachment(
           detail.playId,
@@ -1380,7 +1390,11 @@ function PlayhouseShellView({
                     if (!draggedIds.length && eligiblePlayIds.has(play.id)) {
                       inspectGmailDropDataTransfer(event, play.id);
                       const attachment = gmailAttachmentFromDragData(event.dataTransfer);
-                      inspectParsedGmailAttachment(attachment);
+                      inspectParsedGmailAttachment(
+                        attachment,
+                        gmailCorrelationIdFromDragData(event.dataTransfer) ??
+                          gmailCorrelationIdRef.current,
+                      );
                       if (attachment) {
                         event.preventDefault();
                         const correlationId = gmailCorrelationIdFromDragData(event.dataTransfer) ??
