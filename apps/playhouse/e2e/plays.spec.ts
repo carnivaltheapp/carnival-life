@@ -223,6 +223,8 @@ test("physical Gmail drop attaches only the row under the pointer and persists r
     url: "https://mail.google.com/mail/u/2/#all/FMfirst",
   }));
   await expect(target.getByRole("button", { name: "Open Gmail thread" })).toBeVisible();
+  await expect.poll(() => ["GMAIL_ROW_DROP_HANDLER", "GMAIL_DROP_ON_PLAY"].every((event) =>
+    gmailDiagnostics.some((entry) => entry.startsWith(event)))).toBe(true);
   await expect(other.getByRole("button", { name: "Open Gmail thread" })).toHaveCount(0);
   await expect.poll(async () => {
     const { data } = await auth.user.from("plays").select("source_metadata")
@@ -355,7 +357,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-GMAIL-PHYSICAL-FIX-39", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-GMAIL-DROP-FIX-40", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');

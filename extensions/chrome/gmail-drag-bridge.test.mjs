@@ -89,7 +89,7 @@ test("Gmail pointer gesture enables native drag and adds transferable payloads",
     transfer.getData("text/plain"),
     "https://mail.google.com/mail/u/2/#all/FMfcgzExample",
   );
-  assert.equal(transfer.effectAllowed, "move");
+  assert.equal(transfer.effectAllowed, "copy");
   assert.deepEqual(
     JSON.parse(transfer.getData("application/x-carnival-gmail")),
     {
@@ -105,6 +105,8 @@ test("Gmail pointer gesture enables native drag and adds transferable payloads",
   const dragMessage = messages.find((message) => message.type === "gmailDragStarted");
   assert.equal(dragMessage.type, "gmailDragStarted");
   assert.equal(dragMessage.attachment.threadRef, "FMfcgzExample");
+  transfer.dropEffect = "copy";
+  listeners.get("dragend")({ dataTransfer: transfer });
   assert.deepEqual(diagnostics, [
     "GMAIL_CONTENT_SCRIPT_LOADED",
     "GMAIL_POINTER_DOWN",
@@ -113,8 +115,8 @@ test("Gmail pointer gesture enables native drag and adds transferable payloads",
     "GMAIL_DRAG_PAYLOAD_SET",
     "GMAIL_DRAG_STARTED",
     "GMAIL_DRAG_PAYLOAD",
+    "GMAIL_SOURCE_DRAGEND",
   ]);
-  listeners.get("dragend")();
   assert.equal(latestMessage.getAttribute("draggable"), null);
 });
 
@@ -166,6 +168,7 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
   });
 
   let prevented = false;
+  let dragoverPrevented = false;
   let propagationStopped = false;
   const target = new TestElement();
   const transfer = dataTransfer({
@@ -173,7 +176,11 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
     "text/uri-list": "https://mail.google.com/mail/u/0/#all/FMpending",
   });
   listeners.get("dragenter")({ dataTransfer: transfer, target });
-  listeners.get("dragover")({ dataTransfer: transfer, target });
+  listeners.get("dragover")({
+    dataTransfer: transfer,
+    preventDefault: () => { dragoverPrevented = true; },
+    target,
+  });
   listeners.get("drop")({
     dataTransfer: transfer,
     preventDefault: () => { prevented = true; },
@@ -181,6 +188,8 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
     target,
   });
   await Promise.resolve();
+  assert.equal(dragoverPrevented, true);
+  assert.equal(transfer.dropEffect, "copy");
   await Promise.resolve();
   assert.equal(prevented, true);
   assert.equal(propagationStopped, true);
@@ -198,7 +207,7 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
   assert.deepEqual(diagnostics, [
     "GMAIL_DRAG_ENTER_PH",
     "GMAIL_DRAG_OVER_PLAY",
-    "GMAIL_DROP_ON_PLAY",
+    "GMAIL_NATIVE_DROP_CAPTURED",
     "GMAIL_DRAG_PAYLOAD_MISSING",
     "GMAIL_PENDING_DRAG_USED",
   ]);

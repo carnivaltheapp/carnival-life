@@ -362,7 +362,7 @@ function PlayhouseShellView({
       gmailThreadRef: attachment.threadRef,
       playId,
     };
-    console.info("GMAIL_DROP_ON_PLAY", diagnostic);
+    reportGmailClientDiagnostic("GMAIL_DROP_ON_PLAY", diagnostic);
     console.info("GMAIL_URL_PARSED", diagnostic);
     reportGmailClientDiagnostic("GMAIL_OPTIMISTIC_ATTACH_STARTED", diagnostic);
     setOptimisticPlays({
@@ -438,6 +438,11 @@ function PlayhouseShellView({
           ? { ...parsedAttachment, threadContext: sanitizeGmailThreadContext(detail.threadContext) ?? undefined }
           : null;
         if (!attachment) return;
+        reportGmailClientDiagnostic("GMAIL_ROW_DROP_HANDLER", {
+          correlationId: typeof detail.correlationId === "string" ? detail.correlationId : null,
+          playId: detail.playId,
+          source: "extension-pending-drag",
+        });
         persistGmailAttachment(
           detail.playId,
           attachment,
@@ -1322,7 +1327,7 @@ function PlayhouseShellView({
                       mayContainGmailDrag(event.dataTransfer)
                     ) {
                       event.preventDefault();
-                      event.dataTransfer.dropEffect = "link";
+                      event.dataTransfer.dropEffect = "copy";
                       if (gmailDropTargetRef.current !== play.id) {
                         const correlationId = gmailCorrelationIdFromDragData(event.dataTransfer);
                         gmailCorrelationIdRef.current = correlationId;
@@ -1354,6 +1359,11 @@ function PlayhouseShellView({
                         const correlationId = gmailCorrelationIdFromDragData(event.dataTransfer) ??
                           gmailCorrelationIdRef.current ??
                           crypto.randomUUID();
+                        reportGmailClientDiagnostic("GMAIL_ROW_DROP_HANDLER", {
+                          correlationId,
+                          playId: play.id,
+                          source: "react-row-drop",
+                        });
                         if (!gmailCorrelationIdRef.current) {
                           console.info("GMAIL_DRAG_ENTER_PH", { correlationId, playId: play.id });
                         }

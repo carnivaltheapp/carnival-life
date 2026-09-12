@@ -238,7 +238,7 @@ if (window.location.hostname === "mail.google.com") {
       event.dataTransfer.setData("text/plain", attachment.canonicalUrl);
     } catch {}
     try {
-      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.effectAllowed = "copy";
     } catch {}
     reportGmailDiagnostic("GMAIL_DRAG_PAYLOAD_SET", {
       actionId: correlationId,
@@ -264,7 +264,14 @@ if (window.location.hostname === "mail.google.com") {
       type: GMAIL_DRAG_STARTED,
     }).catch(() => {});
   }, true);
-  document.addEventListener("dragend", () => clearPreparedDrag(false), true);
+  document.addEventListener("dragend", (event) => {
+    reportGmailDiagnostic("GMAIL_SOURCE_DRAGEND", {
+      actionId: preparedDrag?.actionId ?? null,
+      dropEffect: event.dataTransfer?.dropEffect ?? null,
+      effectAllowed: event.dataTransfer?.effectAllowed ?? null,
+    });
+    clearPreparedDrag(false);
+  }, true);
   document.addEventListener("pointercancel", () => clearPreparedDrag(true), true);
   document.addEventListener("pointerup", () => clearPreparedDrag(true), true);
 } else {
@@ -297,9 +304,22 @@ if (window.location.hostname === "mail.google.com") {
       ? event.target.closest("[data-play-row-id]")
       : null;
     const playId = row?.getAttribute("data-play-row-id");
-    if (!playId || overPlayId === playId) return;
-    overPlayId = playId;
-    reportGmailDiagnostic("GMAIL_DRAG_OVER_PLAY", { playId });
+    if (!playId) return;
+    event.preventDefault();
+    try {
+      event.dataTransfer.dropEffect = "copy";
+    } catch {}
+    if (overPlayId !== playId) {
+      overPlayId = playId;
+      reportGmailDiagnostic("GMAIL_DRAG_OVER_PLAY", { playId });
+    }
+  }, true);
+
+  document.addEventListener("dragleave", (event) => {
+    if (!enteredPlayId || event.relatedTarget) return;
+    reportGmailDiagnostic("GMAIL_DRAG_LEAVE_PH", { playId: enteredPlayId });
+    enteredPlayId = null;
+    overPlayId = null;
   }, true);
 
   document.addEventListener("drop", (event) => {
@@ -316,8 +336,9 @@ if (window.location.hostname === "mail.google.com") {
     if (!customPayload && !transferredAttachment && !mayBeGmailExternalDrag(event.dataTransfer)) {
       return;
     }
-    reportGmailDiagnostic("GMAIL_DROP_ON_PLAY", {
+    reportGmailDiagnostic("GMAIL_NATIVE_DROP_CAPTURED", {
       actionId: customPayload?.correlationId ?? null,
+      dataTransferTypes: Array.from(event.dataTransfer.types),
       playId,
     });
     if (customPayload?.threadContext) return;
