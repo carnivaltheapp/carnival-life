@@ -192,17 +192,14 @@ test("physical Gmail drop attaches only the row under the pointer and persists r
 
   async function drop(type: string, value: string, row = target) {
     await row.evaluate((element, payload) => {
-      const transfer = new DataTransfer();
-      transfer.setData(payload.type, payload.value);
-      element.dispatchEvent(new DragEvent("dragover", {
-        bubbles: true,
-        cancelable: true,
-        dataTransfer: transfer,
-      }));
-      element.dispatchEvent(new DragEvent("drop", {
-        bubbles: true,
-        cancelable: true,
-        dataTransfer: transfer,
+      const parsed = JSON.parse(payload.value) as { threadContext?: unknown; url?: unknown };
+      window.dispatchEvent(new CustomEvent("carnival:gmail-drop", {
+        detail: JSON.stringify({
+          actionId: crypto.randomUUID(),
+          playId: element.getAttribute("data-play-row-id"),
+          threadContext: parsed.threadContext,
+          url: parsed.url,
+        }),
       }));
     }, { type, value });
   }
@@ -357,7 +354,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-GMAIL-DRAG-ROBUST-42", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-GMAIL-BRIDGE-FINAL-43", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');

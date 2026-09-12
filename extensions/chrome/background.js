@@ -310,35 +310,38 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
   if (message?.type === "storePendingGmailDrag") {
-    const attachment = message.attachment;
+    const pending = message.pending;
     if (
-      typeof message.correlationId === "string" &&
-      typeof attachment?.canonicalUrl === "string" &&
-      typeof attachment?.threadRef === "string" &&
-      Number.isSafeInteger(attachment?.accountIndex)
+      typeof pending?.actionId === "string" && pending.actionId.length > 0 && pending.actionId.length <= 100 &&
+      typeof pending?.canonicalUrl === "string" &&
+      pending.canonicalUrl.startsWith("https://mail.google.com/mail/u/") &&
+      typeof pending?.threadRef === "string" && pending.threadRef.length > 0 && pending.threadRef.length <= 500 &&
+      Number.isSafeInteger(pending?.gmailAccountIndex) && pending.gmailAccountIndex >= 0 &&
+      Number.isFinite(pending?.createdAt)
     ) {
-      const actionId = typeof message.actionId === "string" ? message.actionId : message.correlationId;
-      queueGmailPendingOperation(() => storePendingGmailDrag(chrome.storage.session, {
-        accountIndex: attachment.accountIndex,
-        actionId,
-        canonicalUrl: attachment.canonicalUrl,
-        createdAt: Number.isFinite(message.createdAt) ? message.createdAt : Date.now(),
-        threadContext: attachment.threadContext,
-        threadRef: attachment.threadRef,
-      })).then((result) => {
-        if (result.ok) {
-          diagnosticLogger.info("GMAIL_PENDING_DRAG_STORED", {
-            actionId,
-            gmailAccountIndex: attachment.accountIndex,
-            gmailThreadRef: attachment.threadRef,
-          });
-        } else {
-          diagnosticLogger.warn("GMAIL_PENDING_DRAG_MISSING", { reason: result.reason });
-        }
-        sendResponse(result);
-      });
+      const record = {
+        actionId: pending.actionId,
+        canonicalUrl: pending.canonicalUrl,
+        createdAt: pending.createdAt,
+        gmailAccountIndex: pending.gmailAccountIndex,
+        threadContext: pending.threadContext ?? null,
+        threadRef: pending.threadRef,
+      };
+      queueGmailPendingOperation(() => storePendingGmailDrag(chrome.storage.session, record))
+        .then((result) => {
+          if (result.ok) {
+            diagnosticLogger.info("GMAIL_PENDING_DRAG_STORED", {
+              actionId: pending.actionId,
+              gmailAccountIndex: pending.gmailAccountIndex,
+              gmailThreadRef: pending.threadRef,
+            });
+          } else {
+            diagnosticLogger.warn("GMAIL_PENDING_DRAG_STORE_FAILED", { reason: result.reason });
+          }
+          sendResponse(result);
+        });
     } else {
-      diagnosticLogger.warn("GMAIL_PENDING_DRAG_MISSING", {
+      diagnosticLogger.warn("GMAIL_PENDING_DRAG_STORE_FAILED", {
         reason: "invalid-drag-payload",
       });
       sendResponse({ ok: false, reason: "invalid-drag-payload" });
@@ -357,14 +360,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           gmailThreadRef: result.record.threadRef,
         });
         sendResponse({
-          actionId: result.record.actionId,
-          attachment: {
-            accountIndex: result.record.accountIndex,
-            canonicalUrl: result.record.canonicalUrl,
-            threadContext: result.record.threadContext,
-            threadRef: result.record.threadRef,
-          },
-          correlationId: result.record.actionId,
+          pending: result.record,
         });
       } else {
         diagnosticLogger.warn("GMAIL_PENDING_DRAG_MISSING", {
@@ -372,7 +368,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           ageMs: result.ageMs ?? null,
           reason: result.reason,
         });
-        sendResponse({ attachment: null, reason: result.reason });
+        sendResponse({ pending: null, reason: result.reason });
       }
     });
     return true;

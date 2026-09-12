@@ -17,10 +17,10 @@ function sessionStorage() {
 
 function pending(createdAt = 1_000) {
   return {
-    accountIndex: 0,
     actionId: "action-a",
     canonicalUrl: "https://mail.google.com/mail/u/0/#all/thread-a",
     createdAt,
+    gmailAccountIndex: 0,
     threadContext: {
       from: { email: "sender@example.test", name: "Sender" },
       to: [{ email: "self@example.test", name: "Self" }],

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Carnival Desktop Workspace",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "Coordinates the PlayHouse and Carnival context Chrome windows.",
   "permissions": [
     "alarms",
@@ -20,11 +20,11 @@
         "https://carnival-playhouse.vercel.app/*",
         "http://localhost/*"
       ],
-      "js": ["gmail-drag-bridge.js", "playhouse-bridge.js"]
+      "js": ["gmail-playhouse-content.js", "playhouse-bridge.js"]
     },
     {
       "matches": ["https://mail.google.com/*"],
-      "js": ["gmail-drag-bridge.js"]
+      "js": ["gmail-content.js"]
     }
   ],
   "action": {
