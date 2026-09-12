@@ -1175,7 +1175,6 @@ function PlayhouseShellView({
               {moveError ? <p className="moveError" role="alert">{moveError}</p> : null}
               <div className="playGridHeader" role="row">
                 <div className="playIdentityCell">
-                  <span aria-hidden="true" />
                   <GridSortHeader
                     column="assignee"
                     label="Assignee"
@@ -1353,14 +1352,7 @@ function PlayhouseShellView({
                         onClick={(event) => toggleSelection(play.id, event)}
                         title={isPlaceContext ? "Whole-day Place context" : "Select Play"}
                         type="button"
-                      >
-                        <span
-                          aria-hidden="true"
-                          className={`playTypeMarker ${playVisual.markerClassName}`}
-                          data-play-visual={playVisual.visualType}
-                          title={playVisual.label}
-                        />
-                      </button>
+                      />
                       <span
                         className="playPlayerCell"
                         data-testid={showDateInLeadingColumn
