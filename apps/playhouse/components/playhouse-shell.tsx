@@ -1312,9 +1312,8 @@ function PlayhouseShellView({
                         gmailCorrelationIdRef.current = correlationId;
                         gmailDropTargetRef.current = play.id;
                         setGmailDropTarget(play.id);
-                        if (correlationId) {
-                          console.info("GMAIL_DRAG_ENTER_PH", { correlationId, playId: play.id });
-                        }
+                        console.info("GMAIL_DRAG_ENTER_PH", { correlationId, playId: play.id });
+                        console.info("GMAIL_DRAG_OVER_PLAY", { correlationId, playId: play.id });
                       }
                       return;
                     }
@@ -1332,6 +1331,7 @@ function PlayhouseShellView({
                   }}
                   onDrop={(event) => {
                     if (!draggedIds.length && eligiblePlayIds.has(play.id)) {
+                      const gmailCandidate = mayContainGmailDrag(event.dataTransfer);
                       const attachment = gmailAttachmentFromDragData(event.dataTransfer);
                       if (attachment) {
                         event.preventDefault();
@@ -1348,6 +1348,14 @@ function PlayhouseShellView({
                         );
                         return;
                       }
+                      if (gmailCandidate) {
+                        event.preventDefault();
+                        console.info("GMAIL_DRAG_PAYLOAD_MISSING", { playId: play.id });
+                      }
+                      gmailDropTargetRef.current = null;
+                      gmailCorrelationIdRef.current = null;
+                      setGmailDropTarget(null);
+                      return;
                     }
                     gmailDropTargetRef.current = null;
                     gmailCorrelationIdRef.current = null;

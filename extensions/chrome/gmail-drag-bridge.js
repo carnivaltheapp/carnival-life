@@ -75,13 +75,53 @@ function latestGmailThreadContext() {
 }
 
 if (window.location.hostname === "mail.google.com") {
+  let preparedDrag = null;
+
+  function clearPreparedDrag() {
+    if (!preparedDrag) return;
+    if (preparedDrag.previousDraggable === null) {
+      preparedDrag.surface.removeAttribute("draggable");
+    } else {
+      preparedDrag.surface.setAttribute("draggable", preparedDrag.previousDraggable);
+    }
+    preparedDrag = null;
+  }
+
+  console.info("GMAIL_CONTENT_SCRIPT_LOADED", { gmailHost: "mail.google.com" });
+
+  document.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    console.info("GMAIL_POINTER_DOWN", { gmailHost: "mail.google.com" });
+    clearPreparedDrag();
+    const attachment = parseGmailUrl(window.location.href);
+    const surface = event.target instanceof Element
+      ? event.target.closest("[data-message-id], tr[role='main']")
+      : null;
+    if (!attachment || !surface) return;
+    const threadContext = latestGmailThreadContext();
+    preparedDrag = {
+      attachment,
+      previousDraggable: surface.getAttribute("draggable"),
+      surface,
+      threadContext,
+    };
+    surface.setAttribute("draggable", "true");
+    console.info("GMAIL_DRAG_CONTEXT_RESOLVED", {
+      gmailAccountIndex: attachment.accountIndex,
+      gmailThreadRef: attachment.threadRef,
+      hasThreadContext: Boolean(threadContext),
+    });
+  }, true);
+
   document.addEventListener("dragstart", (event) => {
+    console.info("GMAIL_NATIVE_DRAGSTART", { gmailHost: "mail.google.com" });
     if (!event.dataTransfer) return;
-    const attachment = gmailUrlFromTransfer(event.dataTransfer) ??
+    const attachment = preparedDrag?.attachment ??
+      gmailUrlFromTransfer(event.dataTransfer) ??
       parseGmailUrl(window.location.href);
     if (!attachment) return;
     const correlationId = crypto.randomUUID();
-    const threadContext = latestGmailThreadContext();
+    const threadContext = preparedDrag?.threadContext ?? latestGmailThreadContext();
     const payload = {
       correlationId,
       threadContext,
@@ -93,6 +133,16 @@ if (window.location.hostname === "mail.google.com") {
     try {
       event.dataTransfer.setData("text/uri-list", attachment.canonicalUrl);
     } catch {}
+    try {
+      event.dataTransfer.setData("text/plain", attachment.canonicalUrl);
+    } catch {}
+    try {
+      event.dataTransfer.effectAllowed = "move";
+    } catch {}
+    console.info("GMAIL_DRAG_PAYLOAD_SET", {
+      correlationId,
+      types: Array.from(event.dataTransfer.types),
+    });
     console.info("GMAIL_DRAG_STARTED", {
       correlationId,
       gmailAccountIndex: attachment.accountIndex,
@@ -109,6 +159,9 @@ if (window.location.hostname === "mail.google.com") {
       type: GMAIL_DRAG_STARTED,
     }).catch(() => {});
   }, true);
+  document.addEventListener("dragend", clearPreparedDrag, true);
+  document.addEventListener("pointercancel", clearPreparedDrag, true);
+  document.addEventListener("pointerup", clearPreparedDrag, true);
 } else {
   document.addEventListener("drop", (event) => {
     if (!event.dataTransfer || gmailUrlFromTransfer(event.dataTransfer)) return;
@@ -117,6 +170,7 @@ if (window.location.hostname === "mail.google.com") {
       : null;
     const playId = row?.getAttribute("data-play-row-id");
     if (!playId) return;
+    console.info("GMAIL_DRAG_PAYLOAD_MISSING", { playId });
     chrome.runtime.sendMessage({ type: GET_PENDING_GMAIL_DRAG }).then((response) => {
       if (!response?.attachment || !response?.correlationId) return;
       console.info("GMAIL_DRAG_ENTER_PH", {

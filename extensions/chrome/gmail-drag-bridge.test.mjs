@@ -27,8 +27,9 @@ test("manifest injects Gmail drag normalization into Gmail and PlayHouse", async
   ));
 });
 
-test("Gmail dragstart adds canonical standard and Carnival payloads", async () => {
-  let dragstart;
+test("Gmail pointer gesture enables native drag and adds transferable payloads", async () => {
+  const listeners = new Map();
+  const diagnostics = [];
   const messages = [];
   const transfer = dataTransfer();
   const participant = (email, name) => ({
@@ -37,20 +38,29 @@ test("Gmail dragstart adds canonical standard and Carnival payloads", async () =
   });
   const from = participant("me@example.com", "Me");
   const kayla = participant("kayla@example.com", "Kayla");
-  const latestMessage = {
-    querySelector: (selector) => selector.startsWith(".gD")
-      ? from
-      : { getAttribute: (attribute) => attribute === "title" ? "Sep 12, 2026" : null },
-    querySelectorAll: () => [from, kayla],
-  };
+  class GmailMessageElement {
+    constructor() { this.attributes = new Map(); }
+    closest() { return this; }
+    getAttribute(attribute) { return this.attributes.get(attribute) ?? null; }
+    querySelector(selector) {
+      return selector.startsWith(".gD")
+        ? from
+        : { getAttribute: (attribute) => attribute === "title" ? "Sep 12, 2026" : null };
+    }
+    querySelectorAll() { return [from, kayla]; }
+    removeAttribute(attribute) { this.attributes.delete(attribute); }
+    setAttribute(attribute, value) { this.attributes.set(attribute, value); }
+  }
+  const latestMessage = new GmailMessageElement();
   vm.runInNewContext(bridgeSource, {
+    Element: GmailMessageElement,
     URL,
     chrome: { runtime: { sendMessage: async (message) => messages.push(message) } },
-    console: { info() {} },
+    console: { info: (name) => diagnostics.push(name) },
     crypto: { randomUUID: () => "correlation-1" },
     decodeURIComponent,
     document: {
-      addEventListener: (type, listener) => { if (type === "dragstart") dragstart = listener; },
+      addEventListener: (type, listener) => { listeners.set(type, listener); },
       querySelectorAll: () => [latestMessage],
     },
     window: {
@@ -61,12 +71,19 @@ test("Gmail dragstart adds canonical standard and Carnival payloads", async () =
     },
   });
 
-  dragstart({ dataTransfer: transfer });
+  listeners.get("pointerdown")({ button: 0, target: latestMessage });
+  assert.equal(latestMessage.getAttribute("draggable"), "true");
+  listeners.get("dragstart")({ dataTransfer: transfer });
   await Promise.resolve();
   assert.equal(
     transfer.getData("text/uri-list"),
     "https://mail.google.com/mail/u/2/#all/FMfcgzExample",
   );
+  assert.equal(
+    transfer.getData("text/plain"),
+    "https://mail.google.com/mail/u/2/#all/FMfcgzExample",
+  );
+  assert.equal(transfer.effectAllowed, "move");
   assert.deepEqual(
     JSON.parse(transfer.getData("application/x-carnival-gmail")),
     {
@@ -81,11 +98,23 @@ test("Gmail dragstart adds canonical standard and Carnival payloads", async () =
   );
   assert.equal(messages[0].type, "gmailDragStarted");
   assert.equal(messages[0].attachment.threadRef, "FMfcgzExample");
+  assert.deepEqual(diagnostics, [
+    "GMAIL_CONTENT_SCRIPT_LOADED",
+    "GMAIL_POINTER_DOWN",
+    "GMAIL_DRAG_CONTEXT_RESOLVED",
+    "GMAIL_NATIVE_DRAGSTART",
+    "GMAIL_DRAG_PAYLOAD_SET",
+    "GMAIL_DRAG_STARTED",
+    "GMAIL_DRAG_PAYLOAD",
+  ]);
+  listeners.get("dragend")();
+  assert.equal(latestMessage.getAttribute("draggable"), null);
 });
 
 test("PlayHouse resolves a stripped cross-window payload from short-lived extension memory", async () => {
   let drop;
   let dispatched;
+  const diagnostics = [];
   class TestElement {
     closest() { return { getAttribute: () => "play-1" }; }
   }
@@ -113,7 +142,7 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
         }),
       },
     },
-    console: { info() {} },
+    console: { info: (name) => diagnostics.push(name) },
     decodeURIComponent,
     document: { addEventListener: (type, listener) => { if (type === "drop") drop = listener; } },
     window: {
@@ -136,4 +165,5 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
     },
     url: "https://mail.google.com/mail/u/0/#all/FMpending",
   });
+  assert.deepEqual(diagnostics, ["GMAIL_DRAG_PAYLOAD_MISSING", "GMAIL_DRAG_ENTER_PH"]);
 });
