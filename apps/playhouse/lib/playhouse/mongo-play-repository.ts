@@ -66,7 +66,7 @@ export class MongoPlayRepository implements PlayRepository {
     assertMongoUserMapping(dependencies.ownerUserId);
   }
 
-  async attachGmail({ attachment, playId }: AttachGmailRequest) {
+  async attachGmail({ attachment, playId, playerResourceName, playType }: AttachGmailRequest) {
     let filter: Filter<LegacyTaskDocument>;
     try {
       filter = {
@@ -77,6 +77,17 @@ export class MongoPlayRepository implements PlayRepository {
     } catch {
       return false;
     }
+    const existing = await this.dependencies.collection.findOne(filter, {
+      projection: { task_date: 1 },
+    });
+    if (!existing?.task_date) return false;
+    const first = await this.dependencies.collection.findOne({
+      ...mongoActiveFilter(),
+      _id: { $ne: existing._id },
+      task_date: existing.task_date,
+      task_type: playType === "reminder" ? "S" : { $nin: ["A", "S"] },
+    }, { projection: { priority_index: 1 }, sort: { priority_index: 1 } });
+    const priority = legacyPriorityNumber(first?.priority_index, 10 * 0x100000000 + 0x100) - 1;
     const result = await this.dependencies.collection.updateOne(filter, {
       $set: {
         "carnival_google.gmail_attachment": {
@@ -84,6 +95,9 @@ export class MongoPlayRepository implements PlayRepository {
           canonical_url: attachment.canonicalUrl,
           thread_ref: attachment.threadRef,
         },
+        contact_id: playerResourceName,
+        priority_index: legacyPriorityValue(priority),
+        task_type: playType === "reminder" ? "S" : "H",
         thread_id: attachment.threadRef,
         updated_date: new Date(),
       },

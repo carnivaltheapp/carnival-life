@@ -1,9 +1,12 @@
+import { sanitizeGmailThreadContext, type GmailThreadContext } from "./gmail-thread-context";
+
 export const CARNIVAL_GMAIL_DRAG_TYPE = "application/x-carnival-gmail";
 
 export type GmailAttachment = {
   accountIndex: number;
   canonicalUrl: string;
   threadRef: string;
+  threadContext?: GmailThreadContext;
 };
 
 type DragData = {
@@ -38,8 +41,10 @@ export function parseGmailAttachmentUrl(value: string): GmailAttachment | null {
 
 function attachmentFromCustomPayload(value: string) {
   try {
-    const parsed = JSON.parse(value) as { url?: unknown };
-    return typeof parsed.url === "string" ? parseGmailAttachmentUrl(parsed.url) : null;
+    const parsed = JSON.parse(value) as { threadContext?: unknown; url?: unknown };
+    const attachment = typeof parsed.url === "string" ? parseGmailAttachmentUrl(parsed.url) : null;
+    const threadContext = sanitizeGmailThreadContext(parsed.threadContext);
+    return attachment && threadContext ? { ...attachment, threadContext } : attachment;
   } catch {
     return null;
   }

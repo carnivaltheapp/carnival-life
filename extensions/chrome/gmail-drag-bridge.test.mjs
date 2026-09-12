@@ -31,13 +31,28 @@ test("Gmail dragstart adds canonical standard and Carnival payloads", async () =
   let dragstart;
   const messages = [];
   const transfer = dataTransfer();
+  const participant = (email, name) => ({
+    getAttribute: (attribute) => attribute === "email" ? email : attribute === "name" ? name : null,
+    textContent: name,
+  });
+  const from = participant("me@example.com", "Me");
+  const kayla = participant("kayla@example.com", "Kayla");
+  const latestMessage = {
+    querySelector: (selector) => selector.startsWith(".gD")
+      ? from
+      : { getAttribute: (attribute) => attribute === "title" ? "Sep 12, 2026" : null },
+    querySelectorAll: () => [from, kayla],
+  };
   vm.runInNewContext(bridgeSource, {
     URL,
     chrome: { runtime: { sendMessage: async (message) => messages.push(message) } },
     console: { info() {} },
     crypto: { randomUUID: () => "correlation-1" },
     decodeURIComponent,
-    document: { addEventListener: (type, listener) => { if (type === "dragstart") dragstart = listener; } },
+    document: {
+      addEventListener: (type, listener) => { if (type === "dragstart") dragstart = listener; },
+      querySelectorAll: () => [latestMessage],
+    },
     window: {
       location: {
         hostname: "mail.google.com",
@@ -56,6 +71,11 @@ test("Gmail dragstart adds canonical standard and Carnival payloads", async () =
     JSON.parse(transfer.getData("application/x-carnival-gmail")),
     {
       correlationId: "correlation-1",
+      threadContext: {
+        from: { email: "me@example.com", name: "Me" },
+        lastMessageAt: "Sep 12, 2026",
+        to: [{ email: "kayla@example.com", name: "Kayla" }],
+      },
       url: "https://mail.google.com/mail/u/2/#all/FMfcgzExample",
     },
   );
@@ -83,6 +103,11 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
             accountIndex: 0,
             canonicalUrl: "https://mail.google.com/mail/u/0/#all/FMpending",
             threadRef: "FMpending",
+            threadContext: {
+              from: { email: "kayla@example.com", name: "Kayla" },
+              lastMessageAt: "Sep 12, 2026",
+              to: [{ email: "me@example.com", name: "Me" }],
+            },
           },
           correlationId: "correlation-pending",
         }),
@@ -104,6 +129,11 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
   assert.deepEqual(JSON.parse(dispatched.detail), {
     correlationId: "correlation-pending",
     playId: "play-1",
+    threadContext: {
+      from: { email: "kayla@example.com", name: "Kayla" },
+      lastMessageAt: "Sep 12, 2026",
+      to: [{ email: "me@example.com", name: "Me" }],
+    },
     url: "https://mail.google.com/mail/u/0/#all/FMpending",
   });
 });

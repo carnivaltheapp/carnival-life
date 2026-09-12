@@ -38,6 +38,7 @@ import {
   parseGmailAttachmentUrl,
   type GmailAttachment,
 } from "../domain/gmail-attachment";
+import { sanitizeGmailThreadContext } from "../domain/gmail-thread-context";
 import type { SelectedView } from "../lib/playhouse/data";
 import {
   displayBranch,
@@ -375,9 +376,21 @@ function PlayhouseShellView({
         const result = await attachGmailToPlay({
           correlationId,
           playId,
+          threadContext: attachment.threadContext,
           url: attachment.canonicalUrl,
         });
         if (result.status === "success") {
+          setOptimisticPlays({
+            source: plays,
+            value: localPlays.map((play) => play.id === playId
+              ? {
+                  ...play,
+                  playType: result.values?.playType === "reminder" ? "reminder" : "normal",
+                  playerContactId: result.values?.playerContactId ?? play.playerContactId,
+                  playerDisplayName: result.values?.playerDisplayName ?? play.playerDisplayName,
+                }
+              : play),
+          });
           setMoveError(null);
           return;
         }
@@ -397,13 +410,17 @@ function PlayhouseShellView({
         const detail = JSON.parse(event.detail) as {
           correlationId?: unknown;
           playId?: unknown;
+          threadContext?: unknown;
           url?: unknown;
         };
         if (
           typeof detail.playId !== "string" ||
           typeof detail.url !== "string"
         ) return;
-        const attachment = parseGmailAttachmentUrl(detail.url);
+        const parsedAttachment = parseGmailAttachmentUrl(detail.url);
+        const attachment = parsedAttachment
+          ? { ...parsedAttachment, threadContext: sanitizeGmailThreadContext(detail.threadContext) ?? undefined }
+          : null;
         if (!attachment) return;
         persistGmailAttachment(
           detail.playId,

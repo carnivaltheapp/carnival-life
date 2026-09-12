@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-BULLSEYE-BAR-36
+          P3-GMAIL-DIRECTION-37
         </small>
       </body>
     </html>

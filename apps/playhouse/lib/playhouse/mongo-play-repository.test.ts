@@ -51,14 +51,20 @@ describe("MongoPlayRepository mutations", () => {
 
   it("attaches one Gmail thread with an exact active user scope and targeted fields", async () => {
     const id = new ObjectId();
+    const findOne = vi.fn()
+      .mockResolvedValueOnce({ _id: id, task_date: new Date("2026-09-08T00:00:00Z") })
+      .mockResolvedValueOnce({ priority_index: "10-00000200" });
     const updateOne = vi.fn().mockResolvedValue({ matchedCount: 1 });
-    expect(await repository({ updateOne: updateOne as never }).attachGmail({
+    expect(await repository({ findOne: findOne as never, updateOne: updateOne as never }).attachGmail({
       attachment: {
         accountIndex: 2,
         canonicalUrl: "https://mail.google.com/mail/u/2/#all/FMnew",
         threadRef: "FMnew",
       },
       playId: id.toHexString(),
+      playerContactId: "contact-1",
+      playerResourceName: "people/kayla",
+      playType: "reminder",
     })).toBe(true);
 
     expect(updateOne.mock.calls[0][0]).toEqual({
@@ -76,6 +82,8 @@ describe("MongoPlayRepository mutations", () => {
         thread_ref: "FMnew",
       },
       thread_id: "FMnew",
+      contact_id: "people/kayla",
+      task_type: "S",
       updated_date: expect.any(Date),
     });
     expect(updateOne.mock.calls[0][1].$set).not.toHaveProperty("action_type");

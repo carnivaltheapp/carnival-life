@@ -39,6 +39,9 @@ export type FlipPlayRankRequest = {
 export type AttachGmailRequest = {
   attachment: GmailAttachment;
   playId: string;
+  playerContactId: string;
+  playerResourceName: string;
+  playType: "normal" | "reminder";
 };
 
 export interface PlayRepository {

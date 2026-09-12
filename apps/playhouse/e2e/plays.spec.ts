@@ -180,6 +180,11 @@ test("physical Gmail drop attaches only the row under the pointer and persists r
   const other = playRow(auth.page, "Other selected Play");
   await target.locator(".playSelectControl").click();
   await other.locator(".playSelectControl").click();
+  const { data: googleAccount } = await auth.user.from("google_accounts")
+    .select("email")
+    .eq("owner_user_id", auth.userId)
+    .single();
+  const selfEmail = googleAccount!.email!;
 
   async function drop(type: string, value: string, row = target) {
     await row.evaluate((element, payload) => {
@@ -198,21 +203,38 @@ test("physical Gmail drop attaches only the row under the pointer and persists r
     }, { type, value });
   }
 
-  await drop(
-    "text/uri-list",
-    "https://mail.google.com/mail/u/2/#all/FMfirst",
-  );
+  await drop("application/x-carnival-gmail", JSON.stringify({
+    threadContext: {
+      from: { email: "david@example.test", name: "David Example" },
+      lastMessageAt: "2026-09-12T10:00:00Z",
+      to: [{ email: selfEmail, name: "Current user" }],
+    },
+    url: "https://mail.google.com/mail/u/2/#all/FMfirst",
+  }));
   await expect(target.getByRole("button", { name: "Open Gmail thread" })).toBeVisible();
   await expect(other.getByRole("button", { name: "Open Gmail thread" })).toHaveCount(0);
+  await expect.poll(async () => {
+    const { data } = await auth.user.from("plays").select("source_metadata")
+      .eq("owner_user_id", auth.userId).eq("title", "Gmail drop target").single();
+    return (data?.source_metadata as { external_ids?: { thread_id?: string } })
+      ?.external_ids?.thread_id;
+  }).toBe("FMfirst");
 
-  await drop(
-    "text/html",
-    '<a href="https://mail.google.com/mail/u/3/#all/FMreplacement">Gmail</a>',
-  );
+  await drop("application/x-carnival-gmail", JSON.stringify({
+    threadContext: {
+      from: { email: selfEmail, name: "Current user" },
+      lastMessageAt: "2026-09-12T11:00:00Z",
+      to: [
+        { email: selfEmail, name: "Current user" },
+        { email: "blair@example.test", name: "Blair Example" },
+      ],
+    },
+    url: "https://mail.google.com/mail/u/3/#all/FMreplacement",
+  }));
   await expect.poll(async () => {
     const { data } = await auth.user
       .from("plays")
-      .select("source_metadata")
+      .select("source_metadata, play_type, player_contact_id")
       .eq("owner_user_id", auth.userId)
       .eq("title", "Gmail drop target")
       .single();
@@ -223,6 +245,8 @@ test("physical Gmail drop attaches only the row under the pointer and persists r
       account_index: 3,
       thread_ref: "FMreplacement",
     },
+    play_type: "reminder",
+    player_contact_id: expect.any(String),
   });
 
   await drop("text/uri-list", "https://example.com/not-gmail", other);
@@ -320,7 +344,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-BULLSEYE-BAR-36", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-GMAIL-DIRECTION-37", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');
