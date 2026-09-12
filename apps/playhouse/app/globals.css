@@ -245,7 +245,7 @@ a {
 
 .workspaceBody {
   display: grid;
-  grid-template-columns: clamp(144px, 10.5vw, 152px) minmax(0, 1fr);
+  grid-template-columns: 160px minmax(0, 1fr);
   gap: clamp(10px, 1.2vw, 18px);
   min-height: calc(100vh - 76px);
   padding: clamp(24px, 4vw, 52px);
@@ -1076,12 +1076,11 @@ h1 {
 
 .playRowLine,
 .playGridHeader {
-  --play-grid-inline-inset: clamp(6px, 0.8vw, 10px);
   --play-description-group-min: 200px;
-  --play-description-group-preferred: 418px;
+  --play-description-group-preferred: 410px;
   --play-action-columns-width: 143px;
   display: grid;
-  padding: 3px var(--play-grid-inline-inset);
+  padding: 3px clamp(8px, 1.4vw, 14px);
   grid-template-columns:
     minmax(var(--play-description-group-min), var(--play-description-group-preferred))
     minmax(0, 1fr)
@@ -1220,27 +1219,22 @@ h1 {
 }
 
 .playIdentityCell {
-  position: relative;
   display: grid;
   min-width: 0;
-  grid-template-columns: 112px minmax(0, 1fr);
+  grid-template-columns: 20px 112px minmax(0, 1fr);
   gap: 5px;
   align-items: center;
 }
 
 .playSelectControl {
-  position: absolute;
-  top: 50%;
-  left: calc(-1 * var(--play-grid-inline-inset));
   display: grid;
-  width: max(8px, var(--play-grid-inline-inset));
+  width: 20px;
   height: 26px;
   padding: 0;
   place-items: center;
   border: 0;
   background: transparent;
   cursor: grab;
-  transform: translateY(-50%);
 }
 
 .playSelectControl:active {
@@ -1253,12 +1247,11 @@ h1 {
   outline-offset: 1px;
 }
 
-.playSelectControl[aria-pressed="true"]::after {
-  width: 3px;
-  height: 18px;
-  border-radius: 999px;
-  background: currentColor;
-  content: "";
+.playSelectControl[aria-pressed="true"] .playTypeMarker {
+  background: var(--play-rank-foreground);
+  box-shadow:
+    0 0 0 2px var(--play-rank-background),
+    0 0 0 3px var(--play-rank-foreground);
 }
 
 .playIdentityCell > .editDisclosure {
@@ -1284,6 +1277,16 @@ h1 {
   font-size: inherit;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.playTypeMarker {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  box-sizing: border-box;
+  border: 2px solid var(--play-rank-foreground);
+  border-radius: 50%;
+  background: transparent;
 }
 
 .playDataCell {
@@ -2428,15 +2431,14 @@ h1 {
 .versionStamp {
   position: fixed;
   z-index: 2;
-  right: max(12px, env(safe-area-inset-right));
-  bottom: max(10px, env(safe-area-inset-bottom));
+  right: 8px;
+  bottom: 6px;
   padding: 2px 5px;
   color: rgba(53, 38, 72, 0.62);
   border-radius: 5px;
   background: rgba(255, 253, 250, 0.78);
   font-size: 0.62rem;
   line-height: 1.2;
-  white-space: nowrap;
   pointer-events: none;
 }
 
