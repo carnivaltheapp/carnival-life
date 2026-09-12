@@ -89,6 +89,13 @@ import {
   TrashIcon,
 } from "./play-status-actions";
 
+function reportGmailClientDiagnostic(event: string, details: Record<string, unknown>) {
+  console.info(event, details);
+  window.dispatchEvent(new CustomEvent("carnival:gmail-diagnostic", {
+    detail: JSON.stringify({ details, event }),
+  }));
+}
+
 export type UserIdentity = {
   displayName: string;
   email: string | null;
@@ -357,6 +364,7 @@ function PlayhouseShellView({
     };
     console.info("GMAIL_DROP_ON_PLAY", diagnostic);
     console.info("GMAIL_URL_PARSED", diagnostic);
+    reportGmailClientDiagnostic("GMAIL_OPTIMISTIC_ATTACH_STARTED", diagnostic);
     setOptimisticPlays({
       source: plays,
       value: localPlays.map((play) => play.id === playId
@@ -394,9 +402,17 @@ function PlayhouseShellView({
           setMoveError(null);
           return;
         }
+        reportGmailClientDiagnostic("GMAIL_OPTIMISTIC_ATTACH_ROLLBACK", {
+          ...diagnostic,
+          reason: result.message,
+        });
         setOptimisticPlays(previousOptimisticPlays);
         setMoveError(result.message);
       } catch {
+        reportGmailClientDiagnostic("GMAIL_OPTIMISTIC_ATTACH_ROLLBACK", {
+          ...diagnostic,
+          reason: "server-action-threw",
+        });
         setOptimisticPlays(previousOptimisticPlays);
         setMoveError("Gmail could not be attached to this Play.");
       }

@@ -257,6 +257,21 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       : changeInfo.pinned !== undefined ? "tab-pin-updated" : "tab-load-complete";
     scheduleTabSave(tab.windowId, reason);
   }
+  if (changeInfo.status === "complete" && tab.url?.startsWith("https://mail.google.com/")) {
+    chrome.tabs.sendMessage(tabId, { type: "gmailBridgePing" })
+      .then((response) => {
+        if (!response?.active) {
+          diagnosticLogger.warn("GMAIL_CONTENT_SCRIPT_NOT_ACTIVE", {
+            reason: "invalid-ping-response",
+            tabId,
+          });
+        }
+      })
+      .catch(() => diagnosticLogger.warn("GMAIL_CONTENT_SCRIPT_NOT_ACTIVE", {
+        reason: "content-script-ping-failed",
+        tabId,
+      }));
+  }
 });
 chrome.tabs.onCreated.addListener((tab) => scheduleTabSave(tab.windowId, "tab-created"));
 chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
@@ -270,6 +285,20 @@ chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
 chrome.tabs.onActivated.addListener(({ windowId }) => scheduleTabSave(windowId, "tab-activated"));
 chrome.tabs.onMoved.addListener((_tabId, moveInfo) => scheduleTabSave(moveInfo.windowId, "tab-moved"));
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (
+    message?.type === "recordGmailDiagnostic" &&
+    typeof message.event === "string" &&
+    message.event.startsWith("GMAIL_") &&
+    message.event.length <= 100
+  ) {
+    recordDiagnostic(message.level === "warn" ? "warn" : "info", message.event, {
+      ...(message.details && typeof message.details === "object" ? message.details : {}),
+      frameId: Number.isInteger(_sender.frameId) ? _sender.frameId : null,
+      tabId: Number.isInteger(_sender.tab?.id) ? _sender.tab.id : null,
+    });
+    sendResponse({ ok: true });
+    return false;
+  }
   if (message?.type === "gmailDragStarted") {
     const attachment = message.attachment;
     if (
@@ -279,10 +308,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       Number.isSafeInteger(attachment?.accountIndex)
     ) {
       pendingGmailDrag = {
+        actionId: typeof message.actionId === "string" ? message.actionId : message.correlationId,
         attachment,
         correlationId: message.correlationId,
         startedAt: Date.now(),
       };
+      diagnosticLogger.info("GMAIL_PENDING_DRAG_STORED", {
+        actionId: pendingGmailDrag.actionId,
+        correlationId: pendingGmailDrag.correlationId,
+        gmailAccountIndex: attachment.accountIndex,
+        gmailThreadRef: attachment.threadRef,
+      });
+    } else {
+      diagnosticLogger.warn("GMAIL_PENDING_DRAG_MISSING", {
+        reason: "invalid-drag-payload",
+      });
     }
     sendResponse({ ok: Boolean(pendingGmailDrag) });
     return false;
@@ -291,9 +331,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (pendingGmailDrag && Date.now() - pendingGmailDrag.startedAt <= GMAIL_DRAG_TTL_MS) {
       const response = pendingGmailDrag;
       pendingGmailDrag = null;
+      diagnosticLogger.info("GMAIL_PENDING_DRAG_USED", {
+        actionId: response.actionId,
+        correlationId: response.correlationId,
+        gmailThreadRef: response.attachment.threadRef,
+      });
       sendResponse(response);
     } else {
       pendingGmailDrag = null;
+      diagnosticLogger.warn("GMAIL_PENDING_DRAG_MISSING", { reason: "missing-or-expired" });
       sendResponse({ attachment: null });
     }
     return false;

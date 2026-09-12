@@ -56,7 +56,10 @@ test("Gmail pointer gesture enables native drag and adds transferable payloads",
     Element: GmailMessageElement,
     URL,
     chrome: { runtime: { sendMessage: async (message) => messages.push(message) } },
-    console: { info: (name) => diagnostics.push(name) },
+    console: {
+      info: (name) => diagnostics.push(name),
+      warn: (name) => diagnostics.push(name),
+    },
     crypto: { randomUUID: () => "correlation-1" },
     decodeURIComponent,
     document: {
@@ -64,9 +67,12 @@ test("Gmail pointer gesture enables native drag and adds transferable payloads",
       querySelectorAll: () => [latestMessage],
     },
     window: {
+      addEventListener() {},
       location: {
+        hash: "#all/FMfcgzExample",
         hostname: "mail.google.com",
         href: "https://mail.google.com/mail/u/2/#all/FMfcgzExample",
+        pathname: "/mail/u/2/",
       },
     },
   });
@@ -96,8 +102,9 @@ test("Gmail pointer gesture enables native drag and adds transferable payloads",
       url: "https://mail.google.com/mail/u/2/#all/FMfcgzExample",
     },
   );
-  assert.equal(messages[0].type, "gmailDragStarted");
-  assert.equal(messages[0].attachment.threadRef, "FMfcgzExample");
+  const dragMessage = messages.find((message) => message.type === "gmailDragStarted");
+  assert.equal(dragMessage.type, "gmailDragStarted");
+  assert.equal(dragMessage.attachment.threadRef, "FMfcgzExample");
   assert.deepEqual(diagnostics, [
     "GMAIL_CONTENT_SCRIPT_LOADED",
     "GMAIL_POINTER_DOWN",
@@ -112,7 +119,7 @@ test("Gmail pointer gesture enables native drag and adds transferable payloads",
 });
 
 test("PlayHouse resolves a stripped cross-window payload from short-lived extension memory", async () => {
-  let drop;
+  const listeners = new Map();
   let dispatched;
   const diagnostics = [];
   class TestElement {
@@ -127,33 +134,56 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
     URL,
     chrome: {
       runtime: {
-        sendMessage: async () => ({
-          attachment: {
-            accountIndex: 0,
-            canonicalUrl: "https://mail.google.com/mail/u/0/#all/FMpending",
-            threadRef: "FMpending",
-            threadContext: {
-              from: { email: "kayla@example.com", name: "Kayla" },
-              lastMessageAt: "Sep 12, 2026",
-              to: [{ email: "me@example.com", name: "Me" }],
-            },
-          },
-          correlationId: "correlation-pending",
-        }),
+        sendMessage: async (message) => message.type === "getPendingGmailDrag"
+          ? ({
+              actionId: "correlation-pending",
+              attachment: {
+                accountIndex: 0,
+                canonicalUrl: "https://mail.google.com/mail/u/0/#all/FMpending",
+                threadRef: "FMpending",
+                threadContext: {
+                  from: { email: "kayla@example.com", name: "Kayla" },
+                  lastMessageAt: "Sep 12, 2026",
+                  to: [{ email: "me@example.com", name: "Me" }],
+                },
+              },
+              correlationId: "correlation-pending",
+            })
+          : ({ ok: true }),
       },
     },
-    console: { info: (name) => diagnostics.push(name) },
+    console: {
+      info: (name) => diagnostics.push(name),
+      warn: (name) => diagnostics.push(name),
+    },
     decodeURIComponent,
-    document: { addEventListener: (type, listener) => { if (type === "drop") drop = listener; } },
+    document: { addEventListener: (type, listener) => { listeners.set(type, listener); } },
     window: {
+      addEventListener() {},
       dispatchEvent: (event) => { dispatched = event; },
       location: { hostname: "carnival-playhouse.vercel.app" },
     },
   });
 
-  drop({ dataTransfer: dataTransfer({ "text/plain": "Gmail" }), target: new TestElement() });
+  let prevented = false;
+  let propagationStopped = false;
+  const target = new TestElement();
+  const transfer = dataTransfer({
+    "text/plain": "https://mail.google.com/mail/u/0/#all/FMpending",
+    "text/uri-list": "https://mail.google.com/mail/u/0/#all/FMpending",
+  });
+  listeners.get("dragenter")({ dataTransfer: transfer, target });
+  listeners.get("dragover")({ dataTransfer: transfer, target });
+  listeners.get("drop")({
+    dataTransfer: transfer,
+    preventDefault: () => { prevented = true; },
+    stopImmediatePropagation: () => { propagationStopped = true; },
+    target,
+  });
   await Promise.resolve();
   await Promise.resolve();
+  assert.equal(prevented, true);
+  assert.equal(propagationStopped, true);
   assert.equal(dispatched.type, "carnival:gmail-drop-fallback");
   assert.deepEqual(JSON.parse(dispatched.detail), {
     correlationId: "correlation-pending",
@@ -165,5 +195,40 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
     },
     url: "https://mail.google.com/mail/u/0/#all/FMpending",
   });
-  assert.deepEqual(diagnostics, ["GMAIL_DRAG_PAYLOAD_MISSING", "GMAIL_DRAG_ENTER_PH"]);
+  assert.deepEqual(diagnostics, [
+    "GMAIL_DRAG_ENTER_PH",
+    "GMAIL_DRAG_OVER_PLAY",
+    "GMAIL_DROP_ON_PLAY",
+    "GMAIL_DRAG_PAYLOAD_MISSING",
+    "GMAIL_PENDING_DRAG_USED",
+  ]);
+});
+
+test("PlayHouse bridge leaves internal row drags untouched", () => {
+  const listeners = new Map();
+  class TestElement {
+    closest() { return { getAttribute: () => "play-1" }; }
+  }
+  vm.runInNewContext(bridgeSource, {
+    CustomEvent: class {},
+    Element: TestElement,
+    URL,
+    chrome: { runtime: { sendMessage: async () => ({ ok: true }) } },
+    console: { info() {}, warn() {} },
+    decodeURIComponent,
+    document: { addEventListener: (type, listener) => { listeners.set(type, listener); } },
+    window: {
+      addEventListener() {},
+      dispatchEvent() {},
+      location: { hostname: "carnival-playhouse.vercel.app" },
+    },
+  });
+  let prevented = false;
+  listeners.get("drop")({
+    dataTransfer: dataTransfer({ "text/plain": "play-1,play-2" }),
+    preventDefault: () => { prevented = true; },
+    stopImmediatePropagation() {},
+    target: new TestElement(),
+  });
+  assert.equal(prevented, false);
 });

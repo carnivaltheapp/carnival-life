@@ -173,6 +173,10 @@ test("Email and URL row actions route to Aux without changing PlayHouse", async 
 });
 
 test("physical Gmail drop attaches only the row under the pointer and persists replacement", async ({ auth }) => {
+  const gmailDiagnostics: string[] = [];
+  auth.page.on("console", (message) => {
+    if (message.text().startsWith("GMAIL_")) gmailDiagnostics.push(message.text());
+  });
   await auth.page.goto("/");
   await createPlay(auth.page, "Gmail drop target");
   await createPlay(auth.page, "Other selected Play");
@@ -202,6 +206,13 @@ test("physical Gmail drop attaches only the row under the pointer and persists r
       }));
     }, { type, value });
   }
+
+  await drop("application/x-carnival-gmail", JSON.stringify({
+    url: "https://mail.google.com/mail/u/0/#all/FMmissingcontext",
+  }), other);
+  await expect.poll(() => gmailDiagnostics.some((entry) =>
+    entry.startsWith("GMAIL_OPTIMISTIC_ATTACH_ROLLBACK"))).toBe(true);
+  await expect(other.getByRole("button", { name: "Open Gmail thread" })).toHaveCount(0);
 
   await drop("application/x-carnival-gmail", JSON.stringify({
     threadContext: {
@@ -344,7 +355,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-GMAIL-PHYSICAL-FIX-38", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-GMAIL-PHYSICAL-FIX-39", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');
