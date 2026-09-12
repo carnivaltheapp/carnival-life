@@ -48,6 +48,8 @@ async function dropThroughBullseye(
     .dispatchEvent("dragenter", { dataTransfer: transfer });
   const categories = page.getByRole("menu", { name: "Bullseye categories" });
   await expect(categories).toBeVisible();
+  await expect(categories).toHaveCSS("display", "flex");
+  await expect(categories).toHaveCSS("flex-direction", "row");
   if (category) {
     await categories.getByRole("menuitem", { name: category, exact: true })
       .dispatchEvent("dragenter", { dataTransfer: transfer });
@@ -60,6 +62,16 @@ async function dropThroughBullseye(
     : categories.getByRole("menuitem", { name: targetName, exact: true });
   await expect(target).toBeVisible();
   await target.dispatchEvent("dragover", { dataTransfer: transfer });
+  await expect(categories).toBeVisible();
+  if (category) {
+    const [barBox, targetBox] = await Promise.all([
+      categories.boundingBox(),
+      target.boundingBox(),
+    ]);
+    expect(barBox).not.toBeNull();
+    expect(targetBox).not.toBeNull();
+    expect(targetBox!.y).toBeGreaterThanOrEqual(barBox!.y + barBox!.height);
+  }
   await target.dispatchEvent("drop", { dataTransfer: transfer });
 }
 
@@ -292,7 +304,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-BULLSEYE-31", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-BULLSEYE-BAR-32", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');
@@ -376,6 +388,8 @@ test("Bullseye changes selected Plays and replaces the right-click menu", async 
   const second = playRow(auth.page, "Bulk Change Two");
   await first.locator(".playSelectControl").click();
   await second.locator(".playSelectControl").click();
+  await auth.page.getByRole("button", { name: "Bullseye drag actions" }).hover();
+  await expect(auth.page.getByRole("menu", { name: "Bullseye categories" })).toHaveCount(0);
   await first.click({ button: "right" });
   await expect(auth.page.getByRole("menu", { name: "Bulk Play actions" })).toHaveCount(0);
   await expect(auth.page.getByLabel("Calendar destinations")).toBeVisible();

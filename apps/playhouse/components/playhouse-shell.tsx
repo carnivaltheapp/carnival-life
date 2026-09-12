@@ -831,7 +831,12 @@ function PlayhouseShellView({
                 Bullseye
               </button>
               {bullseyeOpen && draggedIds.length ? (
-                <div aria-label="Bullseye categories" className="bullseyeCategories" role="menu">
+                <div
+                  aria-label="Bullseye categories"
+                  aria-orientation="horizontal"
+                  className="bullseyeCategories"
+                  role="menu"
+                >
                   {(["calendar", "baskets", "rank", "push"] as const).map((category) => (
                     <button
                       data-active={bullseyeCategory === category || undefined}
@@ -994,7 +999,7 @@ function PlayhouseShellView({
             ) : bullseyeCategory === "baskets" ? (
               <div
                 aria-label="Basket destinations"
-                className="navItems"
+                className="navItems bullseyeOptions"
                 id="basket-navigation"
               >
                 {baskets.map((basket) => {

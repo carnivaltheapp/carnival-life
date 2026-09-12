@@ -268,7 +268,7 @@ a {
 
 .bullseyeControl {
   display: flex;
-  width: 100%;
+  width: 108px;
   min-height: 34px;
   align-items: center;
   justify-content: center;
@@ -295,6 +295,10 @@ a {
   background: rgba(109, 63, 242, 0.1);
 }
 
+.bullseyeControl[aria-expanded="true"] {
+  border-radius: 10px 0 0 10px;
+}
+
 .bullseyeControl:focus-visible,
 .bullseyeCategories button:focus-visible {
   outline: 2px solid var(--accent);
@@ -304,17 +308,17 @@ a {
 .bullseyeCategories {
   position: absolute;
   z-index: 20;
-  top: calc(100% + 4px);
-  left: 0;
-  display: grid;
-  width: 100%;
-  padding: 5px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 3px;
+  top: 0;
+  left: 107px;
+  display: flex;
+  width: max-content;
+  min-height: 34px;
+  padding: 0;
+  gap: 0;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0 10px 10px 0;
   background: #fffdfa;
-  box-shadow: 0 10px 26px rgba(48, 29, 83, 0.2);
+  box-shadow: 7px 7px 18px rgba(48, 29, 83, 0.12);
 }
 
 .bullseyeCategories button,
@@ -327,10 +331,15 @@ a {
 
 .bullseyeCategories button {
   min-height: 32px;
-  padding: 5px 7px;
+  padding: 5px 11px;
   color: var(--muted);
-  border-radius: 6px;
+  border-radius: 0;
   background: transparent;
+  white-space: nowrap;
+}
+
+.bullseyeCategories button + button {
+  border-left: 1px solid var(--line);
 }
 
 .bullseyeCategories button:hover,
@@ -340,9 +349,23 @@ a {
   background: rgba(109, 63, 242, 0.12);
 }
 
+.bullseyeCategories button:nth-last-child(2)[data-drop-target="true"] {
+  color: #155c3b;
+  background: rgba(38, 157, 102, 0.14);
+}
+
+.bullseyeCategories button:last-child[data-drop-target="true"] {
+  color: #81243b;
+  background: rgba(129, 36, 59, 0.12);
+}
+
 .bullseyeOptions button {
   width: 100%;
   text-align: left;
+}
+
+.destinationNav > .bullseyeOptions {
+  width: min(340px, calc(100vw - 32px));
 }
 
 .navItems {
@@ -2148,6 +2171,16 @@ h1 {
     padding: 10px 16px;
     grid-template-columns: minmax(0, 1fr);
     gap: 8px;
+  }
+
+  .bullseyeCategories {
+    max-width: calc(100vw - 132px);
+    overflow-x: auto;
+  }
+
+  .bullseyeCategories button {
+    padding-inline: 7px;
+    font-size: 0.72rem;
   }
 
   .brandMark {
