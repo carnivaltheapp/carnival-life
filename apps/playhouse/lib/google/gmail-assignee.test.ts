@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  parseGmailAddressHeader,
   resolveGmailAssignee,
   resolveGmailCounterparty,
 } from "./gmail-assignee";
@@ -17,22 +16,13 @@ const existing = {
 };
 
 describe("Gmail Assignee resolution", () => {
-  it("parses ordered Gmail address headers, including quoted names", () => {
-    expect(parseGmailAddressHeader(
-      '\"Pouncy, Kayla\" <KAYLA@example.com>, David Example <david@example.com>',
-    )).toEqual([
-      { email: "kayla@example.com", name: "Pouncy, Kayla" },
-      david,
-    ]);
-  });
-
   it("uses the incoming sender and reuses an exact-email cached contact", async () => {
     const findExistingContact = vi.fn().mockResolvedValue(existing);
     const persistGoogleContact = vi.fn();
     await expect(resolveGmailAssignee({
       accounts: [account],
       selfEmails: [self.email],
-      loadLatestMessage: vi.fn().mockResolvedValue({ from: kayla, to: [self] }),
+      message: { from: kayla, to: [self] },
       findExistingContact,
       searchGoogleContacts: vi.fn(),
       persistGoogleContact,
@@ -50,7 +40,7 @@ describe("Gmail Assignee resolution", () => {
     const result = await resolveGmailAssignee({
       accounts: [account],
       selfEmails: [self.email],
-      loadLatestMessage: vi.fn().mockResolvedValue({ from: self, to: [self, kayla, david] }),
+      message: { from: self, to: [self, kayla, david] },
       findExistingContact: vi.fn().mockResolvedValue(null),
       searchGoogleContacts,
       persistGoogleContact,
@@ -70,7 +60,7 @@ describe("Gmail Assignee resolution", () => {
     await expect(resolveGmailAssignee({
       accounts: [account],
       selfEmails: [self.email],
-      loadLatestMessage: vi.fn().mockResolvedValue({ from: kayla, to: [self] }),
+      message: { from: kayla, to: [self] },
       findExistingContact: vi.fn().mockResolvedValue(null),
       searchGoogleContacts: vi.fn().mockResolvedValue([]),
       persistGoogleContact,

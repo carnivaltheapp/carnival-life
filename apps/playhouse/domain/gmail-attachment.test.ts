@@ -37,6 +37,27 @@ describe("Gmail physical drag payloads", () => {
     expect(gmailAttachmentFromDragData(dragData({ "text/plain": "not a URL" }))).toBeNull();
   });
 
+  it("sanitizes optional participants carried beside a realistic Gmail web reference", () => {
+    const webThreadUrl = "https://mail.google.com/mail/u/2/#all/FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC";
+    expect(gmailAttachmentFromDragData(dragData({
+      [CARNIVAL_GMAIL_DRAG_TYPE]: JSON.stringify({
+        gmailParticipants: {
+          from: { email: " KAYLA@example.com ", name: " Kayla Pouncy " },
+          to: [{ email: "me@example.com", name: "Current User" }],
+        },
+        url: webThreadUrl,
+      }),
+    }))).toEqual({
+      accountIndex: 2,
+      canonicalUrl: webThreadUrl,
+      gmailParticipants: {
+        from: { email: "kayla@example.com", name: "Kayla Pouncy" },
+        to: [{ email: "me@example.com", name: "Current User" }],
+      },
+      threadRef: "FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC",
+    });
+  });
+
   it("uses the final Gmail hash segment when a search route contains slashes", () => {
     expect(parseGmailAttachmentUrl(
       "https://mail.google.com/mail/u/1/#search/from%3Aexample/FMsearch",

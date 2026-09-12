@@ -3,25 +3,27 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "../supabase/database.types";
+import type { GmailParticipants } from "../../domain/gmail-attachment";
 import { upsertSelectedContactReference } from "./contact-reference";
-import { resolveGmailAssignee, type GmailAssigneeAccount } from "./gmail-assignee";
-import { getLatestGmailMessageParticipants } from "./gmail";
+import {
+  resolveGmailAssignee,
+  type GmailAssigneeAccount,
+} from "./gmail-assignee";
 import { searchPeopleForAccount } from "./people.server";
-import { GOOGLE_CONTACTS_READONLY_SCOPE, GOOGLE_GMAIL_MODIFY_SCOPE } from "./scopes";
-import { getGoogleAccessToken } from "./token-broker.server";
+import { GOOGLE_CONTACTS_READONLY_SCOPE } from "./scopes";
 
-export async function resolveGmailAssigneeForThread({
+export async function resolveGmailAssigneeForParticipants({
   accountIndex,
   authenticatedEmail,
+  gmailParticipants,
   ownerUserId,
   supabase,
-  threadId,
 }: {
   accountIndex: number;
   authenticatedEmail: string | null;
+  gmailParticipants: GmailParticipants;
   ownerUserId: string;
   supabase: SupabaseClient<Database>;
-  threadId: string;
 }) {
   const { data, error } = await supabase
     .from("google_accounts")
@@ -30,10 +32,7 @@ export async function resolveGmailAssigneeForThread({
     .order("updated_at", { ascending: false });
   if (error) throw new Error("Connected Google accounts could not be loaded.");
 
-  const connected = (data ?? []).filter((account) =>
-    account.connection_status === "connected" &&
-    account.granted_scopes.includes(GOOGLE_GMAIL_MODIFY_SCOPE)
-  );
+  const connected = (data ?? []).filter((account) => account.connection_status === "connected");
   const preferred = connected[accountIndex];
   const ordered = preferred
     ? [preferred, ...connected.filter(({ id }) => id !== preferred.id)]
@@ -45,14 +44,8 @@ export async function resolveGmailAssigneeForThread({
 
   return resolveGmailAssignee({
     accounts,
+    message: gmailParticipants,
     selfEmails,
-    loadLatestMessage: async (account) => getLatestGmailMessageParticipants({
-      accessToken: await getGoogleAccessToken({
-        googleAccountId: account.id,
-        ownerUserId,
-      }),
-      threadId,
-    }),
     findExistingContact: async (email) => {
       const { data: contacts, error: contactError } = await supabase
         .from("contact_references")

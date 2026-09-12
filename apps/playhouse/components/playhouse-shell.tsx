@@ -36,6 +36,7 @@ import {
   gmailMetadataWithAttachment,
   mayContainGmailDrag,
   parseGmailAttachmentUrl,
+  sanitizeGmailParticipants,
   type GmailAttachment,
 } from "../domain/gmail-attachment";
 import type { SelectedView } from "../lib/playhouse/data";
@@ -374,6 +375,7 @@ function PlayhouseShellView({
       try {
         const result = await attachGmailToPlay({
           correlationId,
+          gmailParticipants: attachment.gmailParticipants,
           playId,
           url: attachment.canonicalUrl,
         });
@@ -410,6 +412,7 @@ function PlayhouseShellView({
       try {
         const detail = JSON.parse(event.detail) as {
           correlationId?: unknown;
+          gmailParticipants?: unknown;
           playId?: unknown;
           url?: unknown;
         };
@@ -417,7 +420,11 @@ function PlayhouseShellView({
           typeof detail.playId !== "string" ||
           typeof detail.url !== "string"
         ) return;
-        const attachment = parseGmailAttachmentUrl(detail.url);
+        const parsedAttachment = parseGmailAttachmentUrl(detail.url);
+        const gmailParticipants = sanitizeGmailParticipants(detail.gmailParticipants);
+        const attachment = parsedAttachment && gmailParticipants
+          ? { ...parsedAttachment, gmailParticipants }
+          : parsedAttachment;
         if (!attachment) return;
         persistGmailAttachment(
           detail.playId,

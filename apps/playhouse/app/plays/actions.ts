@@ -15,9 +15,12 @@ import {
 import type { BasketSummary } from "../../domain/play";
 import type { PlayPlacement } from "../../domain/play";
 import { isBulkSelectablePlay, type BulkPlayChange } from "../../domain/play-bulk-change";
-import { parseGmailAttachmentUrl } from "../../domain/gmail-attachment";
+import {
+  parseGmailAttachmentUrl,
+  sanitizeGmailParticipants,
+} from "../../domain/gmail-attachment";
 import { reminderContextDate } from "../../domain/reminder";
-import { resolveGmailAssigneeForThread } from "../../lib/google/gmail-assignee.server";
+import { resolveGmailAssigneeForParticipants } from "../../lib/google/gmail-assignee.server";
 import { applyPlayLifecycle } from "../../lib/google/gmail-lifecycle";
 import { unstarGmailPlayThread } from "../../lib/google/gmail-lifecycle.server";
 import { resolvePlayhouseDataSource } from "../../lib/playhouse/data-source";
@@ -336,6 +339,7 @@ export async function repositionPlays(request: {
 
 export async function attachGmailToPlay(request: {
   correlationId: string;
+  gmailParticipants?: unknown;
   playId: string;
   url: string;
 }): Promise<PlayMutationState> {
@@ -384,12 +388,25 @@ export async function attachGmailToPlay(request: {
     console.info("GMAIL_ATTACHMENT_SAVE_COMPLETE", diagnostic);
     console.info("GMAIL_ASSIGNEE_RESOLUTION_STARTED", diagnostic);
     try {
-      const resolution = await resolveGmailAssigneeForThread({
+      const gmailParticipants = sanitizeGmailParticipants(request.gmailParticipants);
+      if (!gmailParticipants) {
+        console.warn("GMAIL_ASSIGNEE_UPDATE_FAILED", {
+          ...diagnostic,
+          reason: "participant_metadata_missing",
+        });
+        return { message: "Gmail attached.", status: "success" };
+      }
+      console.info("GMAIL_PARTICIPANTS_CAPTURED", {
+        ...diagnostic,
+        fromExists: true,
+        toCount: gmailParticipants.to.length,
+      });
+      const resolution = await resolveGmailAssigneeForParticipants({
         accountIndex: attachment.accountIndex,
         authenticatedEmail: auth.email,
+        gmailParticipants,
         ownerUserId: auth.userId,
         supabase: auth.supabase,
-        threadId: attachment.threadRef,
       });
       if (resolution.status === "contact_not_found") {
         console.info("GMAIL_COUNTERPARTY_RESOLVED", {

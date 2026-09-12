@@ -42,6 +42,35 @@ function gmailUrlFromTransfer(dataTransfer) {
   return null;
 }
 
+function gmailParticipant(element) {
+  const email = element?.getAttribute?.("email") ?? element?.getAttribute?.("data-hovercard-id");
+  if (!email || !email.includes("@")) return null;
+  const name = element.getAttribute?.("name") ?? element.textContent?.trim() ?? null;
+  return {
+    email: email.trim().toLowerCase().slice(0, 320),
+    name: name ? name.trim().slice(0, 200) : null,
+  };
+}
+
+function latestGmailParticipants() {
+  const latest = Array.from(document.querySelectorAll("[data-message-id]")).at(-1);
+  if (!latest) return null;
+  const from = gmailParticipant(latest.querySelector(".gD[email], [data-hovercard-id*='@']"));
+  if (!from) return null;
+  const seen = new Set();
+  const to = Array.from(latest.querySelectorAll("[email], [data-hovercard-id*='@']"))
+    .map(gmailParticipant)
+    .filter((participant) => {
+      const email = participant?.email.toLowerCase();
+      if (!participant || !email || email === from.email.toLowerCase() || seen.has(email)) {
+        return false;
+      }
+      seen.add(email);
+      return true;
+    });
+  return { from, to };
+}
+
 if (window.location.hostname === "mail.google.com") {
   document.addEventListener("dragstart", (event) => {
     if (!event.dataTransfer) return;
@@ -49,8 +78,10 @@ if (window.location.hostname === "mail.google.com") {
       parseGmailUrl(window.location.href);
     if (!attachment) return;
     const correlationId = crypto.randomUUID();
+    const gmailParticipants = latestGmailParticipants();
     const payload = {
       correlationId,
+      gmailParticipants,
       url: attachment.canonicalUrl,
     };
     try {
@@ -69,8 +100,13 @@ if (window.location.hostname === "mail.google.com") {
       correlationId,
       types: Array.from(event.dataTransfer.types),
     });
+    console.info("GMAIL_PARTICIPANTS_CAPTURED", {
+      correlationId,
+      fromExists: Boolean(gmailParticipants?.from),
+      toCount: gmailParticipants?.to.length ?? 0,
+    });
     chrome.runtime.sendMessage({
-      attachment,
+      attachment: { ...attachment, gmailParticipants },
       correlationId,
       type: GMAIL_DRAG_STARTED,
     }).catch(() => {});
@@ -92,6 +128,7 @@ if (window.location.hostname === "mail.google.com") {
       window.dispatchEvent(new CustomEvent("carnival:gmail-drop-fallback", {
         detail: JSON.stringify({
           correlationId: response.correlationId,
+          gmailParticipants: response.attachment.gmailParticipants,
           playId,
           url: response.attachment.canonicalUrl,
         }),

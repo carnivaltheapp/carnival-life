@@ -1,14 +1,5 @@
 import type { GoogleContactSummary } from "./people";
-
-export type GmailParticipant = {
-  email: string;
-  name: string | null;
-};
-
-export type GmailMessageParticipants = {
-  from: GmailParticipant;
-  to: GmailParticipant[];
-};
+import type { GmailParticipant, GmailParticipants } from "../../domain/gmail-attachment";
 
 export type GmailAssigneeContact = {
   displayName: string;
@@ -38,22 +29,8 @@ export function normalizeEmail(value: string) {
   return value.trim().toLocaleLowerCase();
 }
 
-export function parseGmailAddressHeader(value: string): GmailParticipant[] {
-  const participants: GmailParticipant[] = [];
-  const addressPattern = /(?:(?:"([^"]*)"|([^,<]*?))\s*<)?([A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,})>?/gi;
-  for (const match of value.matchAll(addressPattern)) {
-    const email = normalizeEmail(match[3] ?? "");
-    if (!email) continue;
-    const name = (match[1] ?? match[2] ?? "")
-      .trim()
-      .replace(/^['"]|['"]$/g, "") || null;
-    participants.push({ email, name });
-  }
-  return participants;
-}
-
 export function resolveGmailCounterparty(
-  message: GmailMessageParticipants,
+  message: GmailParticipants,
   selfEmails: string[],
 ) {
   const self = new Set(selfEmails.map(normalizeEmail).filter(Boolean));
@@ -77,14 +54,14 @@ export function exactEmailContact(
 export async function resolveGmailAssignee({
   accounts,
   findExistingContact,
-  loadLatestMessage,
+  message,
   persistGoogleContact,
   searchGoogleContacts,
   selfEmails,
 }: {
   accounts: GmailAssigneeAccount[];
   findExistingContact: (email: string) => Promise<GmailAssigneeContact | null>;
-  loadLatestMessage: (account: GmailAssigneeAccount) => Promise<GmailMessageParticipants>;
+  message: GmailParticipants;
   persistGoogleContact: (
     account: GmailAssigneeAccount,
     contact: GoogleContactSummary,
@@ -95,22 +72,6 @@ export async function resolveGmailAssignee({
   ) => Promise<GoogleContactSummary[]>;
   selfEmails: string[];
 }): Promise<GmailAssigneeResolution> {
-  let accountWithThread: GmailAssigneeAccount | null = null;
-  let message: GmailMessageParticipants | null = null;
-  for (const account of accounts) {
-    try {
-      message = await loadLatestMessage(account);
-      accountWithThread = account;
-      break;
-    } catch {
-      // A Gmail browser account index is not a durable connected-account ID.
-      // Try only the authenticated user's other connected accounts.
-    }
-  }
-  if (!accountWithThread || !message) {
-    return { reason: "thread_metadata_unavailable", status: "failed" };
-  }
-
   const counterparty = resolveGmailCounterparty(message, selfEmails);
   if (!counterparty) {
     return { reason: "counterparty_unavailable", status: "failed" };
@@ -121,8 +82,11 @@ export async function resolveGmailAssignee({
     return { contact: existing, counterparty, source: "existing", status: "matched" };
   }
 
+  const account = accounts[0];
+  if (!account) return { counterparty, status: "contact_not_found" };
+
   const googleContact = exactEmailContact(
-    await searchGoogleContacts(accountWithThread, counterparty.email),
+    await searchGoogleContacts(account, counterparty.email),
     counterparty.email,
   );
   if (!googleContact) {
@@ -130,7 +94,7 @@ export async function resolveGmailAssignee({
   }
 
   return {
-    contact: await persistGoogleContact(accountWithThread, googleContact),
+    contact: await persistGoogleContact(account, googleContact),
     counterparty,
     source: "google_people",
     status: "matched",

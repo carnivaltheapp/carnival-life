@@ -1,8 +1,15 @@
 export const CARNIVAL_GMAIL_DRAG_TYPE = "application/x-carnival-gmail";
 
+export type GmailParticipant = { email: string; name: string | null };
+export type GmailParticipants = {
+  from: GmailParticipant;
+  to: GmailParticipant[];
+};
+
 export type GmailAttachment = {
   accountIndex: number;
   canonicalUrl: string;
+  gmailParticipants?: GmailParticipants;
   threadRef: string;
 };
 
@@ -38,11 +45,40 @@ export function parseGmailAttachmentUrl(value: string): GmailAttachment | null {
 
 function attachmentFromCustomPayload(value: string) {
   try {
-    const parsed = JSON.parse(value) as { url?: unknown };
-    return typeof parsed.url === "string" ? parseGmailAttachmentUrl(parsed.url) : null;
+    const parsed = JSON.parse(value) as { gmailParticipants?: unknown; url?: unknown };
+    const attachment = typeof parsed.url === "string" ? parseGmailAttachmentUrl(parsed.url) : null;
+    const gmailParticipants = sanitizeGmailParticipants(parsed.gmailParticipants);
+    return attachment && gmailParticipants ? { ...attachment, gmailParticipants } : attachment;
   } catch {
     return null;
   }
+}
+
+function sanitizedParticipant(value: unknown): GmailParticipant | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  const email = typeof candidate.email === "string"
+    ? candidate.email.trim().toLocaleLowerCase().slice(0, 320)
+    : "";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  const name = typeof candidate.name === "string" && candidate.name.trim()
+    ? candidate.name.trim().slice(0, 200)
+    : null;
+  return { email, name };
+}
+
+export function sanitizeGmailParticipants(value: unknown): GmailParticipants | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  const from = sanitizedParticipant(candidate.from);
+  if (!from) return null;
+  const to = Array.isArray(candidate.to)
+    ? candidate.to.flatMap((item) => {
+        const participant = sanitizedParticipant(item);
+        return participant ? [participant] : [];
+      }).slice(0, 50)
+    : [];
+  return { from, to };
 }
 
 export function gmailCorrelationIdFromDragData(data: Pick<DragData, "getData">) {
