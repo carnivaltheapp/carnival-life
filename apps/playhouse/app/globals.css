@@ -245,7 +245,7 @@ a {
 
 .workspaceBody {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: clamp(156px, 12vw, 168px) minmax(0, 1fr);
   gap: clamp(10px, 1.2vw, 18px);
   min-height: calc(100vh - 76px);
   padding: clamp(24px, 4vw, 52px);
@@ -1078,7 +1078,7 @@ h1 {
 .playGridHeader {
   --play-grid-inline-inset: clamp(6px, 0.8vw, 10px);
   --play-description-group-min: 200px;
-  --play-description-group-preferred: 330px;
+  --play-description-group-preferred: 402px;
   --play-action-columns-width: 143px;
   display: grid;
   padding: 3px var(--play-grid-inline-inset);

@@ -13,11 +13,17 @@ describe("Play grid responsive squeeze contract", () => {
     const sharedRule = rule(".playRowLine,\n.playGridHeader");
 
     expect(sharedRule).toContain("--play-description-group-min: 200px");
-    expect(sharedRule).toContain("--play-description-group-preferred: 330px");
+    expect(sharedRule).toContain("--play-description-group-preferred: 402px");
     expect(sharedRule).toContain("minmax(0, 1fr)");
     expect(sharedRule).toContain("--play-action-columns-width: 143px");
     expect(sharedRule).toContain("--play-grid-inline-inset: clamp(6px, 0.8vw, 10px)");
     expect(sharedRule).toContain("padding: 3px var(--play-grid-inline-inset)");
+  });
+
+  it("uses the compact navigation width to widen the Description group", () => {
+    expect(rule(".workspaceBody")).toContain(
+      "grid-template-columns: clamp(156px, 12vw, 168px) minmax(0, 1fr)",
+    );
   });
 
   it("preserves the complete five-icon action width without horizontal scrolling", () => {
