@@ -1,11 +1,20 @@
-import type { GmailThreadContext } from "./gmail-thread-context";
+export const CARNIVAL_GMAIL_DRAG_TYPE = "application/x-carnival-gmail";
 
 export type GmailAttachment = {
   accountIndex: number;
   canonicalUrl: string;
   threadRef: string;
-  threadContext?: GmailThreadContext;
 };
+
+type DragData = {
+  getData(type: string): string;
+  types: ArrayLike<string>;
+};
+
+function gmailUrlInText(value: string) {
+  const decoded = value.replaceAll("&amp;", "&");
+  return decoded.match(/https:\/\/mail\.google\.com\/[^\s"'<>]+/i)?.[0] ?? null;
+}
 
 export function parseGmailAttachmentUrl(value: string): GmailAttachment | null {
   try {
@@ -25,6 +34,55 @@ export function parseGmailAttachmentUrl(value: string): GmailAttachment | null {
   } catch {
     return null;
   }
+}
+
+function attachmentFromCustomPayload(value: string) {
+  try {
+    const parsed = JSON.parse(value) as { url?: unknown };
+    return typeof parsed.url === "string" ? parseGmailAttachmentUrl(parsed.url) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function gmailCorrelationIdFromDragData(data: Pick<DragData, "getData">) {
+  try {
+    const parsed = JSON.parse(data.getData(CARNIVAL_GMAIL_DRAG_TYPE)) as {
+      correlationId?: unknown;
+    };
+    return typeof parsed.correlationId === "string" && parsed.correlationId.length <= 100
+      ? parsed.correlationId
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function gmailAttachmentFromDragData(data: DragData) {
+  const custom = attachmentFromCustomPayload(data.getData(CARNIVAL_GMAIL_DRAG_TYPE));
+  if (custom) return custom;
+
+  for (const type of ["text/uri-list", "text/plain", "text/html"]) {
+    const raw = data.getData(type);
+    if (!raw) continue;
+    const candidates = type === "text/uri-list"
+      ? raw.split(/\r?\n/).filter((line) => line && !line.startsWith("#"))
+      : [gmailUrlInText(raw)];
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      const attachment = parseGmailAttachmentUrl(candidate);
+      if (attachment) return attachment;
+    }
+  }
+  return null;
+}
+
+export function mayContainGmailDrag(data: Pick<DragData, "types">) {
+  const types = Array.from(data.types);
+  return types.includes(CARNIVAL_GMAIL_DRAG_TYPE) ||
+    types.includes("text/uri-list") ||
+    types.includes("text/plain") ||
+    types.includes("text/html");
 }
 
 export function gmailMetadataWithAttachment(

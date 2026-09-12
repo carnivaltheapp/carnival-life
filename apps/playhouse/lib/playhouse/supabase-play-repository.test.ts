@@ -96,8 +96,6 @@ describe("Supabase Gmail attachment", () => {
   it("merges and replaces Gmail metadata without changing source or unrelated fields", async () => {
     const existing = query({
       data: {
-        basket_id: null,
-        scheduled_date: "2026-09-08",
         source_metadata: {
           external_ids: { event_id: "event-1", thread_id: "old" },
           legacy_source: { task_type: "H" },
@@ -105,9 +103,8 @@ describe("Supabase Gmail attachment", () => {
       },
       error: null,
     });
-    const destination = query({ data: [{ id: "headline", sort_order: 2000, source_metadata: {} }], error: null });
     const update = query({ data: { id: "play-1" }, error: null });
-    const from = vi.fn().mockReturnValueOnce(existing).mockReturnValueOnce(destination).mockReturnValueOnce(update);
+    const from = vi.fn().mockReturnValueOnce(existing).mockReturnValueOnce(update);
 
     expect(await new SupabasePlayRepository(
       { from } as never,
@@ -119,17 +116,11 @@ describe("Supabase Gmail attachment", () => {
         threadRef: "FMnew",
       },
       playId: "play-1",
-      playerContactId: "contact-1",
-      playerResourceName: "people/kayla",
-      playType: "reminder",
     })).toBe(true);
 
     expect(existing.eq).toHaveBeenCalledWith("owner_user_id", "owner-user");
     expect(existing.eq).toHaveBeenCalledWith("status", "open");
     expect(update.update).toHaveBeenCalledWith({
-      play_type: "reminder",
-      player_contact_id: "contact-1",
-      sort_order: 1000,
       source_metadata: {
         external_ids: { event_id: "event-1", thread_id: "FMnew" },
         gmail_attachment: {
@@ -160,9 +151,6 @@ describe("Supabase Gmail attachment", () => {
         threadRef: "FMnew",
       },
       playId: "appointment-1",
-      playerContactId: "contact-1",
-      playerResourceName: "people/kayla",
-      playType: "normal",
     })).toBe(false);
     expect(from).toHaveBeenCalledOnce();
     expect(existing.update).not.toHaveBeenCalled();

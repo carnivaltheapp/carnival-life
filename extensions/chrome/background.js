@@ -1,16 +1,12 @@
 import { CarnivalWorkspaceController, validWorkArea } from "./workspace-controller.js";
 import { createWorkspaceActions } from "./workspace-summon.js";
 import { isOpenInAuxMessage, routeOpenInAuxMessage } from "./aux-routing.js";
-import {
-  consumePendingGmailDrag,
-  getPendingGmailDrag,
-  storePendingGmailDrag,
-} from "./gmail-pending-drag.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
 const NATIVE_HOST_VERSION = "DRAWER-HOST-7";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
+const GMAIL_DRAG_TTL_MS = 10_000;
 const TAB_SAVE_DELAY_MS = 300;
 const DIAGNOSTIC_STORAGE_KEY = "carnivalWorkspaceDiagnostics";
 const DIAGNOSTIC_LIMIT = 500;
@@ -20,16 +16,10 @@ let nativeAnimationRequestId = 0;
 let immediateNativeReconnectUsed = false;
 const nativeAnimationRequests = new Map();
 let geometrySaveTimer = null;
-let gmailPendingOperation = Promise.resolve();
+let pendingGmailDrag = null;
 const tabSaveTimers = new Map();
 const tabSaveReasons = new Map();
 let diagnosticWriteQueue = Promise.resolve();
-
-function queueGmailPendingOperation(operation) {
-  const result = gmailPendingOperation.then(operation, operation);
-  gmailPendingOperation = result.then(() => {}, () => {});
-  return result;
-}
 
 function recordDiagnostic(level, event, details = null) {
   console[level]?.(event, details ?? "");
@@ -267,21 +257,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       : changeInfo.pinned !== undefined ? "tab-pin-updated" : "tab-load-complete";
     scheduleTabSave(tab.windowId, reason);
   }
-  if (changeInfo.status === "complete" && tab.url?.startsWith("https://mail.google.com/")) {
-    chrome.tabs.sendMessage(tabId, { type: "gmailBridgePing" })
-      .then((response) => {
-        if (!response?.active) {
-          diagnosticLogger.warn("GMAIL_CONTENT_SCRIPT_NOT_ACTIVE", {
-            reason: "invalid-ping-response",
-            tabId,
-          });
-        }
-      })
-      .catch(() => diagnosticLogger.warn("GMAIL_CONTENT_SCRIPT_NOT_ACTIVE", {
-        reason: "content-script-ping-failed",
-        tabId,
-      }));
-  }
 });
 chrome.tabs.onCreated.addListener((tab) => scheduleTabSave(tab.windowId, "tab-created"));
 chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
@@ -295,97 +270,33 @@ chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
 chrome.tabs.onActivated.addListener(({ windowId }) => scheduleTabSave(windowId, "tab-activated"));
 chrome.tabs.onMoved.addListener((_tabId, moveInfo) => scheduleTabSave(moveInfo.windowId, "tab-moved"));
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (
-    message?.type === "recordGmailDiagnostic" &&
-    typeof message.event === "string" &&
-    message.event.startsWith("GMAIL_") &&
-    message.event.length <= 100
-  ) {
-    recordDiagnostic(message.level === "warn" ? "warn" : "info", message.event, {
-      ...(message.details && typeof message.details === "object" ? message.details : {}),
-      frameId: Number.isInteger(_sender.frameId) ? _sender.frameId : null,
-      tabId: Number.isInteger(_sender.tab?.id) ? _sender.tab.id : null,
-    });
-    sendResponse({ ok: true });
+  if (message?.type === "gmailDragStarted") {
+    const attachment = message.attachment;
+    if (
+      typeof message.correlationId === "string" &&
+      typeof attachment?.canonicalUrl === "string" &&
+      typeof attachment?.threadRef === "string" &&
+      Number.isSafeInteger(attachment?.accountIndex)
+    ) {
+      pendingGmailDrag = {
+        attachment,
+        correlationId: message.correlationId,
+        startedAt: Date.now(),
+      };
+    }
+    sendResponse({ ok: Boolean(pendingGmailDrag) });
     return false;
   }
-  if (message?.type === "storePendingGmailDrag") {
-    const pending = message.pending;
-    if (
-      typeof pending?.actionId === "string" && pending.actionId.length > 0 && pending.actionId.length <= 100 &&
-      typeof pending?.canonicalUrl === "string" &&
-      pending.canonicalUrl.startsWith("https://mail.google.com/mail/u/") &&
-      typeof pending?.threadRef === "string" && pending.threadRef.length > 0 && pending.threadRef.length <= 500 &&
-      Number.isSafeInteger(pending?.gmailAccountIndex) && pending.gmailAccountIndex >= 0 &&
-      Number.isFinite(pending?.createdAt) &&
-      Number.isFinite(pending?.armedAt)
-    ) {
-      const record = {
-        actionId: pending.actionId,
-        armedAt: pending.armedAt,
-        canonicalUrl: pending.canonicalUrl,
-        createdAt: pending.createdAt,
-        gmailAccountIndex: pending.gmailAccountIndex,
-        threadContext: pending.threadContext ?? null,
-        threadRef: pending.threadRef,
-      };
-      queueGmailPendingOperation(() => storePendingGmailDrag(chrome.storage.session, record))
-        .then((result) => {
-          if (result.ok) {
-            diagnosticLogger.info("GMAIL_PENDING_DRAG_STORED", {
-              actionId: pending.actionId,
-              gmailAccountIndex: pending.gmailAccountIndex,
-              gmailThreadRef: pending.threadRef,
-            });
-          } else {
-            diagnosticLogger.warn("GMAIL_PENDING_DRAG_STORE_FAILED", { reason: result.reason });
-          }
-          sendResponse(result);
-        });
-    } else {
-      diagnosticLogger.warn("GMAIL_PENDING_DRAG_STORE_FAILED", {
-        reason: "invalid-drag-payload",
-      });
-      sendResponse({ ok: false, reason: "invalid-drag-payload" });
-    }
-    return true;
-  }
   if (message?.type === "getPendingGmailDrag") {
-    diagnosticLogger.info("GMAIL_PENDING_DRAG_GET_REQUEST", {
-      actionId: typeof message.actionId === "string" ? message.actionId : null,
-    });
-    queueGmailPendingOperation(() => getPendingGmailDrag(chrome.storage.session)).then((result) => {
-      if (result.status === "found") {
-        diagnosticLogger.info("GMAIL_PENDING_DRAG_FOUND", {
-          actionId: result.record.actionId,
-          ageMs: result.ageMs,
-          gmailThreadRef: result.record.threadRef,
-        });
-        sendResponse({
-          pending: result.record,
-        });
-      } else {
-        diagnosticLogger.warn("GMAIL_PENDING_DRAG_MISSING", {
-          actionId: result.actionId ?? null,
-          ageMs: result.ageMs ?? null,
-          reason: result.reason,
-        });
-        sendResponse({ pending: null, reason: result.reason });
-      }
-    });
-    return true;
-  }
-  if (message?.type === "consumePendingGmailDrag") {
-    queueGmailPendingOperation(() =>
-      consumePendingGmailDrag(chrome.storage.session, message.actionId)).then((result) => {
-      if (result.status === "consumed") {
-        diagnosticLogger.info("GMAIL_PENDING_DRAG_CONSUMED", { actionId: result.actionId });
-      } else {
-        diagnosticLogger.warn("GMAIL_PENDING_DRAG_MISSING", { reason: result.reason });
-      }
-      sendResponse(result);
-    });
-    return true;
+    if (pendingGmailDrag && Date.now() - pendingGmailDrag.startedAt <= GMAIL_DRAG_TTL_MS) {
+      const response = pendingGmailDrag;
+      pendingGmailDrag = null;
+      sendResponse(response);
+    } else {
+      pendingGmailDrag = null;
+      sendResponse({ attachment: null });
+    }
+    return false;
   }
   if (!isOpenInAuxMessage(message)) return false;
   routeOpenInAuxMessage({ controller, currentWorkArea, message, reportDrawerState })

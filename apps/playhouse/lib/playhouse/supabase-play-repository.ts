@@ -47,10 +47,10 @@ export class SupabasePlayRepository implements PlayRepository {
     private readonly ownerUserId: string,
   ) {}
 
-  async attachGmail({ attachment, playId, playerContactId, playType }: AttachGmailRequest) {
+  async attachGmail({ attachment, playId }: AttachGmailRequest) {
     const { data: existing, error: existingError } = await this.supabase
       .from("plays")
-      .select("basket_id, scheduled_date, source_metadata")
+      .select("source_metadata")
       .eq("id", playId)
       .eq("owner_user_id", this.ownerUserId)
       .eq("status", "open")
@@ -62,30 +62,9 @@ export class SupabasePlayRepository implements PlayRepository {
       ? existing.source_metadata
       : {};
     if (legacyTaskTypeFromMetadata(metadata) === "A") return false;
-    let destinationQuery = this.supabase
-      .from("plays")
-      .select("id, sort_order, source_metadata")
-      .eq("owner_user_id", this.ownerUserId)
-      .eq("status", "open")
-      .eq("play_type", playType);
-    destinationQuery = existing.basket_id
-      ? destinationQuery.eq("basket_id", existing.basket_id)
-      : existing.scheduled_date
-        ? destinationQuery.eq("scheduled_date", existing.scheduled_date)
-        : destinationQuery.is("scheduled_date", null);
-    const { data: destination, error: destinationError } = await destinationQuery
-      .order("sort_order", { ascending: true });
-    if (destinationError) return false;
-    const firstOrder = destination.find((candidate) =>
-      candidate.id !== playId &&
-      (playType === "reminder" || legacyTaskTypeFromMetadata(candidate.source_metadata) !== "A")
-    )?.sort_order;
     const { data, error } = await this.supabase
       .from("plays")
       .update({
-        play_type: playType,
-        player_contact_id: playerContactId,
-        sort_order: (firstOrder ?? 1000) - 1000,
         source_metadata: gmailMetadataWithAttachment(metadata, attachment),
       })
       .eq("id", playId)

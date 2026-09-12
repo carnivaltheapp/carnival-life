@@ -31,11 +31,13 @@ import type {
 } from "../domain/play";
 import type { CalendarSettingsAccount } from "../domain/calendar-settings";
 import {
+  gmailAttachmentFromDragData,
+  gmailCorrelationIdFromDragData,
   gmailMetadataWithAttachment,
+  mayContainGmailDrag,
   parseGmailAttachmentUrl,
   type GmailAttachment,
 } from "../domain/gmail-attachment";
-import { sanitizeGmailThreadContext } from "../domain/gmail-thread-context";
 import type { SelectedView } from "../lib/playhouse/data";
 import {
   displayBranch,
@@ -85,13 +87,6 @@ import {
   PlayStatusActions,
   TrashIcon,
 } from "./play-status-actions";
-
-function reportGmailClientDiagnostic(event: string, details: Record<string, unknown>) {
-  console.info(event, details);
-  window.dispatchEvent(new CustomEvent("carnival:gmail-diagnostic", {
-    detail: JSON.stringify({ details, event }),
-  }));
-}
 
 export type UserIdentity = {
   displayName: string;
@@ -253,6 +248,9 @@ function PlayhouseShellView({
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [bullseyeOpen, setBullseyeOpen] = useState(false);
   const [bullseyeCategory, setBullseyeCategory] = useState<BullseyeCategory>("calendar");
+  const gmailCorrelationIdRef = useRef<string | null>(null);
+  const gmailDropTargetRef = useRef<string | null>(null);
+  const [gmailDropTarget, setGmailDropTarget] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [gridSort, setGridSort] = useState<PlayGridSort | null>(null);
   const [flippingPlayId, setFlippingPlayId] = useState<string | null>(null);
@@ -346,7 +344,7 @@ function PlayhouseShellView({
     attachment: GmailAttachment,
     correlationId: string,
   ) => {
-    if (!eligiblePlayIds.has(playId) || gmailAttachPending) return false;
+    if (!eligiblePlayIds.has(playId) || gmailAttachPending) return;
     const previousOptimisticPlays = optimisticPlays;
     const diagnostic = {
       correlationId,
@@ -356,8 +354,8 @@ function PlayhouseShellView({
       gmailThreadRef: attachment.threadRef,
       playId,
     };
+    console.info("GMAIL_DROP_ON_PLAY", diagnostic);
     console.info("GMAIL_URL_PARSED", diagnostic);
-    reportGmailClientDiagnostic("GMAIL_OPTIMISTIC_ATTACH_STARTED", diagnostic);
     setOptimisticPlays({
       source: plays,
       value: localPlays.map((play) => play.id === playId
@@ -369,98 +367,57 @@ function PlayhouseShellView({
           }
         : play),
     });
+    gmailDropTargetRef.current = null;
+    gmailCorrelationIdRef.current = null;
+    setGmailDropTarget(null);
     startGmailAttach(async () => {
       try {
         const result = await attachGmailToPlay({
           correlationId,
           playId,
-          threadContext: attachment.threadContext,
           url: attachment.canonicalUrl,
         });
         if (result.status === "success") {
-          setOptimisticPlays({
-            source: plays,
-            value: localPlays.map((play) => play.id === playId
-              ? {
-                  ...play,
-                  playType: result.values?.playType === "reminder" ? "reminder" : "normal",
-                  playerContactId: result.values?.playerContactId ?? play.playerContactId,
-                  playerDisplayName: result.values?.playerDisplayName ?? play.playerDisplayName,
-                }
-              : play),
-          });
           setMoveError(null);
           return;
         }
-        reportGmailClientDiagnostic("GMAIL_OPTIMISTIC_ATTACH_ROLLBACK", {
-          ...diagnostic,
-          reason: result.message,
-        });
         setOptimisticPlays(previousOptimisticPlays);
         setMoveError(result.message);
       } catch {
-        reportGmailClientDiagnostic("GMAIL_OPTIMISTIC_ATTACH_ROLLBACK", {
-          ...diagnostic,
-          reason: "server-action-threw",
-        });
         setOptimisticPlays(previousOptimisticPlays);
         setMoveError("Gmail could not be attached to this Play.");
       }
     });
-    return true;
   }, [eligiblePlayIds, gmailAttachPending, localPlays, optimisticPlays, plays]);
 
   useEffect(() => {
-    function respondToHandoff(actionId: string | null, accepted: boolean, reason?: string) {
-      window.dispatchEvent(new CustomEvent("carnival:gmail-drop-handoff", {
-        detail: JSON.stringify({ accepted, actionId, reason }),
-      }));
-    }
-    function acceptExtensionDrop(event: Event) {
+    function acceptExtensionFallback(event: Event) {
       if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
       try {
         const detail = JSON.parse(event.detail) as {
-          actionId?: unknown;
+          correlationId?: unknown;
           playId?: unknown;
-          threadContext?: unknown;
           url?: unknown;
         };
-        const actionId = typeof detail.actionId === "string" ? detail.actionId : null;
         if (
-          !actionId ||
           typeof detail.playId !== "string" ||
           typeof detail.url !== "string"
-        ) {
-          respondToHandoff(actionId, false, "invalid-extension-payload");
-          return;
-        }
-        const parsedAttachment = parseGmailAttachmentUrl(detail.url);
-        const attachment = parsedAttachment
-          ? { ...parsedAttachment, threadContext: sanitizeGmailThreadContext(detail.threadContext) ?? undefined }
-          : null;
-        if (!attachment) {
-          respondToHandoff(actionId, false, "invalid-gmail-attachment");
-          return;
-        }
-        reportGmailClientDiagnostic("GMAIL_ROW_DROP_HANDLER", {
-          correlationId: actionId,
-          playId: detail.playId,
-          source: "extension-session-drag",
-        });
-        const accepted = persistGmailAttachment(
+        ) return;
+        const attachment = parseGmailAttachmentUrl(detail.url);
+        if (!attachment) return;
+        persistGmailAttachment(
           detail.playId,
           attachment,
-          actionId,
+          typeof detail.correlationId === "string" ? detail.correlationId : crypto.randomUUID(),
         );
-        respondToHandoff(actionId, accepted, accepted ? undefined : "application-busy-or-ineligible");
       } catch {
-        respondToHandoff(null, false, "malformed-extension-event");
+        // Ignore malformed cross-context extension events.
       }
     }
-    window.addEventListener("carnival:gmail-drop", acceptExtensionDrop);
+    window.addEventListener("carnival:gmail-drop-fallback", acceptExtensionFallback);
     return () => window.removeEventListener(
-      "carnival:gmail-drop",
-      acceptExtensionDrop,
+      "carnival:gmail-drop-fallback",
+      acceptExtensionFallback,
     );
   }, [persistGmailAttachment]);
 
@@ -1287,6 +1244,7 @@ function PlayhouseShellView({
                   className={`playRow ${playVisual.className}`}
                   data-dragging={draggedIds.includes(play.id) || undefined}
                   data-drop-target={dropTarget === `play:${play.id}` || undefined}
+                  data-gmail-drop-target={gmailDropTarget === play.id || undefined}
                   data-selected={selectedIds.has(play.id) || undefined}
                   data-testid="play-row"
                   data-play-row-id={play.id}
@@ -1306,6 +1264,17 @@ function PlayhouseShellView({
                   }}
                   onDragEnd={clearDragState}
                   onDrag={(event) => updateDragPreview(event.clientX, event.clientY)}
+                  onDragLeave={(event) => {
+                    if (
+                      gmailDropTargetRef.current === play.id &&
+                      (!(event.relatedTarget instanceof Node) ||
+                        !event.currentTarget.contains(event.relatedTarget))
+                    ) {
+                      gmailDropTargetRef.current = null;
+                      gmailCorrelationIdRef.current = null;
+                      setGmailDropTarget(null);
+                    }
+                  }}
                   onDragStart={(event) => beginDrag(play.id, event)}
                   onPointerDownCapture={rememberDragOrigin}
                   style={{
@@ -1313,6 +1282,25 @@ function PlayhouseShellView({
                     "--play-rank-foreground": playVisual.foregroundColor,
                   } as CSSProperties}
                   onDragOver={(event) => {
+                    if (
+                      !draggedIds.length &&
+                      !isPlaceContext &&
+                      eligiblePlayIds.has(play.id) &&
+                      mayContainGmailDrag(event.dataTransfer)
+                    ) {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "link";
+                      if (gmailDropTargetRef.current !== play.id) {
+                        const correlationId = gmailCorrelationIdFromDragData(event.dataTransfer);
+                        gmailCorrelationIdRef.current = correlationId;
+                        gmailDropTargetRef.current = play.id;
+                        setGmailDropTarget(play.id);
+                        if (correlationId) {
+                          console.info("GMAIL_DRAG_ENTER_PH", { correlationId, playId: play.id });
+                        }
+                      }
+                      return;
+                    }
                     if (
                       isPlaceContext ||
                       !reorderPlacement ||
@@ -1326,7 +1314,27 @@ function PlayhouseShellView({
                     setDropTarget(`play:${play.id}`);
                   }}
                   onDrop={(event) => {
-                    if (!draggedIds.length) return;
+                    if (!draggedIds.length && eligiblePlayIds.has(play.id)) {
+                      const attachment = gmailAttachmentFromDragData(event.dataTransfer);
+                      if (attachment) {
+                        event.preventDefault();
+                        const correlationId = gmailCorrelationIdFromDragData(event.dataTransfer) ??
+                          gmailCorrelationIdRef.current ??
+                          crypto.randomUUID();
+                        if (!gmailCorrelationIdRef.current) {
+                          console.info("GMAIL_DRAG_ENTER_PH", { correlationId, playId: play.id });
+                        }
+                        persistGmailAttachment(
+                          play.id,
+                          attachment,
+                          correlationId,
+                        );
+                        return;
+                      }
+                    }
+                    gmailDropTargetRef.current = null;
+                    gmailCorrelationIdRef.current = null;
+                    setGmailDropTarget(null);
                     if (isPlaceContext || !reorderPlacement || draggedIds.includes(play.id)) return;
                     event.preventDefault();
                     persistMove(reorderPlacement, play.id);

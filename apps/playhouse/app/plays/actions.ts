@@ -16,16 +16,9 @@ import type { BasketSummary } from "../../domain/play";
 import type { PlayPlacement } from "../../domain/play";
 import { isBulkSelectablePlay, type BulkPlayChange } from "../../domain/play-bulk-change";
 import { parseGmailAttachmentUrl } from "../../domain/gmail-attachment";
-import {
-  gmailPlayTypeForDirection,
-  resolveGmailCounterparty,
-  sanitizeGmailThreadContext,
-} from "../../domain/gmail-thread-context";
 import { reminderContextDate } from "../../domain/reminder";
 import { applyPlayLifecycle } from "../../lib/google/gmail-lifecycle";
 import { unstarGmailPlayThread } from "../../lib/google/gmail-lifecycle.server";
-import { upsertSelectedContactReference } from "../../lib/google/contact-reference";
-import { searchPeopleForAccount } from "../../lib/google/people.server";
 import { resolvePlayhouseDataSource } from "../../lib/playhouse/data-source";
 import { dateInTimeZone } from "../../lib/playhouse/data";
 import { createPlayRepository } from "../../lib/playhouse/play-repository";
@@ -339,7 +332,6 @@ export async function repositionPlays(request: {
 export async function attachGmailToPlay(request: {
   correlationId: string;
   playId: string;
-  threadContext?: unknown;
   url: string;
 }): Promise<PlayMutationState> {
   const attachment = parseGmailAttachmentUrl(request.url);
@@ -372,101 +364,22 @@ export async function attachGmailToPlay(request: {
       console.warn("GMAIL_ATTACHMENT_SAVE_FAILED", diagnostic);
       return errorState("That Play could not be identified. Refresh and try again.");
     }
-    const context = sanitizeGmailThreadContext(request.threadContext);
-    const { data: accounts, error: accountError } = await auth.supabase
-      .from("google_accounts")
-      .select("id, email, connection_status")
-      .eq("owner_user_id", auth.userId)
-      .eq("connection_status", "connected")
-      .order("updated_at", { ascending: false });
-    const resolved = context && !accountError
-      ? resolveGmailCounterparty(context, (accounts ?? []).flatMap((account) => account.email ? [account.email] : []))
-      : null;
-    if (!resolved || !accounts?.length) {
-      console.warn("GMAIL_DROP_UPDATE_FAILED", { ...diagnostic, stage: "counterparty" });
-      return errorState("Gmail participants could not be resolved. The Play was not changed.");
-    }
-    console.info("GMAIL_DROP_THREAD_RESOLVED", diagnostic);
-    console.info("GMAIL_LAST_MESSAGE_DIRECTION", { ...diagnostic, direction: resolved.direction });
-    const counterpartyDiagnostic = {
-      counterpartyEmail: resolved.counterparty.email,
-      counterpartyName: resolved.counterparty.name,
-    };
-    console.info("GMAIL_COUNTERPARTY_RESOLVED", { ...diagnostic, ...counterpartyDiagnostic });
-    const contactResult = await auth.supabase
-      .from("contact_references")
-      .select("id, display_name, provider_resource_name")
-      .eq("owner_user_id", auth.userId)
-      .eq("is_self", false)
-      .ilike("email", resolved.counterparty.email)
-      .limit(1)
-      .maybeSingle();
-    let contact = contactResult.error ? null : contactResult.data;
-    if (!contact) {
-      const participantEmails = new Set([
-        context!.from.email,
-        ...context!.to.map(({ email }) => email),
-      ].map((email) => email.toLocaleLowerCase()));
-      const account = accounts.find((candidate) =>
-        candidate.email && participantEmails.has(candidate.email.toLocaleLowerCase())) ?? accounts[0];
-      const people = await searchPeopleForAccount({
-        googleAccountId: account.id,
-        ownerUserId: auth.userId,
-        query: resolved.counterparty.email,
-      });
-      const person = people.find((candidate) =>
-        candidate.email?.toLocaleLowerCase() === resolved.counterparty.email.toLocaleLowerCase());
-      if (!person) {
-        console.warn("GMAIL_DROP_UPDATE_FAILED", { ...diagnostic, stage: "contact" });
-        return errorState("That Gmail participant is not available in Google Contacts. The Play was not changed.");
-      }
-      contact = await upsertSelectedContactReference({
-        contact: person,
-        googleAccountId: account.id,
-        ownerUserId: auth.userId,
-        persist: async (values) => {
-          const { data, error } = await auth.supabase.from("contact_references")
-            .upsert(values, { onConflict: "google_account_id,provider_resource_name" })
-            .select("id, display_name, provider_resource_name")
-            .single();
-          if (error || !data) throw new Error("Contact reference could not be saved.");
-          return data;
-        },
-      });
-      console.info("GMAIL_ASSIGNEE_CREATED", { ...diagnostic, ...counterpartyDiagnostic });
-    } else {
-      console.info("GMAIL_ASSIGNEE_MATCHED", { ...diagnostic, ...counterpartyDiagnostic });
-    }
-    if (!contact.provider_resource_name) {
-      return errorState("That Gmail participant is not linked to Google Contacts. The Play was not changed.");
-    }
-    const playType = gmailPlayTypeForDirection(resolved.direction);
     const repository = await createPlayRepository({
       baskets: [],
       ownerUserId: auth.userId,
       source,
       supabase: auth.supabase,
     });
-    const saved = await repository.attachGmail({
-      attachment: { ...attachment, threadContext: context ?? undefined },
-      playId: request.playId,
-      playerContactId: contact.id,
-      playerResourceName: contact.provider_resource_name,
-      playType,
-    });
+    const saved = await repository.attachGmail({ attachment, playId: request.playId });
     if (!saved) {
-      console.warn("GMAIL_DROP_UPDATE_FAILED", { ...diagnostic, stage: "persistence" });
+      console.warn("GMAIL_ATTACHMENT_SAVE_FAILED", diagnostic);
       return errorState("Gmail could not be attached to this Play.");
     }
     revalidatePath("/");
-    console.info("GMAIL_DROP_UPDATE_COMPLETE", { ...diagnostic, direction: resolved.direction });
-    return {
-      message: "Gmail attached.",
-      status: "success",
-      values: { playType, playerContactId: contact.id, playerDisplayName: contact.display_name },
-    };
+    console.info("GMAIL_ATTACHMENT_SAVE_COMPLETE", diagnostic);
+    return { message: "Gmail attached.", status: "success" };
   } catch {
-    console.warn("GMAIL_DROP_UPDATE_FAILED", diagnostic);
+    console.warn("GMAIL_ATTACHMENT_SAVE_FAILED", diagnostic);
     return errorState("Gmail could not be attached to this Play.");
   }
 }
