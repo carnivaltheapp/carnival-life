@@ -1,6 +1,19 @@
 const CARNIVAL_GMAIL_DRAG_TYPE = "application/x-carnival-gmail";
 const GMAIL_DRAG_STARTED = "gmailDragStarted";
 const GET_PENDING_GMAIL_DRAG = "getPendingGmailDrag";
+const RECORD_GMAIL_TRACE = "recordGmailTrace";
+
+function persistGmailTrace(event, payload) {
+  const gmailParticipants = payload?.gmailParticipants ?? null;
+  const details = {
+    correlationId: payload?.correlationId ?? null,
+    gmailParticipants,
+    toCount: gmailParticipants?.to?.length ?? 0,
+    url: payload?.url ?? null,
+  };
+  console.info(event, details);
+  chrome.runtime.sendMessage({ details, event, type: RECORD_GMAIL_TRACE }).catch(() => {});
+}
 
 function parseGmailUrl(value) {
   try {
@@ -94,11 +107,7 @@ if (window.location.hostname === "mail.google.com") {
       gmailParticipants,
       url: attachment.canonicalUrl,
     };
-    console.info("GMAIL_SOURCE_STRUCTURED_PAYLOAD", {
-      correlationId: payload.correlationId,
-      gmailParticipants: payload.gmailParticipants ?? null,
-      url: payload.url,
-    });
+    persistGmailTrace("GMAIL_SOURCE_STRUCTURED_PAYLOAD", payload);
     try {
       event.dataTransfer.setData(CARNIVAL_GMAIL_DRAG_TYPE, JSON.stringify(payload));
     } catch {}
@@ -142,7 +151,7 @@ if (window.location.hostname === "mail.google.com") {
       const url = transferredAttachment?.canonicalUrl ?? response?.attachment?.canonicalUrl;
       if (!url) return;
       const correlationId = response?.correlationId ?? crypto.randomUUID();
-      console.info("GMAIL_MERGED_ATTACHMENT_PAYLOAD", {
+      persistGmailTrace("GMAIL_MERGED_ATTACHMENT_PAYLOAD", {
         correlationId,
         gmailParticipants: response?.attachment?.gmailParticipants ?? null,
         url,
@@ -158,7 +167,7 @@ if (window.location.hostname === "mail.google.com") {
       }));
     };
     chrome.runtime.sendMessage({ type: GET_PENDING_GMAIL_DRAG }).then((response) => {
-      console.info("GMAIL_PENDING_PAYLOAD_RETURNED", {
+      persistGmailTrace("GMAIL_PENDING_PAYLOAD_RETURNED", {
         correlationId: response?.correlationId ?? null,
         gmailParticipants: response?.attachment?.gmailParticipants ?? null,
         url: response?.attachment?.canonicalUrl ?? null,

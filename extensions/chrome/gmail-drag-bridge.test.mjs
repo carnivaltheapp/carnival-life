@@ -89,9 +89,13 @@ test("Gmail dragstart adds canonical standard and Carnival payloads", async () =
       to: [{ email: "kayla@example.com", name: "Kayla" }],
     },
   );
-  assert.equal(messages[0].type, "gmailDragStarted");
-  assert.equal(messages[0].attachment.threadRef, "FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC");
-  assert.equal(messages[0].attachment.gmailParticipants.to[0].email, "kayla@example.com");
+  const sourceTrace = messages.find(({ type }) => type === "recordGmailTrace");
+  assert.equal(sourceTrace.event, "GMAIL_SOURCE_STRUCTURED_PAYLOAD");
+  assert.equal(sourceTrace.details.toCount, 1);
+  assert.equal(sourceTrace.details.gmailParticipants.from.email, "me@example.com");
+  const dragMessage = messages.find(({ type }) => type === "gmailDragStarted");
+  assert.equal(dragMessage.attachment.threadRef, "FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC");
+  assert.equal(dragMessage.attachment.gmailParticipants.to[0].email, "kayla@example.com");
 });
 
 test("PlayHouse resolves a stripped cross-window payload from short-lived extension memory", async () => {
@@ -157,6 +161,7 @@ test("PlayHouse enriches a URL-only cross-window drop with pending participants"
   let dispatched;
   let prevented = false;
   let stopped = false;
+  const messages = [];
   class TestElement {
     closest() { return { getAttribute: () => "play-2" }; }
   }
@@ -169,18 +174,21 @@ test("PlayHouse enriches a URL-only cross-window drop with pending participants"
     URL,
     chrome: {
       runtime: {
-        sendMessage: async () => ({
-          attachment: {
-            accountIndex: 0,
-            canonicalUrl: "https://mail.google.com/mail/u/0/#all/FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC",
-            gmailParticipants: {
-              from: { email: "kayla@example.com", name: "Kayla" },
-              to: [{ email: "me@example.com", name: "Me" }],
+        sendMessage: async (message) => {
+          messages.push(message);
+          return message.type === "getPendingGmailDrag" ? {
+            attachment: {
+              accountIndex: 0,
+              canonicalUrl: "https://mail.google.com/mail/u/0/#all/FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC",
+              gmailParticipants: {
+                from: { email: "kayla@example.com", name: "Kayla" },
+                to: [{ email: "me@example.com", name: "Me" }],
+              },
+              threadRef: "FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC",
             },
-            threadRef: "FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC",
-          },
-          correlationId: "correlation-enriched",
-        }),
+            correlationId: "correlation-enriched",
+          } : { ok: true };
+        },
       },
     },
     console: { info() {} },
@@ -206,6 +214,15 @@ test("PlayHouse enriches a URL-only cross-window drop with pending participants"
 
   assert.equal(prevented, true);
   assert.equal(stopped, true);
+  assert.deepEqual(
+    messages.filter(({ type }) => type === "recordGmailTrace").map(({ event }) => event),
+    ["GMAIL_PENDING_PAYLOAD_RETURNED", "GMAIL_MERGED_ATTACHMENT_PAYLOAD"],
+  );
+  assert.equal(
+    messages.find(({ event }) => event === "GMAIL_MERGED_ATTACHMENT_PAYLOAD")
+      .details.gmailParticipants.from.email,
+    "kayla@example.com",
+  );
   assert.deepEqual(JSON.parse(dispatched.detail), {
     correlationId: "correlation-enriched",
     gmailParticipants: {

@@ -10,6 +10,11 @@ const GMAIL_DRAG_TTL_MS = 10_000;
 const TAB_SAVE_DELAY_MS = 300;
 const DIAGNOSTIC_STORAGE_KEY = "carnivalWorkspaceDiagnostics";
 const DIAGNOSTIC_LIMIT = 500;
+const GMAIL_TRACE_EVENTS = new Set([
+  "GMAIL_MERGED_ATTACHMENT_PAYLOAD",
+  "GMAIL_PENDING_PAYLOAD_RETURNED",
+  "GMAIL_SOURCE_STRUCTURED_PAYLOAD",
+]);
 let nativePort = null;
 let nativeAnimationAvailable = false;
 let nativeAnimationRequestId = 0;
@@ -270,6 +275,15 @@ chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
 chrome.tabs.onActivated.addListener(({ windowId }) => scheduleTabSave(windowId, "tab-activated"));
 chrome.tabs.onMoved.addListener((_tabId, moveInfo) => scheduleTabSave(moveInfo.windowId, "tab-moved"));
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "recordGmailTrace") {
+    if (GMAIL_TRACE_EVENTS.has(message.event) && message.details?.correlationId !== undefined) {
+      recordDiagnostic("info", message.event, message.details);
+      sendResponse({ ok: true });
+    } else {
+      sendResponse({ ok: false });
+    }
+    return false;
+  }
   if (message?.type === "gmailDragStarted") {
     const attachment = message.attachment;
     if (
