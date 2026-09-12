@@ -31,6 +31,7 @@ import type {
 } from "../domain/play";
 import type { CalendarSettingsAccount } from "../domain/calendar-settings";
 import {
+  CARNIVAL_GMAIL_DRAG_TYPE,
   gmailAttachmentFromDragData,
   gmailCorrelationIdFromDragData,
   gmailMetadataWithAttachment,
@@ -109,6 +110,43 @@ type PlayhouseShellProps = {
 };
 
 type BullseyeCategory = "calendar" | "baskets" | "rank" | "push";
+
+function inspectGmailDropDataTransfer(
+  event: DragEvent<HTMLElement>,
+  playId: string,
+) {
+  const types = Array.from(event.dataTransfer.types);
+  const textValues = Object.fromEntries(
+    ["text/uri-list", "text/plain", CARNIVAL_GMAIL_DRAG_TYPE]
+      .filter((type) => types.includes(type))
+      .map((type) => {
+        try {
+          return [type, event.dataTransfer.getData(type)];
+        } catch {
+          return [type, "<unavailable>"];
+        }
+      }),
+  );
+  console.info("GMAIL_DROP_DATATRANSFER_INSPECT", {
+    eventType: event.type,
+    playId,
+    types,
+    effectAllowed: event.dataTransfer.effectAllowed,
+    dropEffect: event.dataTransfer.dropEffect,
+    textValues,
+  });
+}
+
+function inspectParsedGmailAttachment(attachment: GmailAttachment | null) {
+  console.info("GMAIL_DROP_PARSED_ATTACHMENT", {
+    canonicalUrl: attachment?.canonicalUrl,
+    gmailHost: attachment ? "mail.google.com" : undefined,
+    gmailAccountIndex: attachment?.accountIndex,
+    gmailThreadRef: attachment?.threadRef,
+    hasGmailParticipants: Boolean(attachment?.gmailParticipants),
+    gmailParticipants: attachment?.gmailParticipants,
+  });
+}
 
 function selectedViewIdentity(selectedView: SelectedView) {
   return selectedView.kind === "basket"
@@ -373,12 +411,14 @@ function PlayhouseShellView({
     setGmailDropTarget(null);
     startGmailAttach(async () => {
       try {
-        const result = await attachGmailToPlay({
+        const request = {
           correlationId,
           gmailParticipants: attachment.gmailParticipants,
           playId,
           url: attachment.canonicalUrl,
-        });
+        };
+        console.info("GMAIL_ATTACH_ACTION_INPUT", request);
+        const result = await attachGmailToPlay(request);
         if (result.status === "success") {
           if (result.values?.playerContactId && result.values.playerDisplayName) {
             setOptimisticPlays((current) => ({
@@ -421,6 +461,7 @@ function PlayhouseShellView({
           typeof detail.url !== "string"
         ) return;
         const parsedAttachment = parseGmailAttachmentUrl(detail.url);
+        inspectParsedGmailAttachment(parsedAttachment);
         const gmailParticipants = sanitizeGmailParticipants(detail.gmailParticipants);
         const attachment = parsedAttachment && gmailParticipants
           ? { ...parsedAttachment, gmailParticipants }
@@ -1309,6 +1350,7 @@ function PlayhouseShellView({
                       eligiblePlayIds.has(play.id) &&
                       mayContainGmailDrag(event.dataTransfer)
                     ) {
+                      inspectGmailDropDataTransfer(event, play.id);
                       event.preventDefault();
                       event.dataTransfer.dropEffect = "link";
                       if (gmailDropTargetRef.current !== play.id) {
@@ -1336,7 +1378,9 @@ function PlayhouseShellView({
                   }}
                   onDrop={(event) => {
                     if (!draggedIds.length && eligiblePlayIds.has(play.id)) {
+                      inspectGmailDropDataTransfer(event, play.id);
                       const attachment = gmailAttachmentFromDragData(event.dataTransfer);
+                      inspectParsedGmailAttachment(attachment);
                       if (attachment) {
                         event.preventDefault();
                         const correlationId = gmailCorrelationIdFromDragData(event.dataTransfer) ??

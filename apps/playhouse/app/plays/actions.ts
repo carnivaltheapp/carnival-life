@@ -343,6 +343,17 @@ export async function attachGmailToPlay(request: {
   playId: string;
   url: string;
 }): Promise<PlayMutationState> {
+  const rawParticipants = request.gmailParticipants &&
+      typeof request.gmailParticipants === "object" &&
+      !Array.isArray(request.gmailParticipants)
+    ? request.gmailParticipants as Record<string, unknown>
+    : null;
+  console.info("GMAIL_ATTACH_SERVER_INPUT", {
+    ...request,
+    fromExists: Boolean(rawParticipants?.from),
+    toCount: Array.isArray(rawParticipants?.to) ? rawParticipants.to.length : 0,
+  });
+  const gmailParticipants = sanitizeGmailParticipants(request.gmailParticipants);
   const attachment = parseGmailAttachmentUrl(request.url);
   const diagnostic = {
     correlationId: request.correlationId.slice(0, 100),
@@ -388,7 +399,6 @@ export async function attachGmailToPlay(request: {
     console.info("GMAIL_ATTACHMENT_SAVE_COMPLETE", diagnostic);
     console.info("GMAIL_ASSIGNEE_RESOLUTION_STARTED", diagnostic);
     try {
-      const gmailParticipants = sanitizeGmailParticipants(request.gmailParticipants);
       if (!gmailParticipants) {
         console.warn("GMAIL_ASSIGNEE_UPDATE_FAILED", {
           ...diagnostic,
