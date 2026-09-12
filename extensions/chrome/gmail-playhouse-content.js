@@ -160,6 +160,7 @@ document.addEventListener("drop", (event) => {
       }, "warn");
       return;
     }
+    reportDiagnostic("GMAIL_PENDING_DRAG_USED", { actionId: pending.actionId, playId });
     reportDiagnostic("GMAIL_DROP_ON_PLAY", { actionId: pending.actionId, playId });
     window.dispatchEvent(new CustomEvent("carnival:gmail-drop", {
       detail: JSON.stringify({

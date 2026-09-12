@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Carnival Desktop Workspace",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Coordinates the PlayHouse and Carnival context Chrome windows.",
   "permissions": [
     "alarms",

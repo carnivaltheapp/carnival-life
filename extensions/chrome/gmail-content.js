@@ -1,10 +1,11 @@
 const CARNIVAL_GMAIL_DRAG_TYPE = "application/x-carnival-gmail";
 const STORE_PENDING_GMAIL_DRAG = "storePendingGmailDrag";
 const RECORD_GMAIL_DIAGNOSTIC = "recordGmailDiagnostic";
-const GMAIL_BRIDGE_VERSION = "P3-GMAIL-BRIDGE-FINAL-43";
+const GMAIL_BRIDGE_VERSION = "P3-GMAIL-ARMED-DRAG-44";
+const DRAG_THRESHOLD_PX = 6;
 
 let extensionContextStale = false;
-let preparedDrag = null;
+let dragGesture = null;
 
 function extensionContextInvalidated(error) {
   return String(error?.message ?? error).toLowerCase().includes("extension context invalidated");
@@ -136,23 +137,39 @@ function gmailThreadRowContext(row) {
 }
 
 function gmailThreadRefFromRow(row) {
+  for (const anchor of row.querySelectorAll("a[href]")) {
+    const href = anchor.getAttribute("href");
+    const attachment = href ? parseGmailUrl(href) : null;
+    if (attachment) return attachment.threadRef;
+  }
   const legacyThreadId = row.getAttribute("data-legacy-thread-id")?.trim();
   if (legacyThreadId) return legacyThreadId;
   const threadId = row.getAttribute("data-thread-id")?.trim();
   if (threadId && !threadId.startsWith("#thread-") && /^[A-Za-z0-9_-]+$/.test(threadId)) {
     return threadId;
   }
-  for (const anchor of row.querySelectorAll("a[href]")) {
-    const href = anchor.getAttribute("href");
-    const attachment = href ? parseGmailUrl(href) : null;
-    if (attachment) return attachment.threadRef;
+  return null;
+}
+
+function gmailThreadRowFromEvent(event) {
+  const openThread = parseGmailUrl(window.location.href);
+  const selector = openThread
+    ? "tr.zA, [data-legacy-thread-id]"
+    : "tr.zA, [data-legacy-thread-id], [data-thread-id]";
+  const path = typeof event.composedPath === "function" ? event.composedPath() : [event.target];
+  for (const node of path) {
+    if (!(node instanceof Element)) continue;
+    if (node.matches?.(selector)) return node;
+    const row = node.closest?.(selector);
+    if (row) return row;
   }
   return null;
 }
 
-function resolveGmailDrag(target) {
+function resolveGmailDrag(event) {
+  const target = event.target;
   if (!(target instanceof Element)) return { reason: "unsupported-gmail-element" };
-  const row = target.closest("tr.zA, tr[data-legacy-thread-id], tr[data-thread-id]");
+  const row = gmailThreadRowFromEvent(event);
   if (row) {
     const accountIndex = gmailAccountIndex();
     const threadRef = gmailThreadRefFromRow(row);
@@ -175,11 +192,48 @@ function resolveGmailDrag(target) {
   };
 }
 
-function clearPreparedDrag() {
-  if (!preparedDrag) return;
-  if (preparedDrag.previousDraggable === null) preparedDrag.dragTarget.removeAttribute("draggable");
-  else preparedDrag.dragTarget.setAttribute("draggable", preparedDrag.previousDraggable);
-  preparedDrag = null;
+function clearDragGesture(reason = null) {
+  if (!dragGesture) return;
+  if (reason && dragGesture.state === "candidate") {
+    reportDiagnostic("GMAIL_DRAG_CANDIDATE_CANCELLED", {
+      actionId: dragGesture.actionId,
+      reason,
+    });
+  }
+  if (dragGesture.previousDraggable === null) dragGesture.dragTarget.removeAttribute("draggable");
+  else dragGesture.dragTarget.setAttribute("draggable", dragGesture.previousDraggable);
+  dragGesture = null;
+}
+
+function armDragGesture(trigger) {
+  if (!dragGesture || dragGesture.state !== "candidate") return dragGesture?.storePromise ?? null;
+  const armedAt = Date.now();
+  const record = {
+    ...dragGesture.pending,
+    actionId: dragGesture.actionId,
+    armedAt,
+    createdAt: dragGesture.createdAt,
+  };
+  dragGesture.state = "armed";
+  dragGesture.record = record;
+  reportDiagnostic("GMAIL_DRAG_ARMED", {
+    actionId: record.actionId,
+    gmailThreadRef: record.threadRef,
+    trigger,
+  });
+  dragGesture.storePromise = sendRuntimeMessage(
+    { pending: record, type: STORE_PENDING_GMAIL_DRAG },
+    "store-pending-drag",
+  ).then((result) => {
+    if (!result?.ok && !extensionContextStale) {
+      reportDiagnostic("GMAIL_PENDING_DRAG_STORE_FAILED", {
+        actionId: record.actionId,
+        reason: result?.reason ?? "background-unavailable",
+      }, "warn");
+    }
+    return result;
+  });
+  return dragGesture.storePromise;
 }
 
 function prepareDrag(event) {
@@ -188,19 +242,25 @@ function prepareDrag(event) {
     gmailHash: window.location.hash,
     gmailPathname: window.location.pathname,
   });
-  clearPreparedDrag();
-  const resolved = resolveGmailDrag(event.target);
+  clearDragGesture("superseded-by-new-pointerdown");
+  const resolved = resolveGmailDrag(event);
   if (!resolved.pending) {
     reportDiagnostic("GMAIL_DRAG_CONTEXT_FAILED", { reason: resolved.reason }, "warn");
     return;
   }
   const actionId = crypto.randomUUID();
-  preparedDrag = {
+  dragGesture = {
     actionId,
+    createdAt: Date.now(),
     dragTarget: resolved.dragTarget,
     pending: resolved.pending,
+    pointerId: event.pointerId,
     previousDraggable: resolved.dragTarget.getAttribute("draggable"),
     source: resolved.source,
+    startX: event.clientX,
+    startY: event.clientY,
+    state: "candidate",
+    storePromise: null,
   };
   resolved.dragTarget.setAttribute("draggable", "true");
   const details = {
@@ -222,21 +282,21 @@ function prepareDrag(event) {
 }
 
 function startDrag(event) {
-  reportDiagnostic("GMAIL_NATIVE_DRAGSTART", { actionId: preparedDrag?.actionId ?? null });
+  reportDiagnostic("GMAIL_NATIVE_DRAGSTART", { actionId: dragGesture?.actionId ?? null });
+  if (!dragGesture) {
+    reportDiagnostic("GMAIL_DRAG_CONTEXT_FAILED", { reason: "dragstart-without-candidate" }, "warn");
+    return;
+  }
+  armDragGesture("native-dragstart");
   if (!event.dataTransfer) {
-    reportDiagnostic("GMAIL_DRAG_CONTEXT_FAILED", { reason: "native-data-transfer-unavailable" }, "warn");
+    reportDiagnostic("GMAIL_DRAG_PAYLOAD_UNAVAILABLE", {
+      actionId: dragGesture.actionId,
+      reason: "native-data-transfer-unavailable",
+    });
     return;
   }
-  const resolved = preparedDrag ? null : resolveGmailDrag(event.target);
-  const pending = preparedDrag?.pending ?? resolved?.pending;
-  const actionId = preparedDrag?.actionId ?? crypto.randomUUID();
-  if (!pending) {
-    reportDiagnostic("GMAIL_DRAG_CONTEXT_FAILED", {
-      reason: resolved?.reason ?? "gmail-drag-target-unavailable",
-    }, "warn");
-    return;
-  }
-  const record = { ...pending, actionId, createdAt: Date.now() };
+  const record = dragGesture.record;
+  const actionId = dragGesture.actionId;
   const transferPayload = JSON.stringify({
     actionId,
     threadContext: record.threadContext,
@@ -254,7 +314,24 @@ function startDrag(event) {
     actionId,
     types: Array.from(event.dataTransfer.types),
   });
-  sendRuntimeMessage({ pending: record, type: STORE_PENDING_GMAIL_DRAG }, "store-pending-drag");
+}
+
+function trackDragGesture(event) {
+  if (!dragGesture || dragGesture.state !== "candidate") return;
+  if (event.pointerId !== undefined && dragGesture.pointerId !== undefined &&
+    event.pointerId !== dragGesture.pointerId) return;
+  const distance = Math.hypot(
+    event.clientX - dragGesture.startX,
+    event.clientY - dragGesture.startY,
+  );
+  if (distance >= DRAG_THRESHOLD_PX) armDragGesture("pointer-threshold");
+}
+
+function finishPointerGesture(event, reason) {
+  if (!dragGesture) return;
+  if (event.pointerId !== undefined && dragGesture.pointerId !== undefined &&
+    event.pointerId !== dragGesture.pointerId) return;
+  clearDragGesture(reason);
 }
 
 function reportContentScriptLoaded(reason) {
@@ -270,10 +347,12 @@ reportContentScriptLoaded("document-load");
 window.addEventListener("hashchange", () => reportContentScriptLoaded("hashchange"));
 window.addEventListener("popstate", () => reportContentScriptLoaded("popstate"));
 document.addEventListener("pointerdown", prepareDrag, true);
+document.addEventListener("pointermove", trackDragGesture, true);
 document.addEventListener("dragstart", startDrag, true);
-document.addEventListener("dragend", clearPreparedDrag, true);
-document.addEventListener("pointercancel", clearPreparedDrag, true);
-document.addEventListener("pointerup", clearPreparedDrag, true);
+document.addEventListener("dragend", () => clearDragGesture(), true);
+document.addEventListener("pointercancel", (event) => finishPointerGesture(event, "pointercancel"), true);
+document.addEventListener("pointerup", (event) =>
+  finishPointerGesture(event, "pointerup-before-threshold"), true);
 
 try {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

@@ -78,6 +78,7 @@ function playhouseEnvironment(pendingRecords) {
 function pending(actionId) {
   return {
     actionId,
+    armedAt: 1_010,
     canonicalUrl: `https://mail.google.com/mail/u/0/#all/${actionId}`,
     createdAt: 1_000,
     gmailAccountIndex: 0,

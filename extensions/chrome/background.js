@@ -317,10 +317,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       pending.canonicalUrl.startsWith("https://mail.google.com/mail/u/") &&
       typeof pending?.threadRef === "string" && pending.threadRef.length > 0 && pending.threadRef.length <= 500 &&
       Number.isSafeInteger(pending?.gmailAccountIndex) && pending.gmailAccountIndex >= 0 &&
-      Number.isFinite(pending?.createdAt)
+      Number.isFinite(pending?.createdAt) &&
+      Number.isFinite(pending?.armedAt)
     ) {
       const record = {
         actionId: pending.actionId,
+        armedAt: pending.armedAt,
         canonicalUrl: pending.canonicalUrl,
         createdAt: pending.createdAt,
         gmailAccountIndex: pending.gmailAccountIndex,

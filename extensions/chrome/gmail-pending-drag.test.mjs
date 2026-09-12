@@ -18,6 +18,7 @@ function sessionStorage() {
 function pending(createdAt = 1_000) {
   return {
     actionId: "action-a",
+    armedAt: createdAt,
     canonicalUrl: "https://mail.google.com/mail/u/0/#all/thread-a",
     createdAt,
     gmailAccountIndex: 0,
@@ -54,10 +55,37 @@ test("GET does not consume pending drag but successful handoff consumption does"
 test("expired pending drag reports its explicit TTL reason", async () => {
   const storage = sessionStorage();
   await storePendingGmailDrag(storage, pending());
-  const result = await getPendingGmailDrag(storage, 11_001);
+  const result = await getPendingGmailDrag(storage, 31_001);
   assert.equal(result.status, "missing");
   assert.equal(result.reason, "expired");
-  assert.equal(result.ageMs, 10_001);
+  assert.equal(result.ageMs, 30_001);
+});
+
+test("armed drag remains available during a slow 20-second cross-window gesture", async () => {
+  const storage = sessionStorage();
+  await storePendingGmailDrag(storage, pending());
+  const result = await getPendingGmailDrag(storage, 21_000);
+  assert.equal(result.status, "found");
+  assert.equal(result.ageMs, 20_000);
+});
+
+test("only armed records are retrievable and a new drag replaces an older drag", async () => {
+  const storage = sessionStorage();
+  const unarmed = { ...pending(), armedAt: undefined };
+  await storePendingGmailDrag(storage, unarmed);
+  assert.deepEqual(await getPendingGmailDrag(storage, 2_000), {
+    reason: "not-armed",
+    status: "missing",
+  });
+  await storePendingGmailDrag(storage, pending());
+  await storePendingGmailDrag(storage, {
+    ...pending(2_000),
+    actionId: "action-b",
+    threadRef: "thread-b",
+  });
+  const result = await getPendingGmailDrag(storage, 3_000);
+  assert.equal(result.record.actionId, "action-b");
+  assert.equal(result.record.threadRef, "thread-b");
 });
 
 test("missing and failed session storage reads report distinct reasons", async () => {

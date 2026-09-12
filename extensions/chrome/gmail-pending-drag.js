@@ -1,5 +1,5 @@
 export const GMAIL_PENDING_DRAG_STORAGE_KEY = "carnivalPendingGmailDrag";
-export const GMAIL_PENDING_DRAG_TTL_MS = 10_000;
+export const GMAIL_PENDING_DRAG_TTL_MS = 30_000;
 
 export async function storePendingGmailDrag(storage, record) {
   try {
@@ -29,7 +29,10 @@ export async function getPendingGmailDrag(storage, now = Date.now()) {
       status: "missing",
     };
   }
-  const ageMs = Math.max(0, now - state.pending.createdAt);
+  if (!Number.isFinite(state.pending.armedAt)) {
+    return { reason: "not-armed", status: "missing" };
+  }
+  const ageMs = Math.max(0, now - state.pending.armedAt);
   if (ageMs > GMAIL_PENDING_DRAG_TTL_MS) {
     try {
       await storage.set({
