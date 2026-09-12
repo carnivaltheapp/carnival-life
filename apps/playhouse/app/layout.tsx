@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-GMAIL-DROP-FIX-40
+          P3-GMAIL-PENDING-FIX-41
         </small>
       </body>
     </html>

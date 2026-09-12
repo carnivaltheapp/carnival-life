@@ -1,8 +1,9 @@
 const CARNIVAL_GMAIL_DRAG_TYPE = "application/x-carnival-gmail";
-const GMAIL_DRAG_STARTED = "gmailDragStarted";
+const STORE_PENDING_GMAIL_DRAG = "storePendingGmailDrag";
 const GET_PENDING_GMAIL_DRAG = "getPendingGmailDrag";
+const CONSUME_PENDING_GMAIL_DRAG = "consumePendingGmailDrag";
 const RECORD_GMAIL_DIAGNOSTIC = "recordGmailDiagnostic";
-const GMAIL_BRIDGE_VERSION = "P3-GMAIL-PHYSICAL-FIX-39";
+const GMAIL_BRIDGE_VERSION = "P3-GMAIL-PENDING-FIX-41";
 
 function reportGmailDiagnostic(event, details = {}, level = "info") {
   console[level]?.(event, details);
@@ -261,7 +262,8 @@ if (window.location.hostname === "mail.google.com") {
       actionId: correlationId,
       attachment: { ...attachment, threadContext },
       correlationId,
-      type: GMAIL_DRAG_STARTED,
+      createdAt: Date.now(),
+      type: STORE_PENDING_GMAIL_DRAG,
     }).catch(() => {});
   }, true);
   document.addEventListener("dragend", (event) => {
@@ -329,11 +331,17 @@ if (window.location.hostname === "mail.google.com") {
       : null;
     const playId = row?.getAttribute("data-play-row-id");
     if (!playId) return;
-    enteredPlayId = null;
-    overPlayId = null;
     const customPayload = gmailCustomPayload(event.dataTransfer);
     const transferredAttachment = gmailUrlFromTransfer(event.dataTransfer);
-    if (!customPayload && !transferredAttachment && !mayBeGmailExternalDrag(event.dataTransfer)) {
+    const recognizedBeforeDrop = enteredPlayId === playId || overPlayId === playId;
+    enteredPlayId = null;
+    overPlayId = null;
+    if (
+      !customPayload &&
+      !transferredAttachment &&
+      !mayBeGmailExternalDrag(event.dataTransfer) &&
+      !recognizedBeforeDrop
+    ) {
       return;
     }
     reportGmailDiagnostic("GMAIL_NATIVE_DROP_CAPTURED", {
@@ -368,6 +376,10 @@ if (window.location.hostname === "mail.google.com") {
           url: response.attachment.canonicalUrl,
         }),
       }));
+      chrome.runtime.sendMessage({
+        actionId: response.actionId ?? response.correlationId,
+        type: CONSUME_PENDING_GMAIL_DRAG,
+      }).catch(() => {});
     }).catch(() => {});
   }, true);
 }

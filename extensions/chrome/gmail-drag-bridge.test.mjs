@@ -102,8 +102,8 @@ test("Gmail pointer gesture enables native drag and adds transferable payloads",
       url: "https://mail.google.com/mail/u/2/#all/FMfcgzExample",
     },
   );
-  const dragMessage = messages.find((message) => message.type === "gmailDragStarted");
-  assert.equal(dragMessage.type, "gmailDragStarted");
+  const dragMessage = messages.find((message) => message.type === "storePendingGmailDrag");
+  assert.equal(dragMessage.type, "storePendingGmailDrag");
   assert.equal(dragMessage.attachment.threadRef, "FMfcgzExample");
   transfer.dropEffect = "copy";
   listeners.get("dragend")({ dataTransfer: transfer });
@@ -124,6 +124,7 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
   const listeners = new Map();
   let dispatched;
   const diagnostics = [];
+  const runtimeMessages = [];
   class TestElement {
     closest() { return { getAttribute: () => "play-1" }; }
   }
@@ -136,8 +137,9 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
     URL,
     chrome: {
       runtime: {
-        sendMessage: async (message) => message.type === "getPendingGmailDrag"
-          ? ({
+        sendMessage: async (message) => {
+          runtimeMessages.push(message);
+          return message.type === "getPendingGmailDrag" ? ({
               actionId: "correlation-pending",
               attachment: {
                 accountIndex: 0,
@@ -150,8 +152,8 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
                 },
               },
               correlationId: "correlation-pending",
-            })
-          : ({ ok: true }),
+            }) : ({ ok: true });
+        },
       },
     },
     console: {
@@ -171,25 +173,30 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
   let dragoverPrevented = false;
   let propagationStopped = false;
   const target = new TestElement();
-  const transfer = dataTransfer({
+  const dragoverTransfer = dataTransfer({
     "text/plain": "https://mail.google.com/mail/u/0/#all/FMpending",
     "text/uri-list": "https://mail.google.com/mail/u/0/#all/FMpending",
   });
-  listeners.get("dragenter")({ dataTransfer: transfer, target });
+  listeners.get("dragenter")({ dataTransfer: dragoverTransfer, target });
   listeners.get("dragover")({
-    dataTransfer: transfer,
+    dataTransfer: dragoverTransfer,
+    preventDefault: () => { dragoverPrevented = true; },
+    target,
+  });
+  listeners.get("dragover")({
+    dataTransfer: dragoverTransfer,
     preventDefault: () => { dragoverPrevented = true; },
     target,
   });
   listeners.get("drop")({
-    dataTransfer: transfer,
+    dataTransfer: dataTransfer(),
     preventDefault: () => { prevented = true; },
     stopImmediatePropagation: () => { propagationStopped = true; },
     target,
   });
   await Promise.resolve();
   assert.equal(dragoverPrevented, true);
-  assert.equal(transfer.dropEffect, "copy");
+  assert.equal(dragoverTransfer.dropEffect, "copy");
   await Promise.resolve();
   assert.equal(prevented, true);
   assert.equal(propagationStopped, true);
@@ -211,6 +218,8 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
     "GMAIL_DRAG_PAYLOAD_MISSING",
     "GMAIL_PENDING_DRAG_USED",
   ]);
+  assert.equal(runtimeMessages.filter(({ type }) => type === "getPendingGmailDrag").length, 1);
+  assert.equal(runtimeMessages.filter(({ type }) => type === "consumePendingGmailDrag").length, 1);
 });
 
 test("PlayHouse bridge leaves internal row drags untouched", () => {

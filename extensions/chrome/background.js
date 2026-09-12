@@ -1,12 +1,16 @@
 import { CarnivalWorkspaceController, validWorkArea } from "./workspace-controller.js";
 import { createWorkspaceActions } from "./workspace-summon.js";
 import { isOpenInAuxMessage, routeOpenInAuxMessage } from "./aux-routing.js";
+import {
+  consumePendingGmailDrag,
+  getPendingGmailDrag,
+  storePendingGmailDrag,
+} from "./gmail-pending-drag.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
 const NATIVE_HOST_VERSION = "DRAWER-HOST-7";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
-const GMAIL_DRAG_TTL_MS = 10_000;
 const TAB_SAVE_DELAY_MS = 300;
 const DIAGNOSTIC_STORAGE_KEY = "carnivalWorkspaceDiagnostics";
 const DIAGNOSTIC_LIMIT = 500;
@@ -16,10 +20,16 @@ let nativeAnimationRequestId = 0;
 let immediateNativeReconnectUsed = false;
 const nativeAnimationRequests = new Map();
 let geometrySaveTimer = null;
-let pendingGmailDrag = null;
+let gmailPendingOperation = Promise.resolve();
 const tabSaveTimers = new Map();
 const tabSaveReasons = new Map();
 let diagnosticWriteQueue = Promise.resolve();
+
+function queueGmailPendingOperation(operation) {
+  const result = gmailPendingOperation.then(operation, operation);
+  gmailPendingOperation = result.then(() => {}, () => {});
+  return result;
+}
 
 function recordDiagnostic(level, event, details = null) {
   console[level]?.(event, details ?? "");
@@ -299,7 +309,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse({ ok: true });
     return false;
   }
-  if (message?.type === "gmailDragStarted") {
+  if (message?.type === "storePendingGmailDrag") {
     const attachment = message.attachment;
     if (
       typeof message.correlationId === "string" &&
@@ -307,42 +317,77 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       typeof attachment?.threadRef === "string" &&
       Number.isSafeInteger(attachment?.accountIndex)
     ) {
-      pendingGmailDrag = {
-        actionId: typeof message.actionId === "string" ? message.actionId : message.correlationId,
-        attachment,
-        correlationId: message.correlationId,
-        startedAt: Date.now(),
-      };
-      diagnosticLogger.info("GMAIL_PENDING_DRAG_STORED", {
-        actionId: pendingGmailDrag.actionId,
-        correlationId: pendingGmailDrag.correlationId,
-        gmailAccountIndex: attachment.accountIndex,
-        gmailThreadRef: attachment.threadRef,
+      const actionId = typeof message.actionId === "string" ? message.actionId : message.correlationId;
+      queueGmailPendingOperation(() => storePendingGmailDrag(chrome.storage.session, {
+        accountIndex: attachment.accountIndex,
+        actionId,
+        canonicalUrl: attachment.canonicalUrl,
+        createdAt: Number.isFinite(message.createdAt) ? message.createdAt : Date.now(),
+        threadContext: attachment.threadContext,
+        threadRef: attachment.threadRef,
+      })).then((result) => {
+        if (result.ok) {
+          diagnosticLogger.info("GMAIL_PENDING_DRAG_STORED", {
+            actionId,
+            gmailAccountIndex: attachment.accountIndex,
+            gmailThreadRef: attachment.threadRef,
+          });
+        } else {
+          diagnosticLogger.warn("GMAIL_PENDING_DRAG_MISSING", { reason: result.reason });
+        }
+        sendResponse(result);
       });
     } else {
       diagnosticLogger.warn("GMAIL_PENDING_DRAG_MISSING", {
         reason: "invalid-drag-payload",
       });
+      sendResponse({ ok: false, reason: "invalid-drag-payload" });
     }
-    sendResponse({ ok: Boolean(pendingGmailDrag) });
-    return false;
+    return true;
   }
   if (message?.type === "getPendingGmailDrag") {
-    if (pendingGmailDrag && Date.now() - pendingGmailDrag.startedAt <= GMAIL_DRAG_TTL_MS) {
-      const response = pendingGmailDrag;
-      pendingGmailDrag = null;
-      diagnosticLogger.info("GMAIL_PENDING_DRAG_USED", {
-        actionId: response.actionId,
-        correlationId: response.correlationId,
-        gmailThreadRef: response.attachment.threadRef,
-      });
-      sendResponse(response);
-    } else {
-      pendingGmailDrag = null;
-      diagnosticLogger.warn("GMAIL_PENDING_DRAG_MISSING", { reason: "missing-or-expired" });
-      sendResponse({ attachment: null });
-    }
-    return false;
+    diagnosticLogger.info("GMAIL_PENDING_DRAG_GET_REQUEST", {
+      actionId: typeof message.actionId === "string" ? message.actionId : null,
+    });
+    queueGmailPendingOperation(() => getPendingGmailDrag(chrome.storage.session)).then((result) => {
+      if (result.status === "found") {
+        diagnosticLogger.info("GMAIL_PENDING_DRAG_FOUND", {
+          actionId: result.record.actionId,
+          ageMs: result.ageMs,
+          gmailThreadRef: result.record.threadRef,
+        });
+        sendResponse({
+          actionId: result.record.actionId,
+          attachment: {
+            accountIndex: result.record.accountIndex,
+            canonicalUrl: result.record.canonicalUrl,
+            threadContext: result.record.threadContext,
+            threadRef: result.record.threadRef,
+          },
+          correlationId: result.record.actionId,
+        });
+      } else {
+        diagnosticLogger.warn("GMAIL_PENDING_DRAG_MISSING", {
+          actionId: result.actionId ?? null,
+          ageMs: result.ageMs ?? null,
+          reason: result.reason,
+        });
+        sendResponse({ attachment: null, reason: result.reason });
+      }
+    });
+    return true;
+  }
+  if (message?.type === "consumePendingGmailDrag") {
+    queueGmailPendingOperation(() =>
+      consumePendingGmailDrag(chrome.storage.session, message.actionId)).then((result) => {
+      if (result.status === "consumed") {
+        diagnosticLogger.info("GMAIL_PENDING_DRAG_CONSUMED", { actionId: result.actionId });
+      } else {
+        diagnosticLogger.warn("GMAIL_PENDING_DRAG_MISSING", { reason: result.reason });
+      }
+      sendResponse(result);
+    });
+    return true;
   }
   if (!isOpenInAuxMessage(message)) return false;
   routeOpenInAuxMessage({ controller, currentWorkArea, message, reportDrawerState })
