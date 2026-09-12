@@ -13,7 +13,7 @@ describe("Play grid responsive squeeze contract", () => {
     const sharedRule = rule(".playRowLine,\n.playGridHeader");
 
     expect(sharedRule).toContain("--play-description-group-min: 200px");
-    expect(sharedRule).toContain("--play-description-group-preferred: 402px");
+    expect(sharedRule).toContain("--play-description-group-preferred: 418px");
     expect(sharedRule).toContain("minmax(0, 1fr)");
     expect(sharedRule).toContain("--play-action-columns-width: 143px");
     expect(sharedRule).toContain("--play-grid-inline-inset: clamp(6px, 0.8vw, 10px)");
@@ -22,8 +22,17 @@ describe("Play grid responsive squeeze contract", () => {
 
   it("uses the compact navigation width to widen the Description group", () => {
     expect(rule(".workspaceBody")).toContain(
-      "grid-template-columns: clamp(156px, 12vw, 168px) minmax(0, 1fr)",
+      "grid-template-columns: clamp(144px, 10.5vw, 152px) minmax(0, 1fr)",
     );
+    expect(rule(".workspaceBody")).toContain("padding: clamp(24px, 4vw, 52px)");
+  });
+
+  it("keeps the deployment marker inside the viewport safe area", () => {
+    const markerRule = rule(".versionStamp");
+
+    expect(markerRule).toContain("right: max(12px, env(safe-area-inset-right))");
+    expect(markerRule).toContain("bottom: max(10px, env(safe-area-inset-bottom))");
+    expect(markerRule).toContain("white-space: nowrap");
   });
 
   it("preserves the complete five-icon action width without horizontal scrolling", () => {

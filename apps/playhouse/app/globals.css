@@ -245,7 +245,7 @@ a {
 
 .workspaceBody {
   display: grid;
-  grid-template-columns: clamp(156px, 12vw, 168px) minmax(0, 1fr);
+  grid-template-columns: clamp(144px, 10.5vw, 152px) minmax(0, 1fr);
   gap: clamp(10px, 1.2vw, 18px);
   min-height: calc(100vh - 76px);
   padding: clamp(24px, 4vw, 52px);
@@ -1078,7 +1078,7 @@ h1 {
 .playGridHeader {
   --play-grid-inline-inset: clamp(6px, 0.8vw, 10px);
   --play-description-group-min: 200px;
-  --play-description-group-preferred: 402px;
+  --play-description-group-preferred: 418px;
   --play-action-columns-width: 143px;
   display: grid;
   padding: 3px var(--play-grid-inline-inset);
@@ -2428,14 +2428,15 @@ h1 {
 .versionStamp {
   position: fixed;
   z-index: 2;
-  right: 8px;
-  bottom: 6px;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(10px, env(safe-area-inset-bottom));
   padding: 2px 5px;
   color: rgba(53, 38, 72, 0.62);
   border-radius: 5px;
   background: rgba(255, 253, 250, 0.78);
   font-size: 0.62rem;
   line-height: 1.2;
+  white-space: nowrap;
   pointer-events: none;
 }
 
