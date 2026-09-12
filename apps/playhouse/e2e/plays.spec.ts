@@ -39,13 +39,27 @@ async function dropThroughBullseye(
   title: string,
   category: "Baskets" | "Rank" | "Push" | null,
   targetName: string,
+  expectedCount?: number,
 ) {
   const source = playRow(page, title);
   const transfer = await page.evaluateHandle(() => new DataTransfer());
   await source.dispatchEvent("dragstart", { dataTransfer: transfer });
   await expect(source).toHaveAttribute("data-dragging", "true");
-  await page.getByRole("button", { name: "Bullseye drag actions" })
-    .dispatchEvent("dragenter", { dataTransfer: transfer });
+  const bullseye = page.getByRole("button", { name: "Bullseye drag actions" });
+  const bullseyeBox = await bullseye.boundingBox();
+  expect(bullseyeBox).not.toBeNull();
+  await source.dispatchEvent("drag", {
+    clientX: bullseyeBox!.x + bullseyeBox!.width / 2,
+    clientY: bullseyeBox!.y + bullseyeBox!.height / 2,
+    dataTransfer: transfer,
+  });
+  const dragIcon = page.locator(".playDragIcon");
+  await expect(dragIcon).toBeVisible();
+  await expect(page.locator(".playDragPreview")).toBeHidden();
+  if (expectedCount !== undefined) {
+    await expect(dragIcon.locator(".playDragIconCount")).toHaveText(String(expectedCount));
+  }
+  await bullseye.dispatchEvent("dragenter", { dataTransfer: transfer });
   const categories = page.getByRole("menu", { name: "Bullseye categories" });
   await expect(categories).toBeVisible();
   await expect(categories).toHaveCSS("display", "flex");
@@ -63,6 +77,7 @@ async function dropThroughBullseye(
   await expect(target).toBeVisible();
   await target.dispatchEvent("dragover", { dataTransfer: transfer });
   await expect(categories).toBeVisible();
+  await expect(dragIcon).toBeVisible();
   if (category) {
     const [barBox, targetBox] = await Promise.all([
       categories.boundingBox(),
@@ -73,6 +88,7 @@ async function dropThroughBullseye(
     expect(targetBox!.y).toBeGreaterThanOrEqual(barBox!.y + barBox!.height);
   }
   await target.dispatchEvent("drop", { dataTransfer: transfer });
+  await expect(page.locator(".playDragIcon")).toHaveCount(0);
 }
 
 test("new Play defaults Duration to 30 and Place to Office", async ({ auth }) => {
@@ -589,24 +605,6 @@ test("Play moves date to Basket and Basket back to date", async ({ auth }) => {
 });
 
 test("full-row drag uses a row preview while controls remain non-draggable", async ({ auth }) => {
-  await auth.page.addInitScript(() => {
-    const nativeSetDragImage = DataTransfer.prototype.setDragImage;
-    DataTransfer.prototype.setDragImage = function setDragImage(image, x, y) {
-      sessionStorage.setItem("playhouse-drag-preview", JSON.stringify({
-        columns: getComputedStyle(image.querySelector(".playRowLine")!).gridTemplateColumns,
-        fontSize: getComputedStyle(image).fontSize,
-        fontWeight: getComputedStyle(image).fontWeight,
-        height: (image as HTMLElement).offsetHeight,
-        lineHeight: getComputedStyle(image).lineHeight,
-        opacity: getComputedStyle(image).opacity,
-        text: image.textContent,
-        width: (image as HTMLElement).offsetWidth,
-        x,
-        y,
-      }));
-      nativeSetDragImage.call(this, image, x, y);
-    };
-  });
   await auth.page.goto("/");
   await auth.page.evaluate(
     (storageKey) => localStorage.setItem(storageKey, "16"),
@@ -627,34 +625,57 @@ test("full-row drag uses a row preview while controls remain non-draggable", asy
     width: (row as HTMLElement).offsetWidth,
   }));
   await expect(second).toHaveAttribute("draggable", "true");
-  await second.getByTestId("play-title").dragTo(first);
+  const transfer = await auth.page.evaluateHandle(() => new DataTransfer());
+  const [rowBox, listBox] = await Promise.all([second.boundingBox(), auth.page.locator(".playList").boundingBox()]);
+  expect(rowBox).not.toBeNull();
+  expect(listBox).not.toBeNull();
+  await second.dispatchEvent("dragstart", {
+    clientX: rowBox!.x + 20,
+    clientY: rowBox!.y + rowBox!.height / 2,
+    dataTransfer: transfer,
+  });
+  await second.dispatchEvent("drag", {
+    clientX: listBox!.x + listBox!.width / 2,
+    clientY: rowBox!.y + rowBox!.height / 2,
+    dataTransfer: transfer,
+  });
+  const preview = auth.page.locator(".playDragPreview");
+  await expect(preview).toBeVisible();
+  await expect(preview).toContainText("Second draggable Play");
+  expect(await preview.evaluate((element) => ({
+    columns: getComputedStyle(element.querySelector(".playRowLine")!).gridTemplateColumns,
+    fontSize: getComputedStyle(element).fontSize,
+    fontWeight: getComputedStyle(element).fontWeight,
+    height: (element as HTMLElement).offsetHeight,
+    lineHeight: getComputedStyle(element).lineHeight,
+    opacity: getComputedStyle(element).opacity,
+    width: (element as HTMLElement).offsetWidth,
+  }))).toMatchObject({ ...source, opacity: "0.82" });
 
+  await second.dispatchEvent("drag", {
+    clientX: listBox!.x - 30,
+    clientY: rowBox!.y,
+    dataTransfer: transfer,
+  });
+  await expect(preview).toBeHidden();
+  const dragIcon = auth.page.locator(".playDragIcon");
+  await expect(dragIcon).toBeVisible();
+  await expect(dragIcon.locator(".playDragIconCount")).toHaveCount(0);
+  await second.dispatchEvent("drag", {
+    clientX: listBox!.x + listBox!.width / 2,
+    clientY: rowBox!.y + rowBox!.height / 2,
+    dataTransfer: transfer,
+  });
+  await expect(preview).toBeVisible();
+  await expect(auth.page.locator(".playDragIcon")).toBeHidden();
+  await second.dispatchEvent("dragend", { dataTransfer: transfer });
+  await expect(auth.page.locator(".playDragPreview, .playDragIcon")).toHaveCount(0);
+
+  await second.getByTestId("play-title").dragTo(first);
   await expect(auth.page.getByTestId("play-title").first()).toContainText(
     "Second draggable Play",
     { timeout: 500 },
   );
-  const preview = await auth.page.evaluate(() =>
-    JSON.parse(sessionStorage.getItem("playhouse-drag-preview") ?? "null") as {
-      columns: string;
-      fontSize: string;
-      fontWeight: string;
-      height: number;
-      lineHeight: string;
-      opacity: string;
-      text: string;
-      width: number;
-    } | null
-  );
-  expect(preview).toMatchObject({ opacity: "0.82" });
-  expect(preview?.text).toContain("Second draggable Play");
-  expect(preview).toMatchObject({
-    columns: source.columns,
-    fontSize: source.fontSize,
-    fontWeight: source.fontWeight,
-    height: source.height,
-    lineHeight: source.lineHeight,
-    width: source.width,
-  });
 
   for (const control of [
     second.getByRole("button", { name: /Select .* Play/ }),
@@ -681,16 +702,6 @@ test("full-row drag uses a row preview while controls remain non-draggable", asy
 });
 
 test("selected Plays drag together to a Basket and date in relative order", async ({ auth }) => {
-  await auth.page.addInitScript(() => {
-    const nativeSetDragImage = DataTransfer.prototype.setDragImage;
-    DataTransfer.prototype.setDragImage = function setDragImage(image, x, y) {
-      sessionStorage.setItem(
-        "playhouse-multi-drag-count",
-        image.querySelector(".playDragCount")?.textContent ?? "",
-      );
-      nativeSetDragImage.call(this, image, x, y);
-    };
-  });
   await auth.page.goto("/");
   const titles = ["Group drag one", "Group drag two", "Group drag three"];
   for (const title of titles) await createPlay(auth.page, title);
@@ -700,13 +711,10 @@ test("selected Plays drag together to a Basket and date in relative order", asyn
     await playRow(auth.page, title).locator(".playSelectControl").click();
   }
   const urlBeforeDrop = auth.page.url();
-  await dropThroughBullseye(auth.page, "Group drag two", "Baskets", "Backlog");
+  await dropThroughBullseye(auth.page, "Group drag two", "Baskets", "Backlog", 3);
 
   await expect.poll(() => auth.page.getByTestId("play-row").count()).toBe(0);
   expect(auth.page.url()).toBe(urlBeforeDrop);
-  expect(await auth.page.evaluate(
-    () => sessionStorage.getItem("playhouse-multi-drag-count"),
-  )).toBe("3 Plays");
 
   await auth.page.goto("/?basket=backlog");
   await expect(auth.page.getByTestId("play-title")).toHaveText(visibleOrder);

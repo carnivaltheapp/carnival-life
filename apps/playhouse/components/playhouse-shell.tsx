@@ -230,6 +230,9 @@ function PlayhouseShellView({
   const dragOriginAllowedRef = useRef(true);
   const dragPreviewHostRef = useRef<HTMLDivElement>(null);
   const dragPreviewRef = useRef<HTMLElement | null>(null);
+  const dragIconRef = useRef<HTMLElement | null>(null);
+  const dragPointerOffsetRef = useRef({ x: 0, y: 0 });
+  const playListRef = useRef<HTMLOListElement>(null);
   const regionSelectionRef = useRef<(RegionSelectionGesture & {
     active: boolean;
     owner: HTMLElement;
@@ -327,8 +330,9 @@ function PlayhouseShellView({
   }
 
   function clearDragState() {
-    dragPreviewRef.current?.remove();
+    dragPreviewHostRef.current?.replaceChildren();
     dragPreviewRef.current = null;
+    dragIconRef.current = null;
     setDraggedIds([]);
     setDropTarget(null);
     setBullseyeCategory("calendar");
@@ -449,15 +453,35 @@ function PlayhouseShellView({
       count.textContent = `${ids.length} Plays`;
       preview.append(count);
     }
+    const dragIcon = document.createElement("span");
+    dragIcon.className = "playDragIcon";
+    dragIcon.dataset.dragIcon = "true";
+    const dragGlyph = document.createElement("span");
+    dragGlyph.className = "playDragIconGlyph";
+    dragGlyph.textContent = "✥";
+    dragIcon.append(dragGlyph);
+    if (ids.length > 1) {
+      const count = document.createElement("span");
+      count.className = "playDragIconCount";
+      count.textContent = String(ids.length);
+      dragIcon.append(count);
+    }
+    const transparentDragImage = document.createElement("canvas");
+    transparentDragImage.className = "transparentDragImage";
+    transparentDragImage.width = 1;
+    transparentDragImage.height = 1;
     dragPreviewRef.current?.remove();
-    previewHost.replaceChildren(preview);
+    dragIconRef.current?.remove();
+    previewHost.replaceChildren(preview, dragIcon, transparentDragImage);
     dragPreviewRef.current = preview;
+    dragIconRef.current = dragIcon;
+    dragPointerOffsetRef.current = {
+      x: Math.min(Math.max(event.clientX - bounds.left, 0), bounds.width),
+      y: Math.min(Math.max(event.clientY - bounds.top, 0), bounds.height),
+    };
+    updateDragPreview(event.clientX, event.clientY);
     preview.getBoundingClientRect();
-    event.dataTransfer.setDragImage(
-      preview,
-      Math.min(Math.max(event.clientX - bounds.left, 0), bounds.width),
-      Math.min(Math.max(event.clientY - bounds.top, 0), bounds.height),
-    );
+    event.dataTransfer.setDragImage(transparentDragImage, 0, 0);
 
     setDraggedIds(ids);
     setBullseyeCategory("calendar");
@@ -465,6 +489,26 @@ function PlayhouseShellView({
     setMoveError(null);
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", ids.join(","));
+  }
+
+  function updateDragPreview(clientX: number, clientY: number) {
+    if (!clientX && !clientY) return;
+    const preview = dragPreviewRef.current;
+    const dragIcon = dragIconRef.current;
+    const grid = playListRef.current;
+    if (!preview || !dragIcon || !grid) return;
+    const bounds = grid.getBoundingClientRect();
+    const insideGrid = clientX >= bounds.left && clientX <= bounds.right &&
+      clientY >= bounds.top && clientY <= bounds.bottom;
+    preview.dataset.visible = insideGrid ? "true" : "false";
+    dragIcon.dataset.visible = insideGrid ? "false" : "true";
+    if (insideGrid) {
+      preview.style.left = `${clientX - dragPointerOffsetRef.current.x}px`;
+      preview.style.top = `${clientY - dragPointerOffsetRef.current.y}px`;
+    } else {
+      dragIcon.style.left = `${clientX + 14}px`;
+      dragIcon.style.top = `${clientY + 14}px`;
+    }
   }
 
   function beginRegionDrag(event: ReactPointerEvent<HTMLElement>) {
@@ -1191,6 +1235,7 @@ function PlayhouseShellView({
                 aria-busy={movePending || bulkPending}
                 className="playList"
                 aria-label={`Open Plays in ${selectedView.label}`}
+                ref={playListRef}
               >
                 {visiblePlays.map((play) => {
                   const playVisual = playVisualForPlay(play);
@@ -1219,6 +1264,7 @@ function PlayhouseShellView({
                     setSelectionAnchor(play.id);
                   }}
                   onDragEnd={clearDragState}
+                  onDrag={(event) => updateDragPreview(event.clientX, event.clientY)}
                   onDragLeave={(event) => {
                     if (
                       gmailDropTargetRef.current === play.id &&

@@ -992,13 +992,13 @@ h1 {
 .playDragPreviewHost {
   position: fixed;
   z-index: 9999;
-  top: -10000px;
-  left: -10000px;
+  inset: 0;
   pointer-events: none;
 }
 
 .playDragPreview {
-  position: relative;
+  position: fixed;
+  display: none;
   overflow: hidden;
   pointer-events: none;
   opacity: 0.82;
@@ -1006,6 +1006,10 @@ h1 {
   outline: 1px solid rgba(255, 255, 255, 0.72);
   box-shadow: 0 14px 32px rgba(33, 25, 47, 0.3);
   transform: scale(1.005);
+}
+
+.playDragPreview[data-visible="true"] {
+  display: block;
 }
 
 .playDragPreview .playRowLine {
@@ -1024,6 +1028,50 @@ h1 {
   font-weight: 700;
   line-height: 1;
   transform: translateY(-50%);
+}
+
+.playDragIcon {
+  position: fixed;
+  display: none;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 5px;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 9px;
+  background: #6d3ff2;
+  box-shadow: 0 5px 14px rgba(48, 29, 83, 0.24);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.playDragIcon[data-visible="true"] {
+  display: inline-flex;
+}
+
+.playDragIconCount {
+  display: grid;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  place-items: center;
+  color: #4a268f;
+  border-radius: 999px;
+  background: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.transparentDragImage {
+  position: fixed;
+  top: -2px;
+  left: -2px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
 }
 
 .playRowLine,
