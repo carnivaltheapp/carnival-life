@@ -40,7 +40,7 @@ export function rollingCalendarDates(todayDate: string) {
       label: index === 0
         ? `Today ${monthDay}`
         : index === 1
-          ? `Tomorrow ${monthDay}`
+          ? `Tmrw ${monthDay}`
           : `${weekday} ${monthDay}`,
       marker: index === 0 ? "●" : "○",
     };

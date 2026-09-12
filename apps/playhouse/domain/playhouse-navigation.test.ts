@@ -29,7 +29,7 @@ describe("PlayHouse calendar navigation", () => {
     const dates = rollingCalendarDates("2026-09-07");
     expect(dates).toEqual([
       { date: "2026-09-07", label: "Today Sep 7", marker: "●" },
-      { date: "2026-09-08", label: "Tomorrow Sep 8", marker: "○" },
+      { date: "2026-09-08", label: "Tmrw Sep 8", marker: "○" },
       { date: "2026-09-09", label: "Wed Sep 9", marker: "○" },
       { date: "2026-09-10", label: "Thu Sep 10", marker: "○" },
       { date: "2026-09-11", label: "Fri Sep 11", marker: "○" },

@@ -16,6 +16,8 @@ describe("Play grid responsive squeeze contract", () => {
     expect(sharedRule).toContain("--play-description-group-preferred: 330px");
     expect(sharedRule).toContain("minmax(0, 1fr)");
     expect(sharedRule).toContain("--play-action-columns-width: 143px");
+    expect(sharedRule).toContain("--play-grid-inline-inset: clamp(6px, 0.8vw, 10px)");
+    expect(sharedRule).toContain("padding: 3px var(--play-grid-inline-inset)");
   });
 
   it("preserves the complete five-icon action width without horizontal scrolling", () => {
@@ -24,5 +26,13 @@ describe("Play grid responsive squeeze contract", () => {
     expect(rule(".playList")).toContain("overflow-x: hidden");
     expect(rule(".playRow")).toContain("min-width: 0");
     expect(stylesheet).toMatch(/\.playGridHeader\s*\{\s*min-width:\s*0/);
+  });
+
+  it("reclaims the former dot column while preserving edge selection feedback", () => {
+    expect(rule(".playIdentityCell")).toContain(
+      "grid-template-columns: 112px minmax(0, 1fr)",
+    );
+    expect(rule(".playSelectControl")).toContain("position: absolute");
+    expect(stylesheet).not.toContain(".playTypeMarker");
   });
 });

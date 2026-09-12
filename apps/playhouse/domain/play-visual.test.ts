@@ -4,24 +4,22 @@ import { mongoPlayType } from "../lib/playhouse/mongo-play-mapping";
 import { PLAY_VISUALS, playVisualForPlay, playVisualForType } from "./play-visual";
 
 describe("Play visual classification", () => {
-  it("classifies Normal Plays as orange Headline indicators", () => {
+  it("classifies Normal Plays as orange Headlines", () => {
     expect(playVisualForType("normal")).toEqual({
       backgroundColor: "#FF9800",
       className: "playVisual--headline",
       foregroundColor: "#111111",
       label: "Headline",
-      markerClassName: "playTypeMarker--headline",
       visualType: "headline",
     });
   });
 
-  it("classifies Reminder Plays as green Reminder indicators", () => {
+  it("classifies Reminder Plays as green Reminders", () => {
     expect(playVisualForType("reminder")).toEqual({
       backgroundColor: "#55F238",
       className: "playVisual--reminder",
       foregroundColor: "#111111",
       label: "Reminder",
-      markerClassName: "playTypeMarker--reminder",
       visualType: "reminder",
     });
   });

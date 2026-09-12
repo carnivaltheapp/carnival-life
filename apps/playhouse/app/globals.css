@@ -1076,11 +1076,12 @@ h1 {
 
 .playRowLine,
 .playGridHeader {
+  --play-grid-inline-inset: clamp(6px, 0.8vw, 10px);
   --play-description-group-min: 200px;
   --play-description-group-preferred: 330px;
   --play-action-columns-width: 143px;
   display: grid;
-  padding: 3px clamp(8px, 1.4vw, 14px);
+  padding: 3px var(--play-grid-inline-inset);
   grid-template-columns:
     minmax(var(--play-description-group-min), var(--play-description-group-preferred))
     minmax(0, 1fr)
@@ -1219,22 +1220,27 @@ h1 {
 }
 
 .playIdentityCell {
+  position: relative;
   display: grid;
   min-width: 0;
-  grid-template-columns: 20px 112px minmax(0, 1fr);
+  grid-template-columns: 112px minmax(0, 1fr);
   gap: 5px;
   align-items: center;
 }
 
 .playSelectControl {
+  position: absolute;
+  top: 50%;
+  left: calc(-1 * var(--play-grid-inline-inset));
   display: grid;
-  width: 20px;
+  width: max(8px, var(--play-grid-inline-inset));
   height: 26px;
   padding: 0;
   place-items: center;
   border: 0;
   background: transparent;
   cursor: grab;
+  transform: translateY(-50%);
 }
 
 .playSelectControl:active {
@@ -1247,11 +1253,12 @@ h1 {
   outline-offset: 1px;
 }
 
-.playSelectControl[aria-pressed="true"] .playTypeMarker {
-  background: var(--play-rank-foreground);
-  box-shadow:
-    0 0 0 2px var(--play-rank-background),
-    0 0 0 3px var(--play-rank-foreground);
+.playSelectControl[aria-pressed="true"]::after {
+  width: 3px;
+  height: 18px;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
 }
 
 .playIdentityCell > .editDisclosure {
@@ -1277,16 +1284,6 @@ h1 {
   font-size: inherit;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.playTypeMarker {
-  width: 10px;
-  height: 10px;
-  flex: 0 0 10px;
-  box-sizing: border-box;
-  border: 2px solid var(--play-rank-foreground);
-  border-radius: 50%;
-  background: transparent;
 }
 
 .playDataCell {

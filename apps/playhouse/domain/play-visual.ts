@@ -8,7 +8,6 @@ export const PLAY_VISUALS = {
     className: "playVisual--appointment",
     foregroundColor: "#FFFFFF",
     label: "Appointment",
-    markerClassName: "playTypeMarker--appointment",
     visualType: "appointment",
   },
   headline: {
@@ -16,7 +15,6 @@ export const PLAY_VISUALS = {
     className: "playVisual--headline",
     foregroundColor: "#111111",
     label: "Headline",
-    markerClassName: "playTypeMarker--headline",
     visualType: "headline",
   },
   place: {
@@ -24,7 +22,6 @@ export const PLAY_VISUALS = {
     className: "playVisual--place",
     foregroundColor: "#173A52",
     label: "Place",
-    markerClassName: "playTypeMarker--place",
     visualType: "place",
   },
   reminder: {
@@ -32,7 +29,6 @@ export const PLAY_VISUALS = {
     className: "playVisual--reminder",
     foregroundColor: "#111111",
     label: "Reminder",
-    markerClassName: "playTypeMarker--reminder",
     visualType: "reminder",
   },
 } as const satisfies Record<PlayVisualType, {
@@ -40,7 +36,6 @@ export const PLAY_VISUALS = {
   className: string;
   foregroundColor: string;
   label: string;
-  markerClassName: string;
   visualType: PlayVisualType;
 }>;
 
