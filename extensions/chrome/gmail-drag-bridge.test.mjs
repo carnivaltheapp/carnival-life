@@ -29,6 +29,7 @@ test("manifest injects Gmail drag normalization into Gmail and PlayHouse", async
 
 test("Gmail dragstart adds canonical standard and Carnival payloads", async () => {
   let dragstart;
+  const diagnostics = [];
   const messages = [];
   const transfer = dataTransfer();
   const participant = (email, name) => ({
@@ -44,7 +45,7 @@ test("Gmail dragstart adds canonical standard and Carnival payloads", async () =
   vm.runInNewContext(bridgeSource, {
     URL,
     chrome: { runtime: { sendMessage: async (message) => messages.push(message) } },
-    console: { info() {} },
+    console: { info: (event, payload) => diagnostics.push({ event, payload }) },
     crypto: { randomUUID: () => "correlation-1" },
     decodeURIComponent,
     document: {
@@ -68,12 +69,24 @@ test("Gmail dragstart adds canonical standard and Carnival payloads", async () =
   assert.deepEqual(
     JSON.parse(transfer.getData("application/x-carnival-gmail")),
     {
+      accountIndex: 2,
       correlationId: "correlation-1",
       gmailParticipants: {
         from: { email: "me@example.com", name: "Me" },
         to: [{ email: "kayla@example.com", name: "Kayla" }],
       },
+      canonicalUrl: "https://mail.google.com/mail/u/2/#all/FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC",
+      threadRef: "FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC",
       url: "https://mail.google.com/mail/u/2/#all/FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC",
+    },
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(
+      diagnostics.find(({ event }) => event === "GMAIL_DRAG_SOURCE_PAYLOAD")?.payload.gmailParticipants,
+    )),
+    {
+      from: { email: "me@example.com", name: "Me" },
+      to: [{ email: "kayla@example.com", name: "Kayla" }],
     },
   );
   assert.equal(messages[0].type, "gmailDragStarted");
@@ -119,7 +132,12 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
     },
   });
 
-  drop({ dataTransfer: dataTransfer({ "text/plain": "Gmail" }), target: new TestElement() });
+  drop({
+    dataTransfer: dataTransfer({ "text/plain": "Gmail" }),
+    preventDefault() {},
+    stopImmediatePropagation() {},
+    target: new TestElement(),
+  });
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(dispatched.type, "carnival:gmail-drop-fallback");
@@ -131,5 +149,112 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
     },
     playId: "play-1",
     url: "https://mail.google.com/mail/u/0/#all/FMpending",
+  });
+});
+
+test("PlayHouse enriches a URL-only cross-window drop with pending participants", async () => {
+  let drop;
+  let dispatched;
+  let prevented = false;
+  let stopped = false;
+  class TestElement {
+    closest() { return { getAttribute: () => "play-2" }; }
+  }
+  class TestCustomEvent {
+    constructor(type, init) { this.type = type; this.detail = init.detail; }
+  }
+  vm.runInNewContext(bridgeSource, {
+    CustomEvent: TestCustomEvent,
+    Element: TestElement,
+    URL,
+    chrome: {
+      runtime: {
+        sendMessage: async () => ({
+          attachment: {
+            accountIndex: 0,
+            canonicalUrl: "https://mail.google.com/mail/u/0/#all/FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC",
+            gmailParticipants: {
+              from: { email: "kayla@example.com", name: "Kayla" },
+              to: [{ email: "me@example.com", name: "Me" }],
+            },
+            threadRef: "FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC",
+          },
+          correlationId: "correlation-enriched",
+        }),
+      },
+    },
+    console: { info() {} },
+    crypto: { randomUUID: () => "fallback-correlation" },
+    decodeURIComponent,
+    document: { addEventListener: (type, listener) => { if (type === "drop") drop = listener; } },
+    window: {
+      dispatchEvent: (event) => { dispatched = event; },
+      location: { hostname: "carnival-playhouse.vercel.app" },
+    },
+  });
+
+  drop({
+    dataTransfer: dataTransfer({
+      "text/uri-list": "https://mail.google.com/mail/u/0/#inbox/FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC",
+    }),
+    preventDefault: () => { prevented = true; },
+    stopImmediatePropagation: () => { stopped = true; },
+    target: new TestElement(),
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(prevented, true);
+  assert.equal(stopped, true);
+  assert.deepEqual(JSON.parse(dispatched.detail), {
+    correlationId: "correlation-enriched",
+    gmailParticipants: {
+      from: { email: "kayla@example.com", name: "Kayla" },
+      to: [{ email: "me@example.com", name: "Me" }],
+    },
+    playId: "play-2",
+    url: "https://mail.google.com/mail/u/0/#all/FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC",
+  });
+});
+
+test("PlayHouse preserves URL-only attachment when pending metadata is unavailable", async () => {
+  let drop;
+  let dispatched;
+  class TestElement {
+    closest() { return { getAttribute: () => "play-3" }; }
+  }
+  class TestCustomEvent {
+    constructor(type, init) { this.type = type; this.detail = init.detail; }
+  }
+  vm.runInNewContext(bridgeSource, {
+    CustomEvent: TestCustomEvent,
+    Element: TestElement,
+    URL,
+    chrome: { runtime: { sendMessage: async () => ({ attachment: null }) } },
+    console: { info() {} },
+    crypto: { randomUUID: () => "url-only-correlation" },
+    decodeURIComponent,
+    document: { addEventListener: (type, listener) => { if (type === "drop") drop = listener; } },
+    window: {
+      dispatchEvent: (event) => { dispatched = event; },
+      location: { hostname: "carnival-playhouse.vercel.app" },
+    },
+  });
+
+  drop({
+    dataTransfer: dataTransfer({
+      "text/plain": "https://mail.google.com/mail/u/0/#all/FMonly",
+    }),
+    preventDefault() {},
+    stopImmediatePropagation() {},
+    target: new TestElement(),
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(JSON.parse(dispatched.detail), {
+    correlationId: "url-only-correlation",
+    playId: "play-3",
+    url: "https://mail.google.com/mail/u/0/#all/FMonly",
   });
 });

@@ -42,6 +42,15 @@ function gmailUrlFromTransfer(dataTransfer) {
   return null;
 }
 
+function gmailParticipantsFromTransfer(dataTransfer) {
+  try {
+    const parsed = JSON.parse(dataTransfer?.getData(CARNIVAL_GMAIL_DRAG_TYPE) ?? "");
+    return parsed?.gmailParticipants?.from ? parsed.gmailParticipants : null;
+  } catch {
+    return null;
+  }
+}
+
 function gmailParticipant(element) {
   const email = element?.getAttribute?.("email") ?? element?.getAttribute?.("data-hovercard-id");
   if (!email || !email.includes("@")) return null;
@@ -80,10 +89,17 @@ if (window.location.hostname === "mail.google.com") {
     const correlationId = crypto.randomUUID();
     const gmailParticipants = latestGmailParticipants();
     const payload = {
+      ...attachment,
       correlationId,
       gmailParticipants,
       url: attachment.canonicalUrl,
     };
+    console.info("GMAIL_DRAG_SOURCE_PAYLOAD", {
+      from: payload.gmailParticipants?.from,
+      gmailParticipants: payload.gmailParticipants,
+      toCount: payload.gmailParticipants?.to.length ?? 0,
+      url: payload.url,
+    });
     try {
       event.dataTransfer.setData(CARNIVAL_GMAIL_DRAG_TYPE, JSON.stringify(payload));
     } catch {}
@@ -106,33 +122,39 @@ if (window.location.hostname === "mail.google.com") {
       toCount: gmailParticipants?.to.length ?? 0,
     });
     chrome.runtime.sendMessage({
-      attachment: { ...attachment, gmailParticipants },
+      attachment: payload,
       correlationId,
       type: GMAIL_DRAG_STARTED,
     }).catch(() => {});
   }, true);
 } else {
   document.addEventListener("drop", (event) => {
-    if (!event.dataTransfer || gmailUrlFromTransfer(event.dataTransfer)) return;
+    if (!event.dataTransfer) return;
+    const transferredAttachment = gmailUrlFromTransfer(event.dataTransfer);
+    if (transferredAttachment && gmailParticipantsFromTransfer(event.dataTransfer)) return;
     const row = event.target instanceof Element
       ? event.target.closest("[data-play-row-id]")
       : null;
     const playId = row?.getAttribute("data-play-row-id");
     if (!playId) return;
-    chrome.runtime.sendMessage({ type: GET_PENDING_GMAIL_DRAG }).then((response) => {
-      if (!response?.attachment || !response?.correlationId) return;
-      console.info("GMAIL_DRAG_ENTER_PH", {
-        correlationId: response.correlationId,
-        playId,
-      });
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const dispatchFallback = (response) => {
+      const url = transferredAttachment?.canonicalUrl ?? response?.attachment?.canonicalUrl;
+      if (!url) return;
+      const correlationId = response?.correlationId ?? crypto.randomUUID();
+      console.info("GMAIL_DRAG_ENTER_PH", { correlationId, playId });
       window.dispatchEvent(new CustomEvent("carnival:gmail-drop-fallback", {
         detail: JSON.stringify({
-          correlationId: response.correlationId,
-          gmailParticipants: response.attachment.gmailParticipants,
+          correlationId,
+          gmailParticipants: response?.attachment?.gmailParticipants,
           playId,
-          url: response.attachment.canonicalUrl,
+          url,
         }),
       }));
-    }).catch(() => {});
+    };
+    chrome.runtime.sendMessage({ type: GET_PENDING_GMAIL_DRAG }).then((response) => {
+      dispatchFallback(response);
+    }).catch(() => dispatchFallback(null));
   }, true);
 }

@@ -461,11 +461,11 @@ function PlayhouseShellView({
           typeof detail.url !== "string"
         ) return;
         const parsedAttachment = parseGmailAttachmentUrl(detail.url);
-        inspectParsedGmailAttachment(parsedAttachment);
         const gmailParticipants = sanitizeGmailParticipants(detail.gmailParticipants);
         const attachment = parsedAttachment && gmailParticipants
           ? { ...parsedAttachment, gmailParticipants }
           : parsedAttachment;
+        inspectParsedGmailAttachment(attachment);
         if (!attachment) return;
         persistGmailAttachment(
           detail.playId,
