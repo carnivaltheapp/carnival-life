@@ -110,6 +110,7 @@ test("Gmail pointer gesture enables native drag and adds transferable payloads",
   assert.deepEqual(diagnostics, [
     "GMAIL_CONTENT_SCRIPT_LOADED",
     "GMAIL_POINTER_DOWN",
+    "GMAIL_DRAG_TARGET_RESOLVED",
     "GMAIL_DRAG_CONTEXT_RESOLVED",
     "GMAIL_NATIVE_DRAGSTART",
     "GMAIL_DRAG_PAYLOAD_SET",
@@ -194,7 +195,7 @@ test("PlayHouse resolves a stripped cross-window payload from short-lived extens
     stopImmediatePropagation: () => { propagationStopped = true; },
     target,
   });
-  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(dragoverPrevented, true);
   assert.equal(dragoverTransfer.dropEffect, "copy");
   await Promise.resolve();
@@ -249,4 +250,146 @@ test("PlayHouse bridge leaves internal row drags untouched", () => {
     target: new TestElement(),
   });
   assert.equal(prevented, false);
+});
+
+test("Gmail inbox drag resolves the exact row instead of requiring a thread URL", async () => {
+  const listeners = new Map();
+  const messages = [];
+  const diagnostics = [];
+  const sender = {
+    getAttribute: (attribute) => attribute === "email"
+      ? "sender@example.test"
+      : attribute === "name" ? "Sender" : null,
+    textContent: "Sender",
+  };
+  class InboxRow {
+    constructor(threadRef) {
+      this.attributes = new Map([["data-legacy-thread-id", threadRef]]);
+    }
+    closest() { return this; }
+    getAttribute(attribute) { return this.attributes.get(attribute) ?? null; }
+    querySelector(selector) {
+      return selector.includes("tooltip")
+        ? { getAttribute: (attribute) => attribute === "title" ? "Sep 12, 2026" : null }
+        : null;
+    }
+    querySelectorAll(selector) { return selector === "a[href]" ? [] : [sender]; }
+    removeAttribute(attribute) { this.attributes.delete(attribute); }
+    setAttribute(attribute, value) { this.attributes.set(attribute, value); }
+  }
+  const row = new InboxRow("thread-from-row");
+  vm.runInNewContext(bridgeSource, {
+    Element: InboxRow,
+    URL,
+    chrome: { runtime: { sendMessage: async (message) => messages.push(message) } },
+    console: {
+      info: (event, details) => diagnostics.push({ details, event }),
+      warn: (event, details) => diagnostics.push({ details, event }),
+    },
+    crypto: { randomUUID: () => "inbox-action" },
+    decodeURIComponent,
+    document: {
+      addEventListener: (type, listener) => { listeners.set(type, listener); },
+      querySelector: () => ({
+        getAttribute: () => "Google Account: Self (self@example.test)",
+      }),
+      querySelectorAll: () => [],
+    },
+    window: {
+      addEventListener() {},
+      location: {
+        hash: "#inbox",
+        hostname: "mail.google.com",
+        href: "https://mail.google.com/mail/u/0/#inbox",
+        pathname: "/mail/u/0/",
+      },
+    },
+  });
+  const transfer = dataTransfer();
+  listeners.get("pointerdown")({ button: 0, clientX: 10, clientY: 10, target: row });
+  listeners.get("dragstart")({ dataTransfer: transfer, target: row });
+  await Promise.resolve();
+  const stored = messages.find(({ type }) => type === "storePendingGmailDrag");
+  assert.equal(stored.attachment.threadRef, "thread-from-row");
+  assert.equal(stored.attachment.canonicalUrl,
+    "https://mail.google.com/mail/u/0/#all/thread-from-row");
+  assert.deepEqual(JSON.parse(JSON.stringify(stored.attachment.threadContext)), {
+    from: { email: "sender@example.test", name: "Sender" },
+    lastMessageAt: "Sep 12, 2026",
+    to: [{ email: "self@example.test", name: null }],
+  });
+  const targetDiagnostic = diagnostics.find(({ event }) => event === "GMAIL_DRAG_TARGET_RESOLVED");
+  assert.equal(targetDiagnostic.details.source, "gmail-thread-row");
+});
+
+test("Gmail inbox without a thread row rejects cleanly", () => {
+  const listeners = new Map();
+  const diagnostics = [];
+  class NonThreadElement {
+    closest() { return null; }
+  }
+  vm.runInNewContext(bridgeSource, {
+    Element: NonThreadElement,
+    URL,
+    chrome: { runtime: { sendMessage: async () => ({ ok: true }) } },
+    console: {
+      info: (event, details) => diagnostics.push({ details, event }),
+      warn: (event, details) => diagnostics.push({ details, event }),
+    },
+    crypto: { randomUUID: () => "unused" },
+    decodeURIComponent,
+    document: {
+      addEventListener: (type, listener) => { listeners.set(type, listener); },
+      querySelector: () => null,
+      querySelectorAll: () => [],
+    },
+    window: {
+      addEventListener() {},
+      location: {
+        hash: "#inbox",
+        hostname: "mail.google.com",
+        href: "https://mail.google.com/mail/u/0/#inbox",
+        pathname: "/mail/u/0/",
+      },
+    },
+  });
+  listeners.get("pointerdown")({
+    button: 0,
+    clientX: 1,
+    clientY: 1,
+    target: new NonThreadElement(),
+  });
+  assert.equal(
+    diagnostics.find(({ event }) => event === "GMAIL_DRAG_CONTEXT_FAILED").details.reason,
+    "no-thread-under-pointer",
+  );
+});
+
+test("invalidated extension context is reported without throwing", () => {
+  const diagnostics = [];
+  assert.doesNotThrow(() => vm.runInNewContext(bridgeSource, {
+    Element: class {},
+    URL,
+    chrome: {
+      runtime: {
+        get onMessage() { throw new Error("Extension context invalidated."); },
+        sendMessage() { throw new Error("Extension context invalidated."); },
+      },
+    },
+    console: {
+      info() {},
+      warn: (event) => diagnostics.push(event),
+    },
+    decodeURIComponent,
+    document: { addEventListener() {}, querySelectorAll: () => [] },
+    window: {
+      addEventListener() {},
+      location: {
+        hash: "#inbox",
+        hostname: "mail.google.com",
+        pathname: "/mail/u/0/",
+      },
+    },
+  }));
+  assert.ok(diagnostics.includes("GMAIL_EXTENSION_CONTEXT_INVALIDATED"));
 });
