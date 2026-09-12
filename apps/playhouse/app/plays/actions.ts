@@ -17,6 +17,7 @@ import type { PlayPlacement } from "../../domain/play";
 import { isBulkSelectablePlay, type BulkPlayChange } from "../../domain/play-bulk-change";
 import { parseGmailAttachmentUrl } from "../../domain/gmail-attachment";
 import { reminderContextDate } from "../../domain/reminder";
+import { resolveGmailAssigneeForThread } from "../../lib/google/gmail-assignee.server";
 import { applyPlayLifecycle } from "../../lib/google/gmail-lifecycle";
 import { unstarGmailPlayThread } from "../../lib/google/gmail-lifecycle.server";
 import { resolvePlayhouseDataSource } from "../../lib/playhouse/data-source";
@@ -41,7 +42,11 @@ async function authenticatedClient() {
     return null;
   }
 
-  return { supabase, userId };
+  return {
+    email: typeof data?.claims?.email === "string" ? data.claims.email : null,
+    supabase,
+    userId,
+  };
 }
 
 async function loadBaskets(
@@ -377,7 +382,76 @@ export async function attachGmailToPlay(request: {
     }
     revalidatePath("/");
     console.info("GMAIL_ATTACHMENT_SAVE_COMPLETE", diagnostic);
-    return { message: "Gmail attached.", status: "success" };
+    console.info("GMAIL_ASSIGNEE_RESOLUTION_STARTED", diagnostic);
+    try {
+      const resolution = await resolveGmailAssigneeForThread({
+        accountIndex: attachment.accountIndex,
+        authenticatedEmail: auth.email,
+        ownerUserId: auth.userId,
+        supabase: auth.supabase,
+        threadId: attachment.threadRef,
+      });
+      if (resolution.status === "contact_not_found") {
+        console.info("GMAIL_COUNTERPARTY_RESOLVED", {
+          ...diagnostic,
+          counterpartyEmail: resolution.counterparty.email,
+          counterpartyName: resolution.counterparty.name,
+        });
+        console.warn("GMAIL_ASSIGNEE_CONTACT_NOT_FOUND", {
+          ...diagnostic,
+          counterpartyEmail: resolution.counterparty.email,
+          counterpartyName: resolution.counterparty.name,
+        });
+        return { message: "Gmail attached.", status: "success" };
+      }
+      if (resolution.status === "failed") {
+        console.warn("GMAIL_ASSIGNEE_UPDATE_FAILED", {
+          ...diagnostic,
+          reason: resolution.reason,
+        });
+        return { message: "Gmail attached.", status: "success" };
+      }
+
+      const assigneeDiagnostic = {
+        ...diagnostic,
+        contactReferenceId: resolution.contact.id,
+        counterpartyEmail: resolution.counterparty.email,
+        counterpartyName: resolution.counterparty.name,
+      };
+      console.info("GMAIL_COUNTERPARTY_RESOLVED", assigneeDiagnostic);
+      console.info("GMAIL_ASSIGNEE_MATCHED", {
+        ...assigneeDiagnostic,
+        source: resolution.source,
+      });
+      const assigned = await repository.assignPlayer({
+        playId: request.playId,
+        playerContactId: resolution.contact.id,
+        playerResourceName: resolution.contact.providerResourceName,
+      });
+      if (!assigned) {
+        console.warn("GMAIL_ASSIGNEE_UPDATE_FAILED", {
+          ...assigneeDiagnostic,
+          reason: "player_update_failed",
+        });
+        return { message: "Gmail attached.", status: "success" };
+      }
+      revalidatePath("/");
+      console.info("GMAIL_ASSIGNEE_UPDATE_COMPLETE", assigneeDiagnostic);
+      return {
+        message: "Gmail attached.",
+        status: "success",
+        values: {
+          playerContactId: resolution.contact.id,
+          playerDisplayName: resolution.contact.displayName,
+        },
+      };
+    } catch {
+      console.warn("GMAIL_ASSIGNEE_UPDATE_FAILED", {
+        ...diagnostic,
+        reason: "assignee_resolution_failed",
+      });
+      return { message: "Gmail attached.", status: "success" };
+    }
   } catch {
     console.warn("GMAIL_ATTACHMENT_SAVE_FAILED", diagnostic);
     return errorState("Gmail could not be attached to this Play.");

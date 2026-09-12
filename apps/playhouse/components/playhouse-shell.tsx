@@ -378,6 +378,20 @@ function PlayhouseShellView({
           url: attachment.canonicalUrl,
         });
         if (result.status === "success") {
+          if (result.values?.playerContactId && result.values.playerDisplayName) {
+            setOptimisticPlays((current) => ({
+              source: plays,
+              value: (current?.source === plays ? current.value : localPlays).map((play) =>
+                play.id === playId
+                  ? {
+                      ...play,
+                      playerContactId: result.values?.playerContactId ?? null,
+                      playerDisplayName: result.values?.playerDisplayName ?? null,
+                    }
+                  : play
+              ),
+            }));
+          }
           setMoveError(null);
           return;
         }

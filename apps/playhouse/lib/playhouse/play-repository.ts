@@ -41,9 +41,16 @@ export type AttachGmailRequest = {
   playId: string;
 };
 
+export type AssignPlayerRequest = {
+  playId: string;
+  playerContactId: string;
+  playerResourceName: string;
+};
+
 export interface PlayRepository {
   readonly supportsWorkflows: boolean;
   attachGmail(request: AttachGmailRequest): Promise<boolean>;
+  assignPlayer(request: AssignPlayerRequest): Promise<boolean>;
   get(playId: string): Promise<PlayListItem | null>;
   getLifecycleIdentity(playId: string): Promise<Pick<PlayListItem, "gmailThreadId" | "sourceType"> | null>;
   list(selectedView?: SelectedView): Promise<RepositoryPlayList>;

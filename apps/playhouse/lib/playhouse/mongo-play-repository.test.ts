@@ -83,6 +83,30 @@ describe("MongoPlayRepository mutations", () => {
     expect(updateOne.mock.calls[0][1].$set).not.toHaveProperty("url");
   });
 
+  it("assigns only the targeted Play without changing rank or placement", async () => {
+    const id = new ObjectId();
+    const updateOne = vi.fn().mockResolvedValue({ matchedCount: 1 });
+    await expect(repository({ updateOne: updateOne as never }).assignPlayer({
+      playId: id.toHexString(),
+      playerContactId: "contact-kayla",
+      playerResourceName: "people/kayla",
+    })).resolves.toBe(true);
+    expect(updateOne.mock.calls[0][0]).toEqual({
+      _id: id,
+      "carnival_google.semantic_role": { $ne: "place" },
+      is_active: true,
+      is_deleted: false,
+      task_type: { $ne: "A" },
+      user_id: 43,
+    });
+    expect(updateOne.mock.calls[0][1].$set).toEqual({
+      contact_id: "people/kayla",
+      updated_date: expect.any(Date),
+    });
+    expect(updateOne.mock.calls[0][1].$set).not.toHaveProperty("task_type");
+    expect(updateOne.mock.calls[0][1].$set).not.toHaveProperty("task_date");
+  });
+
   it.each([
     ["done", { is_active: false }],
     ["trash", { is_active: false, is_deleted: true }],

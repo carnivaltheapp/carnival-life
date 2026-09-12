@@ -39,6 +39,7 @@ import {
   type MongoContactDisplay,
 } from "./mongo-play-mapping";
 import type {
+  AssignPlayerRequest,
   FlipPlayRankRequest,
   AttachGmailRequest,
   PlayRepository,
@@ -89,6 +90,24 @@ export class MongoPlayRepository implements PlayRepository {
       },
     });
     return result.matchedCount === 1;
+  }
+
+  async assignPlayer({ playId, playerResourceName }: AssignPlayerRequest) {
+    try {
+      const result = await this.dependencies.collection.updateOne({
+        ...mongoActiveFilter(),
+        ...mongoMutationFilter(playId),
+        task_type: { $ne: "A" },
+      }, {
+        $set: {
+          contact_id: playerResourceName,
+          updated_date: new Date(),
+        },
+      });
+      return result.matchedCount === 1;
+    } catch {
+      return false;
+    }
   }
 
   private async contactMap(

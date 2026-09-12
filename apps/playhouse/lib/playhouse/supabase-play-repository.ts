@@ -14,6 +14,7 @@ import { legacyTaskTypeFromMetadata } from "../../domain/play-visual";
 import type { Database } from "../supabase/database.types";
 import type { SelectedView } from "./data";
 import type {
+  AssignPlayerRequest,
   FlipPlayRankRequest,
   AttachGmailRequest,
   PlayRepository,
@@ -67,6 +68,18 @@ export class SupabasePlayRepository implements PlayRepository {
       .update({
         source_metadata: gmailMetadataWithAttachment(metadata, attachment),
       })
+      .eq("id", playId)
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", "open")
+      .select("id")
+      .maybeSingle();
+    return !error && data?.id === playId;
+  }
+
+  async assignPlayer({ playId, playerContactId }: AssignPlayerRequest) {
+    const { data, error } = await this.supabase
+      .from("plays")
+      .update({ player_contact_id: playerContactId })
       .eq("id", playId)
       .eq("owner_user_id", this.ownerUserId)
       .eq("status", "open")

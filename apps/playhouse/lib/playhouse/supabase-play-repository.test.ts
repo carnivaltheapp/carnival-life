@@ -155,6 +155,23 @@ describe("Supabase Gmail attachment", () => {
     expect(from).toHaveBeenCalledOnce();
     expect(existing.update).not.toHaveBeenCalled();
   });
+
+  it("assigns only the owner-scoped target without changing rank or placement", async () => {
+    const update = query({ data: { id: "play-1" }, error: null });
+    const from = vi.fn().mockReturnValue(update);
+    await expect(new SupabasePlayRepository(
+      { from } as never,
+      "owner-user",
+    ).assignPlayer({
+      playId: "play-1",
+      playerContactId: "contact-kayla",
+      playerResourceName: "people/kayla",
+    })).resolves.toBe(true);
+    expect(update.update).toHaveBeenCalledWith({ player_contact_id: "contact-kayla" });
+    expect(update.eq).toHaveBeenCalledWith("id", "play-1");
+    expect(update.eq).toHaveBeenCalledWith("owner_user_id", "owner-user");
+    expect(update.eq).toHaveBeenCalledWith("status", "open");
+  });
 });
 
 describe("Supabase rank flip", () => {
