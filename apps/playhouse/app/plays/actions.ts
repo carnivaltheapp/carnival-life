@@ -12,7 +12,7 @@ import {
   capturePlayMutationValues,
   type PlayMutationState,
 } from "../../domain/play-mutation";
-import type { BasketSummary } from "../../domain/play";
+import type { BasketSummary, PlayListItem } from "../../domain/play";
 import type { PlayPlacement } from "../../domain/play";
 import { isBulkSelectablePlay, type BulkPlayChange } from "../../domain/play-bulk-change";
 import {
@@ -492,7 +492,7 @@ export async function attachGmailToPlay(request: {
 
 export async function createGmailPlayFromRow(
   request: GmailRowCreateRequest,
-): Promise<PlayMutationState & { playId?: string }> {
+): Promise<PlayMutationState & { play?: PlayListItem; playId?: string }> {
   const parsed = parseGmailRowCreateRequest(request);
   const diagnostic = {
     correlationId: typeof request?.correlationId === "string"
@@ -584,8 +584,14 @@ export async function createGmailPlayFromRow(
       ...completedDiagnostic,
       assigned: Boolean(playerContactId),
     });
+    const play = await repository.get(playId);
     revalidatePath("/");
-    return { message: "Gmail Play created.", playId, status: "success" };
+    return {
+      message: "Gmail Play created.",
+      ...(play ? { play } : {}),
+      playId,
+      status: "success",
+    };
   } catch {
     console.warn("GMAIL_ROW_CREATE_FAILED", { ...diagnostic, reason: "unexpected_failure" });
     return errorState("That Gmail Play could not be created.");

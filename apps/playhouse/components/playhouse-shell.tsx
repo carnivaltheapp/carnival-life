@@ -41,6 +41,7 @@ import {
 } from "../domain/gmail-attachment";
 import {
   claimGmailRowCreate,
+  mergeCreatedGmailPlay,
   parseGmailRowCreateRequest,
 } from "../domain/gmail-row-create";
 import type { SelectedView } from "../lib/playhouse/data";
@@ -515,6 +516,29 @@ function PlayhouseShellView({
           return;
         }
         setMoveError(null);
+        if (result.play) {
+          console.info("GMAIL_ROW_CREATE_UI_INSERT_STARTED", {
+            createdPlayId: result.play.id,
+            destination: result.play.basketId ?? result.play.scheduledDate,
+            rank: playVisualForPlay(result.play).label,
+          });
+          const nextPlays = mergeCreatedGmailPlay({
+            baskets,
+            createdPlay: result.play,
+            plays: localPlays,
+            searchQuery,
+            selectedView,
+          });
+          setOptimisticPlays({ source: plays, value: nextPlays });
+          console.info("GMAIL_ROW_CREATE_UI_INSERT_COMPLETE", {
+            createdPlayId: result.play.id,
+            destination: result.play.basketId ?? result.play.scheduledDate,
+            rank: playVisualForPlay(result.play).label,
+            visibleAfterInsert: nextPlays.some(({ id }) => id === result.play?.id),
+          });
+        } else {
+          router.refresh();
+        }
         console.info("GMAIL_THREAD_STAR_STARTED", {
           accountIndex: parsed.attachment.accountIndex,
           correlationId: parsed.correlationId,
@@ -527,7 +551,6 @@ function PlayhouseShellView({
             threadRef: parsed.attachment.threadRef,
           }),
         }));
-        router.refresh();
       });
     }
 
@@ -575,7 +598,7 @@ function PlayhouseShellView({
       );
       window.removeEventListener("carnival:gmail-star-result", acceptGmailStarResult);
     };
-  }, [gmailCreatePending, localPlays, router]);
+  }, [baskets, gmailCreatePending, localPlays, plays, router, searchQuery, selectedView]);
 
   function beginDrag(playId: string, event: DragEvent<HTMLLIElement>) {
     const ids = playIdsForDrag({

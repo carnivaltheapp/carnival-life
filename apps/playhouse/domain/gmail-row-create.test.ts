@@ -4,6 +4,7 @@ import type { PlayListItem } from "./play";
 import {
   claimGmailRowCreate,
   gmailRowCreateInput,
+  mergeCreatedGmailPlay,
   parseGmailRowCreateRequest,
 } from "./gmail-row-create";
 
@@ -87,5 +88,92 @@ describe("Gmail row-create input", () => {
     const processed = new Set<string>();
     expect(claimGmailRowCreate(processed, "drop-1")).toBe(true);
     expect(claimGmailRowCreate(processed, "drop-1")).toBe(false);
+  });
+
+  it("inserts a created Play immediately in natural rank order without duplicates", () => {
+    const targetPlay = target({ id: "target", sortOrder: 20 });
+    const reminder = target({ id: "reminder", playType: "reminder", sortOrder: 10 });
+    const createdPlay = target({
+      id: "created",
+      sourceType: "gmail",
+      sortOrder: 5,
+      title: "Created from Gmail",
+    });
+    const options = {
+      baskets: [],
+      createdPlay,
+      searchQuery: "",
+      selectedView: {
+        endDate: "2026-09-14",
+        key: "date" as const,
+        kind: "calendar" as const,
+        startDate: "2026-09-14",
+      },
+    };
+
+    const inserted = mergeCreatedGmailPlay({
+      ...options,
+      plays: [targetPlay, reminder],
+    });
+    expect(inserted.map(({ id }) => id)).toEqual(["created", "target", "reminder"]);
+    expect(inserted.find(({ id }) => id === "target")).toEqual(targetPlay);
+
+    const revalidated = mergeCreatedGmailPlay({ ...options, plays: inserted });
+    expect(revalidated.filter(({ id }) => id === "created")).toHaveLength(1);
+  });
+
+  it("does not force a returned Play into an unrelated destination or search", () => {
+    const createdPlay = target({ id: "created", scheduledDate: "2026-09-15" });
+    const selectedView = {
+      endDate: "2026-09-14",
+      key: "date" as const,
+      kind: "calendar" as const,
+      startDate: "2026-09-14",
+    };
+
+    expect(mergeCreatedGmailPlay({
+      baskets: [],
+      createdPlay,
+      plays: [],
+      searchQuery: "",
+      selectedView,
+    })).toEqual([]);
+    expect(mergeCreatedGmailPlay({
+      baskets: [],
+      createdPlay: { ...createdPlay, scheduledDate: "2026-09-14" },
+      plays: [],
+      searchQuery: "not the subject",
+      selectedView,
+    })).toEqual([]);
+  });
+
+  it("inserts only into the matching Basket view", () => {
+    const createdPlay = target({
+      basketId: "11111111-1111-4111-8111-111111111111",
+      id: "created",
+      scheduledDate: null,
+    });
+    const result = mergeCreatedGmailPlay({
+      baskets: [],
+      createdPlay,
+      plays: [],
+      searchQuery: "",
+      selectedView: {
+        basket: { id: "11111111-1111-4111-8111-111111111111" },
+        kind: "basket",
+      },
+    });
+
+    expect(result).toEqual([createdPlay]);
+    expect(mergeCreatedGmailPlay({
+      baskets: [],
+      createdPlay,
+      plays: [],
+      searchQuery: "",
+      selectedView: {
+        basket: { id: "22222222-2222-4222-8222-222222222222" },
+        kind: "basket",
+      },
+    })).toEqual([]);
   });
 });

@@ -1,12 +1,24 @@
 import type { PlayInput } from "./play-input";
 import { isIsoCalendarDate, isUuid } from "./play-input";
-import type { PlayListItem, PlayPlacement } from "./play";
+import type { BasketSummary, PlayListItem, PlayPlacement } from "./play";
 import {
   parseGmailAttachmentUrl,
   sanitizeGmailParticipants,
   type GmailAttachment,
   type GmailParticipants,
 } from "./gmail-attachment";
+import { searchPlays } from "./play-search";
+import { compareChronologicalPlays, comparePlayRankAndPriority } from "./play-sort";
+
+type GmailRowCreateView =
+  | { kind: "all"; defaultDate: string }
+  | { kind: "basket"; basket: { id: string } }
+  | {
+      kind: "calendar";
+      endDate: string;
+      key: "date" | "today" | "tomorrow" | "week";
+      startDate: string;
+    };
 
 export type GmailRowCreateRequest = {
   correlationId: string;
@@ -28,6 +40,45 @@ export function claimGmailRowCreate(processed: Set<string>, correlationId: strin
   if (processed.has(correlationId)) return false;
   processed.add(correlationId);
   return true;
+}
+
+export function mergeCreatedGmailPlay({
+  baskets,
+  createdPlay,
+  plays,
+  searchQuery,
+  selectedView,
+}: {
+  baskets: BasketSummary[];
+  createdPlay: PlayListItem;
+  plays: PlayListItem[];
+  searchQuery: string;
+  selectedView: GmailRowCreateView;
+}) {
+  const merged = [...plays.filter(({ id }) => id !== createdPlay.id), createdPlay];
+  if (searchQuery) return searchPlays(merged, searchQuery, baskets);
+
+  const belongsToView = selectedView.kind === "basket"
+    ? createdPlay.basketId === selectedView.basket.id
+    : selectedView.kind === "all"
+      ? !createdPlay.basketId && Boolean(
+        createdPlay.scheduledDate &&
+        createdPlay.scheduledDate >= selectedView.defaultDate &&
+        createdPlay.scheduledDate < "2200-01-01",
+      )
+      : !createdPlay.basketId && Boolean(
+        createdPlay.scheduledDate &&
+        createdPlay.scheduledDate >= selectedView.startDate &&
+        createdPlay.scheduledDate <= selectedView.endDate,
+      );
+  if (!belongsToView) return plays;
+
+  return merged.sort(
+    selectedView.kind === "all" ||
+      (selectedView.kind === "calendar" && selectedView.key === "week")
+      ? compareChronologicalPlays
+      : comparePlayRankAndPriority,
+  );
 }
 
 export function parseGmailRowCreateRequest(value: unknown): ParsedGmailRowCreate | null {
