@@ -318,6 +318,22 @@ function PlayhouseShellView({
   const [gmailAttachPending, startGmailAttach] = useTransition();
   const [gmailCreatePending, startGmailCreate] = useTransition();
   const localPlays = optimisticPlays?.source === plays ? optimisticPlays.value : plays;
+  const gmailCreateListContextRef = useRef({
+    baskets,
+    localPlays,
+    plays,
+    searchQuery,
+    selectedView,
+  });
+  useEffect(() => {
+    gmailCreateListContextRef.current = {
+      baskets,
+      localPlays,
+      plays,
+      searchQuery,
+      selectedView,
+    };
+  }, [baskets, localPlays, plays, searchQuery, selectedView]);
   useEffect(() => {
     if (!gmailContextMenu) return;
     const closeOnPointerDown = (event: globalThis.PointerEvent) => {
@@ -517,19 +533,20 @@ function PlayhouseShellView({
         }
         setMoveError(null);
         if (result.play) {
+          const listContext = gmailCreateListContextRef.current;
           console.info("GMAIL_ROW_CREATE_UI_INSERT_STARTED", {
             createdPlayId: result.play.id,
             destination: result.play.basketId ?? result.play.scheduledDate,
             rank: playVisualForPlay(result.play).label,
           });
           const nextPlays = mergeCreatedGmailPlay({
-            baskets,
+            baskets: listContext.baskets,
             createdPlay: result.play,
-            plays: localPlays,
-            searchQuery,
-            selectedView,
+            plays: listContext.localPlays,
+            searchQuery: listContext.searchQuery,
+            selectedView: listContext.selectedView,
           });
-          setOptimisticPlays({ source: plays, value: nextPlays });
+          setOptimisticPlays({ source: listContext.plays, value: nextPlays });
           console.info("GMAIL_ROW_CREATE_UI_INSERT_COMPLETE", {
             createdPlayId: result.play.id,
             destination: result.play.basketId ?? result.play.scheduledDate,
