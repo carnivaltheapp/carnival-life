@@ -1,5 +1,7 @@
 const PLAYHOUSE_MESSAGE_SOURCE = "carnival-playhouse";
 const OPEN_IN_AUX_MESSAGE_TYPE = "openInAux";
+const OPEN_IN_AUX_RESULT_SOURCE = "carnival-playhouse-bridge";
+const OPEN_IN_AUX_RESULT_TYPE = "openInAuxResult";
 
 console.info("Carnival Aux bridge content script loaded");
 
@@ -15,5 +17,19 @@ window.addEventListener("message", (event) => {
   }).then((response) => {
     if (!response?.ok) throw new Error(response?.error ?? "The extension did not route the request.");
     console.info("Carnival Aux bridge request completed");
-  }).catch((error) => console.error("Carnival Aux routing failed", error));
+    if (event.data.requestId) window.postMessage({
+      ok: true,
+      requestId: event.data.requestId,
+      source: OPEN_IN_AUX_RESULT_SOURCE,
+      type: OPEN_IN_AUX_RESULT_TYPE,
+    }, window.location.origin);
+  }).catch((error) => {
+    console.error("Carnival Aux routing failed", error);
+    if (event.data.requestId) window.postMessage({
+      ok: false,
+      requestId: event.data.requestId,
+      source: OPEN_IN_AUX_RESULT_SOURCE,
+      type: OPEN_IN_AUX_RESULT_TYPE,
+    }, window.location.origin);
+  });
 });

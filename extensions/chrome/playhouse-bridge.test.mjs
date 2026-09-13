@@ -16,11 +16,13 @@ test("content script receives the page request and forwards canonical openInAux"
   let messageListener;
   const messages = [];
   const logs = [];
+  const pageMessages = [];
   const pageWindow = {
     addEventListener(type, listener) {
       if (type === "message") messageListener = listener;
     },
     location: { origin: "https://carnival-playhouse.vercel.app" },
+    postMessage(message, origin) { pageMessages.push({ message, origin }); },
   };
   vm.runInNewContext(bridgeSource, {
     chrome: {
@@ -57,4 +59,25 @@ test("content script receives the page request and forwards canonical openInAux"
   assert.equal(messages[0].url, "https://example.com");
   assert.equal(logs.some((entry) => entry[1] === "Carnival Aux bridge request received"), true);
   assert.equal(logs.some((entry) => entry[1] === "Carnival Aux bridge request completed"), true);
+
+  messageListener({
+    data: {
+      requestId: "description-route-1",
+      source: "carnival-playhouse",
+      type: "openInAux",
+      url: "https://mail.google.com/mail/u/0/#all/FMexact",
+    },
+    origin: pageWindow.location.origin,
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(JSON.parse(JSON.stringify(pageMessages)), [{
+    message: {
+      ok: true,
+      requestId: "description-route-1",
+      source: "carnival-playhouse-bridge",
+      type: "openInAuxResult",
+    },
+    origin: pageWindow.location.origin,
+  }]);
 });

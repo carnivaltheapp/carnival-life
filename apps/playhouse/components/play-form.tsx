@@ -17,6 +17,7 @@ import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
 import { reminderDateError } from "../domain/reminder";
 import { playVisualForPlay } from "../domain/play-visual";
 import { NextPlayRelationshipForm } from "./next-play-relationship-form";
+import { openPlayDetailsAndRouteAux } from "./play-description-aux";
 import { applySuccessfulPlaySave } from "./play-form-success";
 import { PlayerCombobox } from "./player-combobox";
 import { PlayInfo, PlayWorkflowActions } from "./play-status-actions";
@@ -170,6 +171,19 @@ export function PlayForm({
         aria-label={isEditing ? undefined : "New Play"}
         className={isEditing ? "playTitleLink" : undefined}
         data-testid={isEditing ? "play-title" : undefined}
+        onClick={isEditing ? (event) => {
+          event.preventDefault();
+          if (detailsRef.current?.open) {
+            detailsRef.current.open = false;
+            return;
+          }
+          if (play) {
+            void openPlayDetailsAndRouteAux(
+              play,
+              () => { if (detailsRef.current) detailsRef.current.open = true; },
+            );
+          }
+        } : undefined}
         title={isEditing ? undefined : "New Play"}
       >
         {isEditing
