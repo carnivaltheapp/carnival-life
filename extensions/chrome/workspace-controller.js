@@ -3,6 +3,7 @@ import {
   auxRoleForUrl,
   defaultAuxTabs,
   defaultPlayhouseTabs,
+  isGoogleContactsUrl,
   snapshotTabs,
   validSavedTabs,
 } from "./workspace-tabs.js";
@@ -887,16 +888,21 @@ export class CarnivalWorkspaceController {
       });
       await this.finalizeRestoredWindow("context", context.restore, prior.sessionCycle ?? null);
     }
-    let roleTab = await existingTab(this.chrome, context.roleTabIds[role]);
+    const contactsTabs = role === "contacts"
+      ? (await this.tabsInWindow(contextWindow.id)).filter((tab) => isGoogleContactsUrl(tab.url))
+      : [];
+    let roleTab = role === "contacts"
+      ? contactsTabs.find((tab) => tab.active) ?? contactsTabs[0] ?? null
+      : await existingTab(this.chrome, context.roleTabIds[role]);
     const roleIds = { ...context.roleTabIds };
     if (!roleTab || roleTab.windowId !== contextWindow.id) {
       roleTab = await this.chrome.tabs.create({ active: true, url, windowId: contextWindow.id });
-      roleIds[role] = roleTab.id;
       this.logger.info?.("AUX_ROLE_TAB_CREATED", { role, tabId: roleTab.id });
     } else {
       this.logger.info?.("AUX_ROLE_TAB_FOUND", { role, tabId: roleTab.id });
       await this.chrome.tabs.update(roleTab.id, { active: true, url });
     }
+    roleIds[role] = roleTab.id;
     this.logger.info?.("AUX_ROLE_TAB_ACTIVATED", { role, tabId: roleTab.id });
     const navigatedEvent = role === "gmail"
       ? "GMAIL_ROLE_NAVIGATED"

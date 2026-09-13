@@ -338,6 +338,61 @@ test("repeated Google Contacts routing creates one durable Aux role tab and reus
   assert.equal(chrome.getTabs(initial.contextWindowId).length, 4);
 });
 
+test("Google Contacts routing adopts an existing locale/query tab without creating a duplicate", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const initial = await workspace.summon(workArea, "display-1");
+  const contacts = chrome.addTab(
+    initial.contextWindowId,
+    "https://contacts.google.com/?hl=en&tab=CC#contacts",
+  );
+
+  await workspace.openCarnivalContext("https://contacts.google.com/person/c123", workArea, "display-1");
+  const state = await workspace.state();
+
+  assert.equal(chrome.calls.createTab.length, 0);
+  assert.equal(state.contextRoleTabIds.contacts, contacts.id);
+  assert.equal(chrome.getTab(contacts.id).url, "https://contacts.google.com/person/c123");
+});
+
+test("Google Contacts routing prefers the active matching tab among multiple matches", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const initial = await workspace.summon(workArea, "display-1");
+  const first = chrome.addTab(initial.contextWindowId, "https://contacts.google.com/person/first");
+  const active = chrome.addTab(
+    initial.contextWindowId,
+    "https://contacts.google.com/u/0/person/active?hl=en",
+    { active: true },
+  );
+
+  await workspace.openCarnivalContext("https://contacts.google.com/person/selected", workArea, "display-1");
+  const state = await workspace.state();
+
+  assert.equal(chrome.calls.createTab.length, 0);
+  assert.equal(state.contextRoleTabIds.contacts, active.id);
+  assert.equal(chrome.getTab(active.id).url, "https://contacts.google.com/person/selected");
+  assert.equal(chrome.getTab(first.id).url, "https://contacts.google.com/person/first");
+});
+
+test("Google Contacts routing ignores unrelated Google and Gmail tabs", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const initial = await workspace.summon(workArea, "display-1");
+  chrome.addTab(initial.contextWindowId, "https://google.com/search?q=contact");
+  chrome.addTab(initial.contextWindowId, "https://gmail.google.com/");
+  chrome.addTab(initial.contextWindowId, "https://mail.google.com/mail/u/0/#contacts");
+
+  await workspace.openCarnivalContext("https://contacts.google.com/person/c123", workArea, "display-1");
+  const state = await workspace.state();
+
+  assert.equal(chrome.calls.createTab.length, 1);
+  assert.equal(chrome.getTab(state.contextRoleTabIds.contacts).url, "https://contacts.google.com/person/c123");
+});
+
 test("Aux tab order, active tab, pins, roles, and user tabs restore after window close", async () => {
   const chrome = fakeChrome();
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };

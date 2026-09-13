@@ -5,6 +5,7 @@ import {
   AUX_ROLE_URLS,
   auxRoleForUrl,
   defaultAuxTabs,
+  isGoogleContactsUrl,
   isRestorableTabUrl,
   snapshotTabs,
   validSavedTabs,
@@ -71,4 +72,13 @@ test("Aux routing selects durable Gmail and Contacts roles and Misc otherwise", 
   assert.equal(auxRoleForUrl("https://contacts.google.com/person/c123"), "contacts");
   assert.equal(auxRoleForUrl("https://example.com/play"), "misc");
   assert.equal(auxRoleForUrl("chrome://settings"), null);
+});
+
+test("Google Contacts matching uses the exact hostname regardless of path, query, or hash", () => {
+  assert.equal(isGoogleContactsUrl("https://contacts.google.com/?hl=en&tab=CC"), true);
+  assert.equal(isGoogleContactsUrl("https://contacts.google.com/person/c123#details"), true);
+  assert.equal(isGoogleContactsUrl("https://contacts.google.com/u/0/person/c456"), true);
+  assert.equal(isGoogleContactsUrl("https://google.com/"), false);
+  assert.equal(isGoogleContactsUrl("https://gmail.google.com/"), false);
+  assert.equal(isGoogleContactsUrl("https://mail.google.com/"), false);
 });

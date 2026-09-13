@@ -79,9 +79,18 @@ export function auxRoleForUrl(value) {
   try {
     const host = new URL(value).hostname;
     if (host === "mail.google.com") return "gmail";
-    if (host === "contacts.google.com") return "contacts";
+    if (isGoogleContactsUrl(value)) return "contacts";
     return "misc";
   } catch {
     return null;
+  }
+}
+
+export function isGoogleContactsUrl(value) {
+  if (!isRestorableTabUrl(value)) return false;
+  try {
+    return new URL(value).hostname === "contacts.google.com";
+  } catch {
+    return false;
   }
 }
