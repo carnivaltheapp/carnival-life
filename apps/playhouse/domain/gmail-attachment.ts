@@ -45,10 +45,8 @@ export function parseGmailAttachmentUrl(value: string): GmailAttachment | null {
 
 function attachmentFromCustomPayload(value: string) {
   try {
-    const parsed = JSON.parse(value) as { gmailParticipants?: unknown; url?: unknown };
-    const attachment = typeof parsed.url === "string" ? parseGmailAttachmentUrl(parsed.url) : null;
-    const gmailParticipants = sanitizeGmailParticipants(parsed.gmailParticipants);
-    return attachment && gmailParticipants ? { ...attachment, gmailParticipants } : attachment;
+    const parsed = JSON.parse(value) as { url?: unknown };
+    return typeof parsed.url === "string" ? parseGmailAttachmentUrl(parsed.url) : null;
   } catch {
     return null;
   }

@@ -5,6 +5,7 @@ import {
   gmailAttachmentFromDragData,
   gmailMetadataWithAttachment,
   parseGmailAttachmentUrl,
+  sanitizeGmailParticipants,
 } from "./gmail-attachment";
 
 function dragData(values: Record<string, string>) {
@@ -20,7 +21,7 @@ const expected = {
   threadRef: "FMfcgzExample",
 };
 
-describe("Gmail physical drag payloads", () => {
+describe("Gmail URL drop payloads", () => {
   it.each([
     ["text/uri-list", "# dragged link\nhttps://mail.google.com/mail/u/2/#all/FMfcgzExample"],
     ["text/plain", "Gmail thread https://mail.google.com/mail/u/2/#all/FMfcgzExample"],
@@ -37,24 +38,13 @@ describe("Gmail physical drag payloads", () => {
     expect(gmailAttachmentFromDragData(dragData({ "text/plain": "not a URL" }))).toBeNull();
   });
 
-  it("sanitizes optional participants carried beside a realistic Gmail web reference", () => {
-    const webThreadUrl = "https://mail.google.com/mail/u/2/#all/FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC";
-    expect(gmailAttachmentFromDragData(dragData({
-      [CARNIVAL_GMAIL_DRAG_TYPE]: JSON.stringify({
-        gmailParticipants: {
-          from: { email: " KAYLA@example.com ", name: " Kayla Pouncy " },
-          to: [{ email: "me@example.com", name: "Current User" }],
-        },
-        url: webThreadUrl,
-      }),
-    }))).toEqual({
-      accountIndex: 2,
-      canonicalUrl: webThreadUrl,
-      gmailParticipants: {
-        from: { email: "kayla@example.com", name: "Kayla Pouncy" },
-        to: [{ email: "me@example.com", name: "Current User" }],
-      },
-      threadRef: "FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC",
+  it("sanitizes participant metadata returned by the Gmail tab", () => {
+    expect(sanitizeGmailParticipants({
+      from: { email: " KAYLA@example.com ", name: " Kayla Pouncy " },
+      to: [{ email: "me@example.com", name: "Current User" }],
+    })).toEqual({
+      from: { email: "kayla@example.com", name: "Kayla Pouncy" },
+      to: [{ email: "me@example.com", name: "Current User" }],
     });
   });
 

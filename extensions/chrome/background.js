@@ -10,30 +10,17 @@ const NATIVE_HOST = "com.carnival.workspace";
 const NATIVE_HOST_VERSION = "DRAWER-HOST-7";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
-const GMAIL_DRAG_TTL_MS = 10_000;
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
 const GET_VISIBLE_GMAIL_PARTICIPANTS = "getVisibleGmailParticipants";
 const TAB_SAVE_DELAY_MS = 300;
 const DIAGNOSTIC_STORAGE_KEY = "carnivalWorkspaceDiagnostics";
 const DIAGNOSTIC_LIMIT = 500;
-const GMAIL_TRACE_EVENTS = new Set([
-  "GMAIL_MERGED_ATTACHMENT_PAYLOAD",
-  "GMAIL_PENDING_PAYLOAD_RETURNED",
-  "GMAIL_SOURCE_DRAGSTART",
-  "GMAIL_SOURCE_HANDLER_ACTIVE",
-  "GMAIL_SOURCE_PARTICIPANT_EXTRACTION_FAILED",
-  "GMAIL_SOURCE_PENDING_STORE_COMPLETE",
-  "GMAIL_SOURCE_PENDING_STORE_FAILED",
-  "GMAIL_SOURCE_POINTER_DOWN",
-  "GMAIL_SOURCE_STRUCTURED_PAYLOAD",
-]);
 let nativePort = null;
 let nativeAnimationAvailable = false;
 let nativeAnimationRequestId = 0;
 let immediateNativeReconnectUsed = false;
 const nativeAnimationRequests = new Map();
 let geometrySaveTimer = null;
-let pendingGmailDrag = null;
 const tabSaveTimers = new Map();
 const tabSaveReasons = new Map();
 let diagnosticWriteQueue = Promise.resolve();
@@ -287,15 +274,6 @@ chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
 chrome.tabs.onActivated.addListener(({ windowId }) => scheduleTabSave(windowId, "tab-activated"));
 chrome.tabs.onMoved.addListener((_tabId, moveInfo) => scheduleTabSave(moveInfo.windowId, "tab-moved"));
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === "recordGmailTrace") {
-    if (GMAIL_TRACE_EVENTS.has(message.event) && message.details?.correlationId !== undefined) {
-      recordDiagnostic("info", message.event, message.details);
-      sendResponse({ ok: true });
-    } else {
-      sendResponse({ ok: false });
-    }
-    return false;
-  }
   if (message?.type === GET_GMAIL_THREAD_PARTICIPANTS) {
     const diagnostic = {
       accountIndex: message.accountIndex,
@@ -361,34 +339,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse({ gmailParticipants: null, returnedThreadRef: null });
     });
     return true;
-  }
-  if (message?.type === "gmailDragStarted") {
-    const attachment = message.attachment;
-    if (
-      typeof message.correlationId === "string" &&
-      typeof attachment?.canonicalUrl === "string" &&
-      typeof attachment?.threadRef === "string" &&
-      Number.isSafeInteger(attachment?.accountIndex)
-    ) {
-      pendingGmailDrag = {
-        attachment,
-        correlationId: message.correlationId,
-        startedAt: Date.now(),
-      };
-    }
-    sendResponse({ ok: Boolean(pendingGmailDrag) });
-    return false;
-  }
-  if (message?.type === "getPendingGmailDrag") {
-    if (pendingGmailDrag && Date.now() - pendingGmailDrag.startedAt <= GMAIL_DRAG_TTL_MS) {
-      const response = pendingGmailDrag;
-      pendingGmailDrag = null;
-      sendResponse(response);
-    } else {
-      pendingGmailDrag = null;
-      sendResponse({ attachment: null });
-    }
-    return false;
   }
   if (!isOpenInAuxMessage(message)) return false;
   routeOpenInAuxMessage({ controller, currentWorkArea, message, reportDrawerState })
