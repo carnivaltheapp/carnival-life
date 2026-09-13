@@ -12,6 +12,7 @@ import {
 } from "../domain/grid-font-size";
 import type { CalendarSettingsAccount } from "../domain/calendar-settings";
 import { CalendarSettings } from "./calendar-settings";
+import { SlackConnectionSettings } from "./slack-connection-settings";
 
 const GRID_FONT_SIZE_EVENT = "playhouse-grid-font-size-change";
 
@@ -71,7 +72,7 @@ export function GridSettings({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [section, setSection] = useState<"general" | "calendars">("general");
+  const [section, setSection] = useState<"general" | "calendars" | "slack">("general");
 
   useEffect(() => {
     if (!open) return;
@@ -125,6 +126,13 @@ export function GridSettings({
             >
               Calendars
             </button>
+            <button
+              aria-current={section === "slack" ? "page" : undefined}
+              onClick={() => setSection("slack")}
+              type="button"
+            >
+              Slack
+            </button>
           </nav>
           <div className="settingsContent">
             {section === "general" ? (
@@ -151,8 +159,10 @@ export function GridSettings({
                   </button>
                 </div>
               </section>
-            ) : (
+            ) : section === "calendars" ? (
               <CalendarSettings accounts={calendarAccounts} error={calendarSettingsError} />
+            ) : (
+              <SlackConnectionSettings />
             )}
           </div>
         </div>

@@ -28,12 +28,13 @@ import {
 } from "../../lib/google/player-search-error";
 import { createClient } from "../../lib/supabase/server";
 import { GOOGLE_CONTACTS_WRITE_SCOPE } from "../../lib/google/scopes";
+import { resolveSlackNameForOwner } from "../../lib/slack/connection.server";
 
 const SLACK_RECONNECT_MESSAGE =
   "Reconnect Google and approve Contacts access before editing Slack.";
 
 type PlayerSlackResponse =
-  | { slack: string; status: "success" }
+  | { slack: string; slackName: string | null; status: "success" }
   | { message: string; status: "error" };
 
 async function authenticatedClient() {
@@ -199,8 +200,10 @@ export async function loadPlayerSlack(
   const contact = await ownedGoogleContact(auth, playerContactId);
   if (!contact) return { message: "This Player is not linked to Google Contacts.", status: "error" };
   try {
+    const slack = (await readSlackForAccount({ ...contact, ownerUserId: auth.userId })).slack;
     return {
-      slack: (await readSlackForAccount({ ...contact, ownerUserId: auth.userId })).slack,
+      slack,
+      slackName: await resolveSlackNameForOwner(auth.userId, slack),
       status: "success",
     };
   } catch {
@@ -210,11 +213,15 @@ export async function loadPlayerSlack(
 
 export async function loadPlayerSlackValues(
   playerContactIds: string[],
-): Promise<{ values: Record<string, string>; status: "success" } | { status: "error" }> {
+): Promise<{
+  names: Record<string, string>;
+  values: Record<string, string>;
+  status: "success";
+} | { status: "error" }> {
   const auth = await authenticatedClient();
   if (!auth) return { status: "error" };
   const ids = [...new Set(playerContactIds.filter(isUuid))];
-  if (!ids.length) return { status: "success", values: {} };
+  if (!ids.length) return { names: {}, status: "success", values: {} };
   const { data, error } = await auth.supabase
     .from("contact_references")
     .select("google_account_id, id, provider_resource_name")
@@ -240,7 +247,12 @@ export async function loadPlayerSlackValues(
       return [];
     }
   }));
-  return { status: "success", values: Object.fromEntries(pairs.flat()) };
+  const values = Object.fromEntries(pairs.flat());
+  const names = Object.fromEntries((await Promise.all(Object.entries(values).map(async ([id, slack]) => {
+    const name = await resolveSlackNameForOwner(auth.userId, slack);
+    return name ? [id, name] as const : null;
+  }))).filter((entry): entry is readonly [string, string] => Boolean(entry)));
+  return { names, status: "success", values };
 }
 
 export async function savePlayerSlack(
@@ -265,12 +277,14 @@ export async function savePlayerSlack(
     !account.granted_scopes.includes(GOOGLE_CONTACTS_WRITE_SCOPE)
   ) return { message: SLACK_RECONNECT_MESSAGE, status: "error" };
   try {
+    const saved = await writeSlackForAccount({
+      ...contact,
+      ownerUserId: auth.userId,
+      slack,
+    });
     return {
-      slack: (await writeSlackForAccount({
-        ...contact,
-        ownerUserId: auth.userId,
-        slack,
-      })).slack,
+      slack: saved.slack,
+      slackName: await resolveSlackNameForOwner(auth.userId, saved.slack),
       status: "success",
     };
   } catch (caught) {

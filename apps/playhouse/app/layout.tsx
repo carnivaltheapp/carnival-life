@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-SLACK-MAIN-SAVE-55
+          P3-SLACK-CONNECT-56
         </small>
       </body>
     </html>

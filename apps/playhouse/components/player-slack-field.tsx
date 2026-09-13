@@ -9,6 +9,7 @@ export function PlayerSlackField({ playerContactId }: { playerContactId: string 
   const [confirmed, setConfirmed] = useState("");
   const [value, setValue] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [resolvedName, setResolvedName] = useState<string | null>(null);
   const [loading, setLoading] = useState(Boolean(playerContactId));
 
   useEffect(() => {
@@ -21,6 +22,7 @@ export function PlayerSlackField({ playerContactId }: { playerContactId: string 
       else {
         setConfirmed(response.slack);
         setValue(response.slack);
+        setResolvedName(response.slackName);
       }
     });
     return () => { current = false; };
@@ -45,11 +47,15 @@ export function PlayerSlackField({ playerContactId }: { playerContactId: string 
         aria-label="Slack"
         disabled={!playerContactId || loading}
         name="slack"
-        onChange={(event) => setValue(event.target.value)}
+        onChange={(event) => {
+          setValue(event.target.value);
+          setResolvedName(null);
+        }}
         placeholder={loading ? "Loading Slack…" : "Slack URL"}
         value={value}
       />
       <input name="slackConfirmed" type="hidden" value={confirmed} />
+      {resolvedName ? <small className="playerSlackResolved">{resolvedName}</small> : null}
       {message ? <small className="playerSlackError" role="alert">{message}</small> : null}
     </label>
   );

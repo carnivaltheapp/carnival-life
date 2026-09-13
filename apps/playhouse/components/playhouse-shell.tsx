@@ -269,6 +269,7 @@ function PlayhouseShellView({
     value: PlayListItem[];
   } | null>(null);
   const [playerSlack, setPlayerSlack] = useState<Record<string, string>>({});
+  const [playerSlackNames, setPlayerSlackNames] = useState<Record<string, string>>({});
   const [movePending, startMove] = useTransition();
   const [bulkPending, startBulk] = useTransition();
   const [flipPending, startFlip] = useTransition();
@@ -282,7 +283,10 @@ function PlayhouseShellView({
     let current = true;
     if (!ids.length) return () => { current = false; };
     void loadPlayerSlackValues(ids).then((response) => {
-      if (current && response.status === "success") setPlayerSlack(response.values);
+      if (current && response.status === "success") {
+        setPlayerSlack(response.values);
+        setPlayerSlackNames(response.names);
+      }
     });
     return () => { current = false; };
   }, [localPlays]);
@@ -1628,6 +1632,9 @@ function PlayhouseShellView({
                           ? undefined
                           : () => requestRankFlip(play)}
                         play={play}
+                        slackName={play.playerContactId
+                          ? playerSlackNames[play.playerContactId] ?? null
+                          : null}
                         slackUrl={play.playerContactId
                           ? usableSlackUrl(playerSlack[play.playerContactId])
                           : null}

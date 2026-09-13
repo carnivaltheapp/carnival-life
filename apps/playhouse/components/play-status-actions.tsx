@@ -116,11 +116,13 @@ export function PlayStatusActions({
   flipPending = false,
   onFlipRank,
   play,
+  slackName = null,
   slackUrl = null,
 }: {
   flipPending?: boolean;
   onFlipRank?: () => void;
   play: PlayListItem;
+  slackName?: string | null;
   slackUrl?: string | null;
 }) {
   const router = useRouter();
@@ -187,7 +189,7 @@ export function PlayStatusActions({
               event.stopPropagation();
               openInAux(slackUrl);
             }}
-            title="Open Player Slack"
+            title={slackName ? `Open ${slackName} in Slack` : "Open Slack"}
             type="button"
           >
             <SlackIcon />

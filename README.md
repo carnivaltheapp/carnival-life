@@ -174,6 +174,10 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 GOOGLE_OAUTH_CLIENT_ID=your-google-oauth-client-id
 GOOGLE_OAUTH_CLIENT_SECRET=your-google-oauth-client-secret
 GOOGLE_TOKEN_ENCRYPTION_KEY=base64-encoded-32-byte-key
+SLACK_OAUTH_CLIENT_ID=your-slack-client-id
+SLACK_OAUTH_CLIENT_SECRET=your-slack-client-secret
+SLACK_OAUTH_REDIRECT_URI=https://your-playhouse-host/slack/callback
+SLACK_TOKEN_ENCRYPTION_KEY=base64-encoded-32-byte-key
 ```
 
 PlayHouse temporarily uses the legacy Mongo database as its authoritative Play
