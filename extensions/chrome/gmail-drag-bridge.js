@@ -131,6 +131,15 @@ if (window.location.hostname === "mail.google.com") {
     event.stopImmediatePropagation();
     const correlationId = crypto.randomUUID();
     const dispatchAttachment = (response) => {
+      console.info("GMAIL_ROW_CREATE_TAB_METADATA", {
+        fromPresent: Boolean(response?.gmailParticipants?.from),
+        gmailThreadRef: response?.returnedThreadRef ?? null,
+        subject: response?.gmailSubject ?? null,
+        subjectPresent: Boolean(response?.gmailSubject?.trim?.()),
+        toCount: Array.isArray(response?.gmailParticipants?.to)
+          ? response.gmailParticipants.to.length
+          : 0,
+      });
       window.dispatchEvent(new CustomEvent("carnival:gmail-row-create", {
         detail: JSON.stringify({
           correlationId,

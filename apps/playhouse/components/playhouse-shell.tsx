@@ -36,6 +36,7 @@ import {
   gmailCorrelationIdFromDragData,
   gmailMetadataWithoutAttachment,
   mayContainGmailDrag,
+  parseGmailAttachmentUrl,
   type GmailAttachment,
 } from "../domain/gmail-attachment";
 import {
@@ -454,6 +455,42 @@ function PlayhouseShellView({
         console.warn("GMAIL_ROW_CREATE_FAILED", { reason: "malformed_extension_payload" });
         return;
       }
+      const rawRequest = request && typeof request === "object" && !Array.isArray(request)
+        ? request as Record<string, unknown>
+        : {};
+      const targetPlayId = typeof rawRequest.targetPlayId === "string"
+        ? rawRequest.targetPlayId
+        : null;
+      const target = targetPlayId
+        ? localPlays.find((play) => play.id === targetPlayId)
+        : null;
+      const attachment = typeof rawRequest.url === "string"
+        ? parseGmailAttachmentUrl(rawRequest.url)
+        : null;
+      const targetDestinationType = target?.basketId
+        ? "basket"
+        : target?.scheduledDate
+          ? "calendar"
+          : null;
+      console.info("GMAIL_ROW_CREATE_INPUT", {
+        gmailAccountIndex: attachment?.accountIndex ?? null,
+        gmailThreadRef: attachment?.threadRef ?? null,
+        participantsPresent: Boolean(rawRequest.gmailParticipants),
+        subject: typeof rawRequest.subject === "string" ? rawRequest.subject : null,
+        subjectPresent: Boolean(
+          typeof rawRequest.subject === "string" && rawRequest.subject.trim(),
+        ),
+        targetDestinationId: target?.basketId ?? target?.scheduledDate ?? null,
+        targetDestinationType,
+        targetPlayId,
+        targetRank: target
+          ? target.legacyTaskType === "A"
+            ? "Appointment"
+            : target.playType === "reminder"
+              ? "Reminder"
+              : "Headline"
+          : null,
+      });
       const parsed = parseGmailRowCreateRequest(request);
       console.info("GMAIL_ROW_CREATE_DROP", {
         correlationId: parsed?.correlationId ?? null,
@@ -529,7 +566,7 @@ function PlayhouseShellView({
       window.removeEventListener("carnival:gmail-row-create", acceptGmailRowCreate);
       window.removeEventListener("carnival:gmail-star-result", acceptGmailStarResult);
     };
-  }, [gmailCreatePending, router]);
+  }, [gmailCreatePending, localPlays, router]);
 
   function beginDrag(playId: string, event: DragEvent<HTMLLIElement>) {
     const ids = playIdsForDrag({
