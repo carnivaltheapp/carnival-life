@@ -57,6 +57,14 @@ describe("Play grid responsive squeeze contract", () => {
     expect(playhouseShell).not.toMatch(/<\/svg>\s*Bullseye/);
   });
 
+  it("centers the Bullseye and reserves its action bar above the grid header", () => {
+    expect(rule(".bullseyeSwitcher")).toContain("width: 38px");
+    expect(rule(".bullseyeSwitcher")).toContain("margin: 0 auto 8px");
+    expect(rule(".bullseyeCategories")).toContain("top: 0");
+    expect(rule(".bullseyeCategories")).toContain("left: 43px");
+    expect(rule(".playPanel::before")).toContain("height: 46px");
+  });
+
   it("preserves the complete five-icon action width without horizontal scrolling", () => {
     expect(rule(".statusActionArea")).toContain("width: 143px");
     expect(rule(".statusActions")).toContain("width: 143px");

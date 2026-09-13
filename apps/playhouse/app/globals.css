@@ -264,7 +264,8 @@ a {
 
 .bullseyeSwitcher {
   position: relative;
-  margin-bottom: 8px;
+  width: 38px;
+  margin: 0 auto 8px;
 }
 
 .bullseyeControl {
@@ -423,6 +424,12 @@ a {
   border-radius: 28px;
   background: rgba(255, 253, 251, 0.84);
   box-shadow: var(--shadow);
+}
+
+.playPanel::before {
+  display: block;
+  height: 46px;
+  content: "";
 }
 
 .workspaceBody[data-region-selecting="true"] {
@@ -2196,6 +2203,10 @@ h1 {
 
   .playPanel {
     min-height: 500px;
+  }
+
+  .playPanel::before {
+    display: none;
   }
 
   .emptyState {
