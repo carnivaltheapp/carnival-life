@@ -30,7 +30,7 @@ function playhouseContext(sendMessage) {
     Element: TestElement,
     URL,
     chrome: { runtime: { sendMessage } },
-    console: { info() {} },
+    console: { info() {}, warn() {} },
     crypto: { randomUUID: () => "correlation-1" },
     decodeURIComponent,
     document: { addEventListener: (type, listener) => { if (type === "drop") drop = listener; } },
@@ -54,6 +54,8 @@ function playhouseContext(sendMessage) {
 
 test("manifest injects the bridge into Gmail and PlayHouse", async () => {
   const manifest = JSON.parse(await readFile(new URL("./manifest.json", import.meta.url), "utf8"));
+  assert.ok(manifest.permissions.includes("scripting"));
+  assert.ok(manifest.host_permissions.includes("https://mail.google.com/*"));
   assert.ok(manifest.content_scripts.some((script) =>
     script.matches.includes("https://mail.google.com/*") &&
     script.js.includes("gmail-drag-bridge.js")
@@ -114,6 +116,11 @@ test("Gmail content script returns latest visible participants without page-drag
       to: [{ email: "kayla@example.com", name: "Kayla" }],
     },
     gmailSubject: "Quarterly planning",
+    participants: {
+      from: { email: "me@example.com", name: "Me" },
+      to: [{ email: "kayla@example.com", name: "Kayla" }],
+    },
+    subject: "Quarterly planning",
     threadRef: "FMexact",
   });
   assert.deepEqual(registeredWindowEvents, []);
@@ -202,6 +209,41 @@ test("omnibox Gmail URL drop requests exact-tab metadata for row-create", async 
   assert.equal(context.dispatched().type, "carnival:gmail-row-create");
 });
 
+test("row-create waits for asynchronous exact-tab metadata and retains its target", async () => {
+  let resolveMetadata;
+  const metadata = new Promise((resolve) => { resolveMetadata = resolve; });
+  const context = playhouseContext(() => metadata);
+
+  context.drop(dataTransfer({
+    "text/uri-list": "https://mail.google.com/mail/u/2/#inbox/FMexact",
+  }));
+  await Promise.resolve();
+  assert.equal(context.dispatched(), undefined);
+
+  resolveMetadata({
+    participants: {
+      from: { email: "kayla@example.com", name: "Kayla" },
+      to: [{ email: "me@example.com", name: "Me" }],
+    },
+    subject: "Quarterly planning",
+    threadRef: "FMexact",
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(context.dispatched().type, "carnival:gmail-row-create");
+  assert.deepEqual(JSON.parse(context.dispatched().detail), {
+    correlationId: "correlation-1",
+    gmailParticipants: {
+      from: { email: "kayla@example.com", name: "Kayla" },
+      to: [{ email: "me@example.com", name: "Me" }],
+    },
+    subject: "Quarterly planning",
+    targetPlayId: "play-1",
+    url: "https://mail.google.com/mail/u/2/#all/FMexact",
+  });
+});
+
 test("PlayHouse requests exact-thread starring and reports failure without navigation", async () => {
   let request;
   const context = playhouseContext(async (message) => {
@@ -230,7 +272,7 @@ test("PlayHouse requests exact-thread starring and reports failure without navig
   });
 });
 
-test("metadata failure carries no subject so row-create can fail without a malformed Play", async () => {
+test("metadata failure emits no create event or malformed Play request", async () => {
   const context = playhouseContext(async () => {
     throw new Error("matching Gmail tab unavailable");
   });
@@ -241,9 +283,10 @@ test("metadata failure carries no subject so row-create can fail without a malfo
   await Promise.resolve();
   await Promise.resolve();
 
+  assert.equal(context.dispatched().type, "carnival:gmail-row-create-metadata-failed");
   assert.deepEqual(JSON.parse(context.dispatched().detail), {
     correlationId: "correlation-1",
+    reason: "thread_mismatch",
     targetPlayId: "play-1",
-    url: "https://mail.google.com/mail/u/0/#all/FMonly",
   });
 });

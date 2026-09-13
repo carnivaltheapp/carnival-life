@@ -3,9 +3,33 @@ import test from "node:test";
 
 import {
   gmailTabIdentity,
+  requestVisibleGmailMetadata,
   selectGmailMetadataTab,
   verifyVisibleGmailParticipants,
 } from "./gmail-tab-metadata.js";
+
+test("metadata request recovers the exact Gmail tab content script before retrying", async () => {
+  const calls = [];
+  let attempt = 0;
+  const response = await requestVisibleGmailMetadata({
+    injectContentScript: async (tabId) => { calls.push(["inject", tabId]); },
+    sendMessage: async (tabId, message) => {
+      calls.push(["send", tabId, message]);
+      attempt += 1;
+      if (attempt === 1) throw new Error("Receiving end does not exist");
+      return { subject: "Quarterly planning", threadRef: "FMexact" };
+    },
+    tabId: 42,
+    threadRef: "FMexact",
+  });
+
+  assert.deepEqual(response, { subject: "Quarterly planning", threadRef: "FMexact" });
+  assert.deepEqual(calls, [
+    ["send", 42, { threadRef: "FMexact", type: "getVisibleGmailParticipants" }],
+    ["inject", 42],
+    ["send", 42, { threadRef: "FMexact", type: "getVisibleGmailParticipants" }],
+  ]);
+});
 
 test("Gmail tab identity reads account and browser thread reference", () => {
   assert.deepEqual(

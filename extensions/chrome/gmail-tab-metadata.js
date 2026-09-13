@@ -22,6 +22,21 @@ export function selectGmailMetadataTab(tabs, { accountIndex, threadRef }) {
     .sort((left, right) => Number(Boolean(right.active)) - Number(Boolean(left.active)))[0] ?? null;
 }
 
+export async function requestVisibleGmailMetadata({
+  injectContentScript,
+  sendMessage,
+  tabId,
+  threadRef,
+}) {
+  const request = { threadRef, type: "getVisibleGmailParticipants" };
+  try {
+    return await sendMessage(tabId, request);
+  } catch {
+    await injectContentScript(tabId);
+    return sendMessage(tabId, request);
+  }
+}
+
 export function verifyVisibleGmailParticipants(response, expectedThreadRef) {
   if (response?.threadRef !== expectedThreadRef) {
     return { gmailParticipants: null, status: "thread_mismatch" };

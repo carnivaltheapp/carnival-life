@@ -492,11 +492,6 @@ function PlayhouseShellView({
           : null,
       });
       const parsed = parseGmailRowCreateRequest(request);
-      console.info("GMAIL_ROW_CREATE_DROP", {
-        correlationId: parsed?.correlationId ?? null,
-        subjectPresent: Boolean(parsed?.subject),
-        targetPlayId: parsed?.targetPlayId ?? null,
-      });
       if (!parsed) {
         console.warn("GMAIL_ROW_CREATE_FAILED", { reason: "metadata_or_target_missing" });
         setMoveError("Gmail could not create a Play because its subject or target was missing.");
@@ -536,6 +531,12 @@ function PlayhouseShellView({
       });
     }
 
+    function acceptGmailMetadataFailure(event: Event) {
+      if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
+      setMoveError("Gmail could not create a Play because its subject or target was missing.");
+      clearDragState();
+    }
+
     function acceptGmailStarResult(event: Event) {
       if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
       try {
@@ -561,9 +562,17 @@ function PlayhouseShellView({
     }
 
     window.addEventListener("carnival:gmail-row-create", acceptGmailRowCreate);
+    window.addEventListener(
+      "carnival:gmail-row-create-metadata-failed",
+      acceptGmailMetadataFailure,
+    );
     window.addEventListener("carnival:gmail-star-result", acceptGmailStarResult);
     return () => {
       window.removeEventListener("carnival:gmail-row-create", acceptGmailRowCreate);
+      window.removeEventListener(
+        "carnival:gmail-row-create-metadata-failed",
+        acceptGmailMetadataFailure,
+      );
       window.removeEventListener("carnival:gmail-star-result", acceptGmailStarResult);
     };
   }, [gmailCreatePending, localPlays, router]);

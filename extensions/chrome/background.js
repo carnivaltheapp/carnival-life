@@ -2,6 +2,7 @@ import { CarnivalWorkspaceController, validWorkArea } from "./workspace-controll
 import { createWorkspaceActions } from "./workspace-summon.js";
 import { isOpenInAuxMessage, routeOpenInAuxMessage } from "./aux-routing.js";
 import {
+  requestVisibleGmailMetadata,
   selectGmailMetadataTab,
   verifyVisibleGmailParticipants,
 } from "./gmail-tab-metadata.js";
@@ -11,7 +12,6 @@ const NATIVE_HOST_VERSION = "DRAWER-HOST-7";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
-const GET_VISIBLE_GMAIL_PARTICIPANTS = "getVisibleGmailParticipants";
 const STAR_GMAIL_THREAD = "starGmailThread";
 const STAR_VISIBLE_GMAIL_THREAD = "starVisibleGmailThread";
 const TAB_SAVE_DELAY_MS = 300;
@@ -335,10 +335,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       recordDiagnostic("info", "GMAIL_METADATA_REQUEST_SENT", matched);
       let response;
       try {
-        response = await chrome.tabs.sendMessage(tab.id, {
+        let recovered = false;
+        response = await requestVisibleGmailMetadata({
+          injectContentScript: async (tabId) => {
+            await chrome.scripting.executeScript({
+              files: ["gmail-drag-bridge.js"],
+              target: { tabId },
+            });
+            recovered = true;
+          },
+          sendMessage: (tabId, request) => chrome.tabs.sendMessage(tabId, request),
+          tabId: tab.id,
           threadRef: message.threadRef,
-          type: GET_VISIBLE_GMAIL_PARTICIPANTS,
         });
+        if (recovered) {
+          recordDiagnostic("info", "GMAIL_METADATA_CONTENT_SCRIPT_RECOVERED", matched);
+        }
       } catch {
         recordDiagnostic("warn", "GMAIL_ASSIGNEE_UPDATE_FAILED", {
           ...matched,
@@ -347,21 +359,24 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ gmailParticipants: null, gmailSubject: null, returnedThreadRef: null });
         return;
       }
+      const gmailParticipants = response?.gmailParticipants ?? response?.participants ?? null;
+      const gmailSubject = response?.gmailSubject ?? response?.subject ?? null;
+      const normalizedResponse = { ...response, gmailParticipants, gmailSubject };
       const received = {
         ...matched,
-        fromExists: Boolean(response?.gmailParticipants?.from),
-        returnedThreadRef: response?.threadRef ?? null,
-        subjectPresent: Boolean(response?.gmailSubject),
-        toCount: response?.gmailParticipants?.to?.length ?? 0,
+        fromExists: Boolean(gmailParticipants?.from),
+        returnedThreadRef: normalizedResponse?.threadRef ?? null,
+        subjectPresent: Boolean(gmailSubject),
+        toCount: gmailParticipants?.to?.length ?? 0,
       };
       recordDiagnostic("info", "GMAIL_METADATA_RESPONSE_RECEIVED", received);
-      const verified = verifyVisibleGmailParticipants(response, message.threadRef);
+      const verified = verifyVisibleGmailParticipants(normalizedResponse, message.threadRef);
       if (verified.status === "thread_mismatch") {
         recordDiagnostic("warn", "GMAIL_METADATA_THREAD_MISMATCH", received);
         sendResponse({
           gmailParticipants: null,
           gmailSubject: null,
-          returnedThreadRef: response?.threadRef ?? null,
+          returnedThreadRef: normalizedResponse?.threadRef ?? null,
         });
         return;
       }
@@ -372,16 +387,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         });
         sendResponse({
           gmailParticipants: null,
-          gmailSubject: response.gmailSubject ?? null,
-          returnedThreadRef: response.threadRef,
+          gmailSubject,
+          participants: null,
+          returnedThreadRef: normalizedResponse.threadRef,
+          subject: gmailSubject,
+          threadRef: normalizedResponse.threadRef,
         });
         return;
       }
       recordDiagnostic("info", "GMAIL_PARTICIPANTS_RESOLVED_FROM_OPEN_TAB", received);
       sendResponse({
         gmailParticipants: verified.gmailParticipants,
-        gmailSubject: response.gmailSubject ?? null,
-        returnedThreadRef: response.threadRef,
+        gmailSubject,
+        participants: verified.gmailParticipants,
+        returnedThreadRef: normalizedResponse.threadRef,
+        subject: gmailSubject,
+        threadRef: normalizedResponse.threadRef,
       });
     }).catch(() => {
       recordDiagnostic("warn", "GMAIL_METADATA_TAB_NOT_FOUND", {

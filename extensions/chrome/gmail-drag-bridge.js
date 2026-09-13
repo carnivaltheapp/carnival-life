@@ -110,9 +110,12 @@ if (window.location.hostname === "mail.google.com") {
     if (message?.type !== GET_VISIBLE_GMAIL_PARTICIPANTS) return false;
     const currentThreadRef = parseGmailUrl(window.location.href)?.threadRef ?? null;
     const extraction = latestGmailParticipants();
+    const subject = visibleGmailSubject();
     sendResponse({
       gmailParticipants: extraction.participants,
-      gmailSubject: visibleGmailSubject(),
+      gmailSubject: subject,
+      participants: extraction.participants,
+      subject,
       threadRef: currentThreadRef,
     });
     return false;
@@ -131,20 +134,37 @@ if (window.location.hostname === "mail.google.com") {
     event.stopImmediatePropagation();
     const correlationId = crypto.randomUUID();
     const dispatchAttachment = (response) => {
+      const returnedThreadRef = response?.threadRef ?? response?.returnedThreadRef ?? null;
+      const subject = response?.subject ?? response?.gmailSubject ?? null;
+      const participants = response?.participants ?? response?.gmailParticipants ?? null;
       console.info("GMAIL_ROW_CREATE_TAB_METADATA", {
-        fromPresent: Boolean(response?.gmailParticipants?.from),
-        gmailThreadRef: response?.returnedThreadRef ?? null,
-        subject: response?.gmailSubject ?? null,
-        subjectPresent: Boolean(response?.gmailSubject?.trim?.()),
-        toCount: Array.isArray(response?.gmailParticipants?.to)
-          ? response.gmailParticipants.to.length
+        fromPresent: Boolean(participants?.from),
+        gmailThreadRef: returnedThreadRef,
+        subject,
+        subjectPresent: Boolean(subject?.trim?.()),
+        toCount: Array.isArray(participants?.to)
+          ? participants.to.length
           : 0,
       });
+      if (returnedThreadRef !== transferredAttachment.threadRef || !subject?.trim?.()) {
+        const reason = returnedThreadRef !== transferredAttachment.threadRef
+          ? "thread_mismatch"
+          : "subject_missing";
+        console.warn("GMAIL_ROW_CREATE_FAILED", {
+          correlationId,
+          reason,
+          targetPlayId: playId,
+        });
+        window.dispatchEvent(new CustomEvent("carnival:gmail-row-create-metadata-failed", {
+          detail: JSON.stringify({ correlationId, reason, targetPlayId: playId }),
+        }));
+        return;
+      }
       window.dispatchEvent(new CustomEvent("carnival:gmail-row-create", {
         detail: JSON.stringify({
           correlationId,
-          gmailParticipants: response?.gmailParticipants ?? undefined,
-          subject: response?.gmailSubject ?? undefined,
+          gmailParticipants: participants ?? undefined,
+          subject,
           targetPlayId: playId,
           url: transferredAttachment.canonicalUrl,
         }),
@@ -154,6 +174,11 @@ if (window.location.hostname === "mail.google.com") {
       accountIndex: transferredAttachment.accountIndex,
       correlationId,
       droppedThreadRef: transferredAttachment.threadRef,
+    });
+    console.info("GMAIL_ROW_CREATE_DROP", {
+      correlationId,
+      gmailThreadRef: transferredAttachment.threadRef,
+      targetPlayId: playId,
     });
     chrome.runtime.sendMessage({
       accountIndex: transferredAttachment.accountIndex,

@@ -6,6 +6,7 @@
   "permissions": [
     "alarms",
     "nativeMessaging",
+    "scripting",
     "storage",
     "system.display",
     "tabs"
@@ -14,6 +15,7 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "host_permissions": ["https://mail.google.com/*"],
   "content_scripts": [
     {
       "matches": [
