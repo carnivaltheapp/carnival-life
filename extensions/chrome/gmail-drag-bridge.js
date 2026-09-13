@@ -1,6 +1,8 @@
 const CARNIVAL_GMAIL_DRAG_TYPE = "application/x-carnival-gmail";
 const GMAIL_DRAG_STARTED = "gmailDragStarted";
 const GET_PENDING_GMAIL_DRAG = "getPendingGmailDrag";
+const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
+const GET_VISIBLE_GMAIL_PARTICIPANTS = "getVisibleGmailParticipants";
 const RECORD_GMAIL_TRACE = "recordGmailTrace";
 
 function persistGmailTrace(event, payload) {
@@ -188,6 +190,16 @@ if (window.location.hostname === "mail.google.com") {
       });
     });
   }, true);
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== GET_VISIBLE_GMAIL_PARTICIPANTS) return false;
+    const currentThreadRef = parseGmailUrl(window.location.href)?.threadRef ?? null;
+    const extraction = latestGmailParticipants();
+    sendResponse({
+      gmailParticipants: extraction.participants,
+      threadRef: currentThreadRef,
+    });
+    return false;
+  });
 } else {
   document.addEventListener("drop", (event) => {
     if (!event.dataTransfer) return;
@@ -219,6 +231,33 @@ if (window.location.hostname === "mail.google.com") {
         }),
       }));
     };
+    if (transferredAttachment) {
+      const correlationId = crypto.randomUUID();
+      console.info("GMAIL_URL_DROP_RECEIVED", {
+        accountIndex: transferredAttachment.accountIndex,
+        correlationId,
+        droppedThreadRef: transferredAttachment.threadRef,
+      });
+      chrome.runtime.sendMessage({
+        accountIndex: transferredAttachment.accountIndex,
+        canonicalUrl: transferredAttachment.canonicalUrl,
+        correlationId,
+        threadRef: transferredAttachment.threadRef,
+        type: GET_GMAIL_THREAD_PARTICIPANTS,
+      }).then((response) => {
+        dispatchFallback({
+          attachment: {
+            ...transferredAttachment,
+            gmailParticipants: response?.gmailParticipants ?? null,
+          },
+          correlationId,
+        });
+      }).catch(() => dispatchFallback({
+        attachment: transferredAttachment,
+        correlationId,
+      }));
+      return;
+    }
     chrome.runtime.sendMessage({ type: GET_PENDING_GMAIL_DRAG }).then((response) => {
       persistGmailTrace("GMAIL_PENDING_PAYLOAD_RETURNED", {
         correlationId: response?.correlationId ?? null,

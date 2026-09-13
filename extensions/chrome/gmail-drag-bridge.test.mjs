@@ -31,6 +31,7 @@ test("manifest injects Gmail drag normalization into Gmail and PlayHouse", async
 
 test("Gmail dragstart adds canonical standard and Carnival payloads", async () => {
   let dragstart;
+  let metadataListener;
   let pointerdown;
   const diagnostics = [];
   const messages = [];
@@ -49,6 +50,7 @@ test("Gmail dragstart adds canonical standard and Carnival payloads", async () =
     URL,
     chrome: {
       runtime: {
+        onMessage: { addListener: (listener) => { metadataListener = listener; } },
         sendMessage: async (message) => {
           messages.push(message);
           return { ok: true };
@@ -74,6 +76,7 @@ test("Gmail dragstart adds canonical standard and Carnival payloads", async () =
 
   assert.equal(typeof pointerdown, "function");
   assert.equal(typeof dragstart, "function");
+  assert.equal(typeof metadataListener, "function");
   pointerdown();
   dragstart({ dataTransfer: transfer });
   await Promise.resolve();
@@ -116,6 +119,14 @@ test("Gmail dragstart adds canonical standard and Carnival payloads", async () =
   assert.ok(messages.some(({ event }) => event === "GMAIL_SOURCE_POINTER_DOWN"));
   assert.ok(messages.some(({ event }) => event === "GMAIL_SOURCE_DRAGSTART"));
   assert.ok(messages.some(({ event }) => event === "GMAIL_SOURCE_PENDING_STORE_COMPLETE"));
+  let visibleMetadata;
+  metadataListener(
+    { type: "getVisibleGmailParticipants" },
+    null,
+    (response) => { visibleMetadata = response; },
+  );
+  assert.equal(visibleMetadata.threadRef, "FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC");
+  assert.equal(visibleMetadata.gmailParticipants.to[0].email, "kayla@example.com");
 });
 
 test("Gmail source stores URL payload when participant extraction is unavailable", async () => {
@@ -126,6 +137,7 @@ test("Gmail source stores URL payload when participant extraction is unavailable
     URL,
     chrome: {
       runtime: {
+        onMessage: { addListener() {} },
         sendMessage: async (message) => {
           messages.push(message);
           return { ok: true };
@@ -238,17 +250,12 @@ test("PlayHouse enriches a URL-only cross-window drop with pending participants"
       runtime: {
         sendMessage: async (message) => {
           messages.push(message);
-          return message.type === "getPendingGmailDrag" ? {
-            attachment: {
-              accountIndex: 0,
-              canonicalUrl: "https://mail.google.com/mail/u/0/#all/FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC",
-              gmailParticipants: {
-                from: { email: "kayla@example.com", name: "Kayla" },
-                to: [{ email: "me@example.com", name: "Me" }],
-              },
-              threadRef: "FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC",
+          return message.type === "getGmailThreadParticipants" ? {
+            gmailParticipants: {
+              from: { email: "kayla@example.com", name: "Kayla" },
+              to: [{ email: "me@example.com", name: "Me" }],
             },
-            correlationId: "correlation-enriched",
+            returnedThreadRef: "FMfcgzQhWLFntPRFdFXdtPtlPVcJCTFC",
           } : { ok: true };
         },
       },
@@ -278,7 +285,7 @@ test("PlayHouse enriches a URL-only cross-window drop with pending participants"
   assert.equal(stopped, true);
   assert.deepEqual(
     messages.filter(({ type }) => type === "recordGmailTrace").map(({ event }) => event),
-    ["GMAIL_PENDING_PAYLOAD_RETURNED", "GMAIL_MERGED_ATTACHMENT_PAYLOAD"],
+    ["GMAIL_MERGED_ATTACHMENT_PAYLOAD"],
   );
   assert.equal(
     messages.find(({ event }) => event === "GMAIL_MERGED_ATTACHMENT_PAYLOAD")
@@ -286,7 +293,7 @@ test("PlayHouse enriches a URL-only cross-window drop with pending participants"
     "kayla@example.com",
   );
   assert.deepEqual(JSON.parse(dispatched.detail), {
-    correlationId: "correlation-enriched",
+    correlationId: "fallback-correlation",
     gmailParticipants: {
       from: { email: "kayla@example.com", name: "Kayla" },
       to: [{ email: "me@example.com", name: "Me" }],
@@ -296,7 +303,7 @@ test("PlayHouse enriches a URL-only cross-window drop with pending participants"
   });
 });
 
-test("PlayHouse preserves URL-only attachment when pending metadata is unavailable", async () => {
+test("PlayHouse preserves URL-only attachment when open-tab metadata is unavailable", async () => {
   let drop;
   let dispatched;
   class TestElement {
@@ -309,7 +316,7 @@ test("PlayHouse preserves URL-only attachment when pending metadata is unavailab
     CustomEvent: TestCustomEvent,
     Element: TestElement,
     URL,
-    chrome: { runtime: { sendMessage: async () => ({ attachment: null }) } },
+    chrome: { runtime: { sendMessage: async () => { throw new Error("content script unavailable"); } } },
     console: { info() {} },
     crypto: { randomUUID: () => "url-only-correlation" },
     decodeURIComponent,

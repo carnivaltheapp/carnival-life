@@ -1,12 +1,18 @@
 import { CarnivalWorkspaceController, validWorkArea } from "./workspace-controller.js";
 import { createWorkspaceActions } from "./workspace-summon.js";
 import { isOpenInAuxMessage, routeOpenInAuxMessage } from "./aux-routing.js";
+import {
+  selectGmailMetadataTab,
+  verifyVisibleGmailParticipants,
+} from "./gmail-tab-metadata.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
 const NATIVE_HOST_VERSION = "DRAWER-HOST-7";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 const GMAIL_DRAG_TTL_MS = 10_000;
+const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
+const GET_VISIBLE_GMAIL_PARTICIPANTS = "getVisibleGmailParticipants";
 const TAB_SAVE_DELAY_MS = 300;
 const DIAGNOSTIC_STORAGE_KEY = "carnivalWorkspaceDiagnostics";
 const DIAGNOSTIC_LIMIT = 500;
@@ -289,6 +295,72 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse({ ok: false });
     }
     return false;
+  }
+  if (message?.type === GET_GMAIL_THREAD_PARTICIPANTS) {
+    const diagnostic = {
+      accountIndex: message.accountIndex,
+      correlationId: message.correlationId,
+      droppedThreadRef: message.threadRef,
+    };
+    recordDiagnostic("info", "GMAIL_METADATA_TAB_LOOKUP_STARTED", diagnostic);
+    chrome.tabs.query({ url: "https://mail.google.com/*" }).then(async (tabs) => {
+      const tab = selectGmailMetadataTab(tabs, message);
+      if (!tab) {
+        recordDiagnostic("warn", "GMAIL_METADATA_TAB_NOT_FOUND", diagnostic);
+        sendResponse({ gmailParticipants: null, returnedThreadRef: null });
+        return;
+      }
+      const matched = { ...diagnostic, matchedTabId: tab.id };
+      recordDiagnostic("info", "GMAIL_METADATA_TAB_MATCHED", matched);
+      recordDiagnostic("info", "GMAIL_METADATA_REQUEST_SENT", matched);
+      let response;
+      try {
+        response = await chrome.tabs.sendMessage(tab.id, {
+          threadRef: message.threadRef,
+          type: GET_VISIBLE_GMAIL_PARTICIPANTS,
+        });
+      } catch {
+        recordDiagnostic("warn", "GMAIL_ASSIGNEE_UPDATE_FAILED", {
+          ...matched,
+          reason: "gmail_content_script_unavailable",
+        });
+        sendResponse({ gmailParticipants: null, returnedThreadRef: null });
+        return;
+      }
+      const received = {
+        ...matched,
+        fromExists: Boolean(response?.gmailParticipants?.from),
+        returnedThreadRef: response?.threadRef ?? null,
+        toCount: response?.gmailParticipants?.to?.length ?? 0,
+      };
+      recordDiagnostic("info", "GMAIL_METADATA_RESPONSE_RECEIVED", received);
+      const verified = verifyVisibleGmailParticipants(response, message.threadRef);
+      if (verified.status === "thread_mismatch") {
+        recordDiagnostic("warn", "GMAIL_METADATA_THREAD_MISMATCH", received);
+        sendResponse({ gmailParticipants: null, returnedThreadRef: response?.threadRef ?? null });
+        return;
+      }
+      if (verified.status === "participants_unavailable") {
+        recordDiagnostic("warn", "GMAIL_ASSIGNEE_UPDATE_FAILED", {
+          ...received,
+          reason: "participant_extraction_failed",
+        });
+        sendResponse({ gmailParticipants: null, returnedThreadRef: response.threadRef });
+        return;
+      }
+      recordDiagnostic("info", "GMAIL_PARTICIPANTS_RESOLVED_FROM_OPEN_TAB", received);
+      sendResponse({
+        gmailParticipants: verified.gmailParticipants,
+        returnedThreadRef: response.threadRef,
+      });
+    }).catch(() => {
+      recordDiagnostic("warn", "GMAIL_METADATA_TAB_NOT_FOUND", {
+        ...diagnostic,
+        reason: "tab_query_failed",
+      });
+      sendResponse({ gmailParticipants: null, returnedThreadRef: null });
+    });
+    return true;
   }
   if (message?.type === "gmailDragStarted") {
     const attachment = message.attachment;
