@@ -103,31 +103,110 @@ function starVisibleGmailThread(expectedThreadRef) {
   return { ok: false, reason: "star_control_not_found", threadRef: currentThreadRef };
 }
 
-function unstarVisibleGmailThread(expectedThreadRef) {
-  const currentThreadRef = parseGmailUrl(window.location.href)?.threadRef ?? null;
-  if (!currentThreadRef || currentThreadRef !== expectedThreadRef) {
-    return { ok: false, reason: "thread_mismatch", threadRef: currentThreadRef };
-  }
-  const latest = latestVisibleGmailMessage();
-  if (!latest) return { ok: false, reason: "latest_visible_message_not_found", threadRef: currentThreadRef };
-  const controls = Array.from(latest.querySelectorAll("[aria-label], [data-tooltip], [title]"));
-  const label = (control) => [
+function gmailStarState(control) {
+  const pressed = control.getAttribute?.("aria-pressed");
+  if (pressed === "true") return true;
+  if (pressed === "false") return false;
+  const value = [
     control.getAttribute?.("aria-label"),
     control.getAttribute?.("data-tooltip"),
     control.getAttribute?.("title"),
   ].filter(Boolean).join(" ").toLowerCase();
-  const unstar = controls.find((control) => {
-    const value = label(control);
-    return !/add star|not starred/.test(value) && /remove star|\bstarred\b/.test(value);
+  if (/add star|not starred/.test(value)) return false;
+  if (/remove star|\bstarred\b/.test(value)) return true;
+  return null;
+}
+
+function visibleGmailStarControl() {
+  const latest = latestVisibleGmailMessage();
+  if (!latest) return { control: null, reason: "latest_visible_message_not_found", starred: null };
+  const controls = Array.from(latest.querySelectorAll("[aria-label], [data-tooltip], [title]"));
+  const control = controls.find((candidate) => gmailStarState(candidate) !== null) ?? null;
+  return {
+    control,
+    reason: control ? null : "star_control_not_found",
+    starred: control ? gmailStarState(control) : null,
+  };
+}
+
+async function unstarVisibleGmailThread(expectedThreadRef) {
+  const currentThreadRef = parseGmailUrl(window.location.href)?.threadRef ?? null;
+  console.info("GMAIL_UNSTAR_COMMAND_RECEIVED", { threadRef: expectedThreadRef });
+  if (!currentThreadRef || currentThreadRef !== expectedThreadRef) {
+    console.warn("GMAIL_UNSTAR_FAILED", {
+      currentThreadRef,
+      reason: "thread_mismatch",
+      threadRef: expectedThreadRef,
+    });
+    return { ok: false, reason: "thread_mismatch", threadRef: currentThreadRef };
+  }
+  const initial = visibleGmailStarControl();
+  if (!initial.control) {
+    console.warn("GMAIL_UNSTAR_FAILED", {
+      reason: initial.reason,
+      starElementFound: false,
+      threadRef: currentThreadRef,
+    });
+    return { ok: false, reason: initial.reason, starElementFound: false, threadRef: currentThreadRef };
+  }
+  console.info("GMAIL_UNSTAR_TARGET_FOUND", {
+    alreadyUnstarred: initial.starred === false,
+    starElementFound: true,
+    threadRef: currentThreadRef,
   });
-  if (unstar && typeof unstar.click === "function") {
-    unstar.click();
-    return { alreadyUnstarred: false, ok: true, threadRef: currentThreadRef };
+  if (initial.starred === false) {
+    console.info("GMAIL_UNSTAR_COMPLETE", {
+      alreadyUnstarred: true,
+      starElementFound: true,
+      threadRef: currentThreadRef,
+    });
+    return { alreadyUnstarred: true, ok: true, starElementFound: true, threadRef: currentThreadRef };
   }
-  if (controls.some((control) => /add star|not starred/.test(label(control)))) {
-    return { alreadyUnstarred: true, ok: true, threadRef: currentThreadRef };
+  const clickTarget = initial.control.closest?.("button, [role='button']") ?? initial.control;
+  if (typeof clickTarget.click !== "function") {
+    console.warn("GMAIL_UNSTAR_FAILED", {
+      reason: "star_control_not_clickable",
+      starElementFound: true,
+      threadRef: currentThreadRef,
+    });
+    return {
+      ok: false,
+      reason: "star_control_not_clickable",
+      starElementFound: true,
+      threadRef: currentThreadRef,
+    };
   }
-  return { ok: false, reason: "star_control_not_found", threadRef: currentThreadRef };
+  clickTarget.click();
+  console.info("GMAIL_UNSTAR_CLICKED", { starElementFound: true, threadRef: currentThreadRef });
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const current = visibleGmailStarControl();
+    if (current.control && current.starred === false) {
+      console.info("GMAIL_UNSTAR_COMPLETE", {
+        alreadyUnstarred: false,
+        starElementFound: true,
+        threadRef: currentThreadRef,
+      });
+      return {
+        alreadyUnstarred: false,
+        ok: true,
+        starElementFound: true,
+        threadRef: currentThreadRef,
+      };
+    }
+    if (attempt < 9) await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  console.warn("GMAIL_UNSTAR_FAILED", {
+    reason: "star_state_unchanged",
+    starElementFound: true,
+    threadRef: currentThreadRef,
+  });
+  return {
+    ok: false,
+    reason: "star_state_unchanged",
+    starElementFound: true,
+    threadRef: currentThreadRef,
+  };
 }
 
 if (window.location.hostname === "mail.google.com") {
@@ -137,8 +216,10 @@ if (window.location.hostname === "mail.google.com") {
       return false;
     }
     if (message?.type === UNSTAR_VISIBLE_GMAIL_THREAD) {
-      sendResponse(unstarVisibleGmailThread(message.threadRef));
-      return false;
+      unstarVisibleGmailThread(message.threadRef)
+        .then(sendResponse)
+        .catch(() => sendResponse({ ok: false, reason: "unstar_command_failed" }));
+      return true;
     }
     if (message?.type !== GET_VISIBLE_GMAIL_PARTICIPANTS) return false;
     const currentThreadRef = parseGmailUrl(window.location.href)?.threadRef ?? null;

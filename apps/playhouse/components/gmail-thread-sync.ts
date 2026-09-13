@@ -10,7 +10,8 @@ export function requestGmailThreadUnstar(
 ) {
   if (!play.gmailThreadId) return false;
   const correlationId = crypto.randomUUID();
-  console.info("GMAIL_UNSTAR_STARTED", {
+  console.info("GMAIL_UNSTAR_REQUESTED", {
+    accountIndex: play.gmailAccountIndex ?? 0,
     action,
     playId: play.id,
     threadRef: play.gmailThreadId,
