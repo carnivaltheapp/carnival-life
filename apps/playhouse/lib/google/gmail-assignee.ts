@@ -1,5 +1,6 @@
 import type { GoogleContactSummary } from "./people";
 import type { GmailParticipant, GmailParticipants } from "../../domain/gmail-attachment";
+import { isGooglePeopleResourceName } from "./contact-reference";
 
 export type GmailAssigneeContact = {
   displayName: string;
@@ -10,6 +11,13 @@ export type GmailAssigneeContact = {
 export type GmailAssigneeAccount = {
   email: string | null;
   id: string;
+};
+
+export type GmailAssigneeContactCandidate = {
+  displayName: string;
+  email: string | null;
+  id: string;
+  providerResourceName: string | null;
 };
 
 export type GmailAssigneeResolution =
@@ -49,6 +57,25 @@ export function exactEmailContact(
   return contacts.find((contact) =>
     contact.email !== null && normalizeEmail(contact.email) === normalized
   ) ?? null;
+}
+
+export function exactCanonicalCachedContact(
+  contacts: GmailAssigneeContactCandidate[],
+  email: string,
+): GmailAssigneeContact | null {
+  const normalized = normalizeEmail(email);
+  const contact = contacts.find((candidate) =>
+    candidate.email !== null &&
+    normalizeEmail(candidate.email) === normalized &&
+    isGooglePeopleResourceName(candidate.providerResourceName)
+  );
+  return contact && isGooglePeopleResourceName(contact.providerResourceName)
+    ? {
+        displayName: contact.displayName,
+        id: contact.id,
+        providerResourceName: contact.providerResourceName,
+      }
+    : null;
 }
 
 export async function resolveGmailAssignee({

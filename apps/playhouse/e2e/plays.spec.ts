@@ -256,6 +256,40 @@ test("Gmail URL row drop creates one Play from the target without modifying it",
       gmail_attachment: { account_index: 2, thread_ref: "FMfirst" },
     },
   });
+  const { count: canonicalContactCount, data: canonicalContact } = await auth.user
+    .from("contact_references")
+    .select("id, provider_resource_name", { count: "exact" })
+    .eq("owner_user_id", auth.userId)
+    .eq("provider_resource_name", auth.contacts[0].resourceName)
+    .single();
+  expect(canonicalContactCount).toBe(1);
+  expect(canonicalContact).toEqual({
+    id: originalContactId,
+    provider_resource_name: auth.contacts[0].resourceName,
+  });
+
+  const createdEdit = await openEditPlay(auth.page, "Gmail-created Headline");
+  await auth.page.evaluate(() => {
+    window.addEventListener("message", (event) => {
+      if (event.data?.source !== "carnival-playhouse" || event.data?.type !== "openInAux") return;
+      sessionStorage.setItem("gmail-player-contact-route", event.data.url);
+      window.postMessage({
+        ok: true,
+        requestId: event.data.requestId,
+        source: "carnival-playhouse-bridge",
+        type: "openInAuxResult",
+      }, window.location.origin);
+    }, { once: true });
+  });
+  await createdEdit.form.getByRole("button", {
+    name: "Open Player in Google Contacts",
+  }).click();
+  await expect(createdEdit.form).toBeVisible();
+  await expect.poll(() => auth.page.evaluate(
+    () => sessionStorage.getItem("gmail-player-contact-route"),
+  )).toBe(`https://contacts.google.com/person/${auth.contacts[0].resourceName.slice("people/".length)}`);
+  await createdEdit.disclosure.locator("summary").click();
+
   const { count } = await auth.user
     .from("plays")
     .select("id", { count: "exact", head: true })
@@ -419,7 +453,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-PLAYER-CONTACT-AUX-51", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-GMAIL-CONTACT-REF-53", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');

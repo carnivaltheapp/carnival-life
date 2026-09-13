@@ -5,7 +5,10 @@ import type {
   PlayerSelectionResponse,
 } from "../../domain/player-search";
 import { isUuid } from "../../domain/play-input";
-import { upsertSelectedContactReference } from "../../lib/google/contact-reference";
+import {
+  isGooglePeopleResourceName,
+  upsertSelectedContactReference,
+} from "../../lib/google/contact-reference";
 import {
   canSearchGooglePeople,
   normalizePlayerSearchQuery,
@@ -76,7 +79,7 @@ export async function searchPlayerContacts(
 export async function selectPlayerContact(
   resourceName: string,
 ): Promise<PlayerSelectionResponse> {
-  if (!/^people\/[A-Za-z0-9_-]+$/.test(resourceName)) {
+  if (!isGooglePeopleResourceName(resourceName)) {
     return { message: "That Player selection is invalid.", status: "error" };
   }
 
@@ -146,7 +149,7 @@ export async function resolvePlayerContactResourceName(
     .eq("owner_user_id", auth.userId)
     .maybeSingle();
   const resourceName = data?.provider_resource_name;
-  if (error || typeof resourceName !== "string" || !/^people\/[A-Za-z0-9_-]+$/.test(resourceName)) {
+  if (error || !isGooglePeopleResourceName(resourceName)) {
     return { message: "This Player cannot be opened in Google Contacts.", status: "error" };
   }
 

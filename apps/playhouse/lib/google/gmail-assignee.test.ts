@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  exactCanonicalCachedContact,
   resolveGmailAssignee,
   resolveGmailCounterparty,
 } from "./gmail-assignee";
@@ -16,6 +17,24 @@ const existing = {
 };
 
 describe("Gmail Assignee resolution", () => {
+  it("reuses only the same canonical contact reference shape as manual Player selection", () => {
+    expect(exactCanonicalCachedContact([
+      {
+        displayName: kayla.name,
+        email: kayla.email,
+        id: "legacy-display-reference",
+        providerResourceName: "c123",
+      },
+      { ...existing, email: kayla.email },
+    ], "KAYLA@example.com")).toEqual(existing);
+    expect(exactCanonicalCachedContact([{
+      displayName: kayla.name,
+      email: kayla.email,
+      id: "legacy-display-reference",
+      providerResourceName: "c123",
+    }], kayla.email)).toBeNull();
+  });
+
   it("uses the incoming sender and reuses an exact-email cached contact", async () => {
     const findExistingContact = vi.fn().mockResolvedValue(existing);
     const persistGoogleContact = vi.fn();

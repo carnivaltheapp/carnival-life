@@ -4,6 +4,10 @@ import type { GoogleContactSummary } from "./people";
 export type ContactReferenceWrite =
   Database["public"]["Tables"]["contact_references"]["Insert"];
 
+export function isGooglePeopleResourceName(value: unknown): value is string {
+  return typeof value === "string" && /^people\/[A-Za-z0-9_-]+$/.test(value);
+}
+
 export async function upsertSelectedContactReference<T>({
   contact,
   googleAccountId,

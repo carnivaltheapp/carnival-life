@@ -6,6 +6,7 @@ import type { Database } from "../supabase/database.types";
 import type { GmailParticipants } from "../../domain/gmail-attachment";
 import { upsertSelectedContactReference } from "./contact-reference";
 import {
+  exactCanonicalCachedContact,
   resolveGmailAssignee,
   type GmailAssigneeAccount,
 } from "./gmail-assignee";
@@ -55,18 +56,15 @@ export async function resolveGmailAssigneeForParticipants({
         .ilike("email", email)
         .limit(10);
       if (contactError) throw new Error("Player references could not be searched.");
-      const normalized = email.trim().toLocaleLowerCase();
-      const contact = (contacts ?? []).find((candidate) =>
-        candidate.email?.trim().toLocaleLowerCase() === normalized &&
-        Boolean(candidate.provider_resource_name)
+      return exactCanonicalCachedContact(
+        (contacts ?? []).map((contact) => ({
+          displayName: contact.display_name,
+          email: contact.email,
+          id: contact.id,
+          providerResourceName: contact.provider_resource_name,
+        })),
+        email,
       );
-      return contact?.provider_resource_name
-        ? {
-            displayName: contact.display_name,
-            id: contact.id,
-            providerResourceName: contact.provider_resource_name,
-          }
-        : null;
     },
     searchGoogleContacts: async (account, email) => {
       if (!accountById.get(account.id)?.granted_scopes.includes(GOOGLE_CONTACTS_READONLY_SCOPE)) {
