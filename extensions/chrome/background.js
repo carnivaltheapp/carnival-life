@@ -285,6 +285,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       threadRef: message.threadRef,
     };
     recordDiagnostic("info", "GMAIL_UNSTAR_STARTED", diagnostic);
+    recordDiagnostic("info", "GMAIL_UNSTAR_TAB_LOOKUP", {
+      ...diagnostic,
+      accountIndex: message.accountIndex,
+    });
     chrome.tabs.query({ url: "https://mail.google.com/*" }).then(async (tabs) => {
       const tab = selectGmailMetadataTab(tabs, message);
       if (!tab) {
@@ -295,10 +299,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ ok: false, reason: "matching_tab_not_found" });
         return;
       }
-      const response = await chrome.tabs.sendMessage(tab.id, {
-        threadRef: message.threadRef,
-        type: UNSTAR_VISIBLE_GMAIL_THREAD,
-      });
+      const matched = { ...diagnostic, matchedTabId: tab.id };
+      recordDiagnostic("info", "GMAIL_UNSTAR_TAB_MATCHED", matched);
+      recordDiagnostic("info", "GMAIL_UNSTAR_COMMAND_SENT", matched);
+      let response;
+      try {
+        response = await chrome.tabs.sendMessage(tab.id, {
+          threadRef: message.threadRef,
+          type: UNSTAR_VISIBLE_GMAIL_THREAD,
+        });
+      } catch {
+        await chrome.scripting.executeScript({
+          files: ["gmail-drag-bridge.js"],
+          target: { tabId: tab.id },
+        });
+        recordDiagnostic("info", "GMAIL_UNSTAR_CONTENT_SCRIPT_RECOVERED", matched);
+        response = await chrome.tabs.sendMessage(tab.id, {
+          threadRef: message.threadRef,
+          type: UNSTAR_VISIBLE_GMAIL_THREAD,
+        });
+      }
       if (!response?.ok) {
         recordDiagnostic("warn", "GMAIL_UNSTAR_FAILED", {
           ...diagnostic,
@@ -307,6 +327,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ ok: false, reason: response?.reason ?? "unstar_failed" });
         return;
       }
+      recordDiagnostic("info", "GMAIL_UNSTAR_UI_COMPLETE", matched);
       recordDiagnostic("info", "GMAIL_UNSTAR_COMPLETE", diagnostic);
       sendResponse({ ok: true });
     }).catch(() => {

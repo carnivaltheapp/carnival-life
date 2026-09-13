@@ -556,6 +556,15 @@ export async function createGmailPlayFromRow(
       console.warn("GMAIL_ROW_CREATE_FAILED", { ...resolvedDiagnostic, reason: "create_failed" });
       return errorState("That Gmail Play could not be created.");
     }
+    const positioned = await repository.reposition({
+      beforePlayId: target.id,
+      placement: input.placement,
+      playIds: [playId],
+    });
+    if (!positioned) {
+      console.warn("GMAIL_ROW_CREATE_FAILED", { ...resolvedDiagnostic, playId, reason: "position_failed" });
+      return errorState("That Gmail Play was created but could not be positioned. Refresh the page.");
+    }
 
     const completedDiagnostic = { ...resolvedDiagnostic, playId };
     console.info("GMAIL_ROW_CREATE_PLAY_CREATED", completedDiagnostic);

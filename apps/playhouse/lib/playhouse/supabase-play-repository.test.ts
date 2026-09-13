@@ -132,6 +132,79 @@ describe("Supabase Gmail attachment", () => {
     }));
   });
 
+  it("returns the persisted sort order needed for immediate Gmail row insertion", async () => {
+    const play = query({
+      data: {
+        basket_id: null,
+        branch: null,
+        duration_minutes: 30,
+        id: "gmail-play-1",
+        note: null,
+        place: "Office",
+        play_type: "normal",
+        player_contact_id: null,
+        push_rule: "everyday",
+        scheduled_date: "2026-09-14",
+        sort_order: 200,
+        source_metadata: {},
+        source_type: "gmail",
+        title: "NEW",
+        url: null,
+      },
+      error: null,
+    });
+    const from = vi.fn().mockReturnValue(play);
+
+    await expect(new SupabasePlayRepository(
+      { from } as never,
+      "owner-user",
+    ).get("gmail-play-1")).resolves.toMatchObject({
+      id: "gmail-play-1",
+      sortOrder: 200,
+    });
+    expect(play.select).toHaveBeenCalledWith(expect.stringContaining("sort_order"));
+  });
+
+  it("persists a created Headline immediately before the exact target row", async () => {
+    const selected = query({
+      data: [{
+        basket_id: null,
+        id: "created",
+        play_type: "normal",
+        scheduled_date: "2026-09-14",
+        sort_order: 1000,
+        source_metadata: {},
+      }],
+      error: null,
+    });
+    const destination = query({
+      data: [
+        { basket_id: null, id: "a", play_type: "normal", scheduled_date: "2026-09-14", sort_order: 100 },
+        { basket_id: null, id: "b", play_type: "normal", scheduled_date: "2026-09-14", sort_order: 300 },
+        { basket_id: null, id: "c", play_type: "normal", scheduled_date: "2026-09-14", sort_order: 400 },
+        { basket_id: null, id: "created", play_type: "normal", scheduled_date: "2026-09-14", sort_order: 1000 },
+      ],
+      error: null,
+    });
+    const update = query({ data: { id: "created" }, error: null });
+    const from = vi.fn()
+      .mockReturnValueOnce(selected)
+      .mockReturnValueOnce(destination)
+      .mockReturnValueOnce(update);
+
+    await expect(new SupabasePlayRepository(
+      { from } as never,
+      "owner-user",
+    ).reposition({
+      beforePlayId: "b",
+      placement: { kind: "calendar", scheduledDate: "2026-09-14" },
+      playIds: ["created"],
+    })).resolves.toBe(true);
+    expect(update.update).toHaveBeenCalledWith({ sort_order: 200 });
+    expect(update.eq).toHaveBeenCalledWith("id", "created");
+    expect(update.eq).toHaveBeenCalledWith("owner_user_id", "owner-user");
+  });
+
   it("merges and replaces Gmail metadata without changing source or unrelated fields", async () => {
     const existing = query({
       data: {

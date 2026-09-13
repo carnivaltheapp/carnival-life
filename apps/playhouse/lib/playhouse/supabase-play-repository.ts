@@ -135,7 +135,7 @@ export class SupabasePlayRepository implements PlayRepository {
     const { data, error } = await this.supabase
       .from("plays")
       .select(
-        "id, title, play_type, source_type, scheduled_date, basket_id, duration_minutes, player_contact_id, branch, note, url, push_rule, place, source_metadata",
+        "id, title, play_type, source_type, scheduled_date, basket_id, duration_minutes, player_contact_id, branch, note, url, push_rule, place, sort_order, source_metadata",
       )
       .eq("id", playId)
       .eq("status", "open")
@@ -167,6 +167,7 @@ export class SupabasePlayRepository implements PlayRepository {
       playType: data.play_type,
       pushRule: data.push_rule,
       scheduledDate: data.scheduled_date,
+      sortOrder: data.sort_order,
       sourceMetadata: data.source_metadata,
       sourceType: data.source_type,
       title: data.title,

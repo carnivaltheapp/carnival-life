@@ -122,6 +122,55 @@ describe("Gmail row-create input", () => {
     expect(revalidated.filter(({ id }) => id === "created")).toHaveLength(1);
   });
 
+  it("renders a persisted Headline immediately before its exact target", () => {
+    const plays = [
+      target({ id: "a", sortOrder: 100, title: "A" }),
+      target({ id: "b", sortOrder: 300, title: "B" }),
+      target({ id: "c", sortOrder: 400, title: "C" }),
+    ];
+    const result = mergeCreatedGmailPlay({
+      baskets: [],
+      createdPlay: target({ id: "created", sortOrder: 200, title: "NEW" }),
+      plays,
+      searchQuery: "",
+      selectedView: {
+        endDate: "2026-09-14",
+        key: "date",
+        kind: "calendar",
+        startDate: "2026-09-14",
+      },
+    });
+
+    expect(result.map(({ title }) => title)).toEqual(["A", "NEW", "B", "C"]);
+  });
+
+  it("renders a persisted Reminder immediately before its exact target", () => {
+    const plays = [
+      target({ id: "x", playType: "reminder", sortOrder: 100, title: "X" }),
+      target({ id: "y", playType: "reminder", sortOrder: 300, title: "Y" }),
+      target({ id: "z", playType: "reminder", sortOrder: 400, title: "Z" }),
+    ];
+    const result = mergeCreatedGmailPlay({
+      baskets: [],
+      createdPlay: target({
+        id: "created",
+        playType: "reminder",
+        sortOrder: 200,
+        title: "NEW",
+      }),
+      plays,
+      searchQuery: "",
+      selectedView: {
+        endDate: "2026-09-14",
+        key: "date",
+        kind: "calendar",
+        startDate: "2026-09-14",
+      },
+    });
+
+    expect(result.map(({ title }) => title)).toEqual(["X", "NEW", "Y", "Z"]);
+  });
+
   it("does not force a returned Play into an unrelated destination or search", () => {
     const createdPlay = target({ id: "created", scheduledDate: "2026-09-15" });
     const selectedView = {
