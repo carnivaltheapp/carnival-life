@@ -156,7 +156,7 @@ describe("Supabase Gmail attachment", () => {
     expect(existing.update).not.toHaveBeenCalled();
   });
 
-  it("unlinks Gmail metadata through an owner-scoped update", async () => {
+  it("unlinks Gmail and clears only the Play assignee through an owner-scoped update", async () => {
     const existing = query({
       data: {
         source_metadata: {
@@ -174,6 +174,7 @@ describe("Supabase Gmail attachment", () => {
       "owner-user",
     ).unlinkGmail({ playId: "play-1" })).resolves.toBe(true);
     expect(update.update).toHaveBeenCalledWith({
+      player_contact_id: null,
       source_metadata: {
         external_ids: { event_id: "event-1" },
         legacy_source: { note: "Keep" },

@@ -92,6 +92,7 @@ export class SupabasePlayRepository implements PlayRepository {
     const { data, error } = await this.supabase
       .from("plays")
       .update({
+        player_contact_id: null,
         source_metadata: gmailMetadataWithoutAttachment(existing.source_metadata) as
           Database["public"]["Tables"]["plays"]["Update"]["source_metadata"],
       })

@@ -175,6 +175,10 @@ test("Email and URL row actions route to Aux without changing PlayHouse", async 
 test("Gmail URL drop attaches only the row under the pointer and persists replacement", async ({ auth }) => {
   await auth.page.goto("/");
   await createPlay(auth.page, "Gmail drop target", { url: "https://example.com/context" });
+  const edit = await openEditPlay(auth.page, "Gmail drop target");
+  await choosePlayer(edit.form, "Dav", auth.contacts[0].displayName);
+  await edit.form.getByRole("button", { name: "Save changes" }).click();
+  await expect(edit.disclosure).not.toHaveAttribute("open", "");
   await createPlay(auth.page, "Other selected Play");
   const target = playRow(auth.page, "Gmail drop target");
   const other = playRow(auth.page, "Other selected Play");
@@ -205,11 +209,13 @@ test("Gmail URL drop attaches only the row under the pointer and persists replac
   await expect(other.getByRole("button", { name: "Open Gmail thread" })).toHaveCount(0);
   const { data: attached } = await auth.user
     .from("plays")
-    .select("play_type")
+    .select("play_type, player_contact_id")
     .eq("owner_user_id", auth.userId)
     .eq("title", "Gmail drop target")
     .single();
   expect(attached?.play_type).toBe("normal");
+  expect(attached?.player_contact_id).not.toBeNull();
+  const originalContactId = attached!.player_contact_id!;
 
   await drop(
     "text/html",
@@ -273,11 +279,13 @@ test("Gmail URL drop attaches only the row under the pointer and persists replac
   await expect(auth.page.getByText("Email could not be unlinked from this Play."))
     .toBeVisible();
   await expect(attachedRow.getByRole("button", { name: "Open Gmail thread" })).toBeVisible();
+  await expect(attachedRow.getByTestId("play-player")).toHaveText(auth.contacts[0].displayName);
   await auth.page.unroute("**/*", abortPost);
 
   await attachedRow.click({ button: "right" });
   await menu.getByRole("menuitem", { name: "Unlink email" }).click();
   await expect(attachedRow.getByRole("button", { name: "Open Gmail thread" })).toHaveCount(0);
+  await expect(attachedRow.getByTestId("play-player")).toHaveCount(0);
   await expect.poll(async () => {
     const { data } = await auth.user
       .from("plays")
@@ -291,6 +299,15 @@ test("Gmail URL drop attaches only the row under the pointer and persists replac
     play_type: "normal",
     source_metadata: { external_ids: {} },
     url: "https://example.com/context",
+  });
+  const { data: retainedContact } = await auth.user
+    .from("contact_references")
+    .select("id, display_name")
+    .eq("id", originalContactId)
+    .single();
+  expect(retainedContact).toMatchObject({
+    display_name: auth.contacts[0].displayName,
+    id: originalContactId,
   });
 });
 

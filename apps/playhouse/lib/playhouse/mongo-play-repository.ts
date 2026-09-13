@@ -102,6 +102,7 @@ export class MongoPlayRepository implements PlayRepository {
         $set: { updated_date: new Date() },
         $unset: {
           "carnival_google.gmail_attachment": "",
+          contact_id: "",
           thread_id: "",
         },
       });

@@ -491,6 +491,8 @@ function PlayhouseShellView({
             ...play,
             gmailAccountIndex: null,
             gmailThreadId: null,
+            playerContactId: null,
+            playerDisplayName: null,
             sourceMetadata: gmailMetadataWithoutAttachment(play.sourceMetadata),
           }
         : play),
