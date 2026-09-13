@@ -1,7 +1,7 @@
 import type { PlaySourceType } from "../../domain/play";
 
 export type GmailLifecycleResult =
-  | { success: true }
+  | { success: true; warning?: string }
   | { message: string; success: false };
 
 export async function applyPlayLifecycle({
@@ -17,6 +17,29 @@ export async function applyPlayLifecycle({
   status: "done" | "trash";
   unstarThread: (threadId: string) => Promise<GmailLifecycleResult>;
 }): Promise<GmailLifecycleResult> {
+  if (status === "trash") {
+    if (!await setLocalStatus(status)) {
+      return {
+        message: "The Play could not be updated. Refresh and try again.",
+        success: false,
+      };
+    }
+    if (sourceType !== "gmail") return { success: true };
+
+    const threadId = gmailThreadId?.trim();
+    if (!threadId) {
+      return { success: true, warning: "Play trashed. Gmail sync could not be completed." };
+    }
+    try {
+      const unstarred = await unstarThread(threadId);
+      return unstarred.success
+        ? { success: true }
+        : { success: true, warning: "Play trashed. Gmail sync could not be completed." };
+    } catch {
+      return { success: true, warning: "Play trashed. Gmail sync could not be completed." };
+    }
+  }
+
   if (sourceType === "gmail") {
     const threadId = gmailThreadId?.trim();
     if (!threadId) {

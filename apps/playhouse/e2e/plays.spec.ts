@@ -192,6 +192,23 @@ test("Gmail URL row drop creates one Play from the target without modifying it",
     .single();
   expect(before?.player_contact_id).not.toBeNull();
   const originalContactId = before!.player_contact_id!;
+  const transfer = await auth.page.evaluateHandle(() => {
+    const data = new DataTransfer();
+    data.setData("text/uri-list", "https://mail.google.com/mail/u/2/#all/FMfirst");
+    return data;
+  });
+  await target.dispatchEvent("dragover", { dataTransfer: transfer });
+  await expect(target).toHaveAttribute("data-gmail-drop-target", "true");
+  await target.dispatchEvent("dragend", { dataTransfer: transfer });
+  await expect(target).not.toHaveAttribute("data-gmail-drop-target", "true");
+  await target.dispatchEvent("dragover", { dataTransfer: transfer });
+  await auth.page.evaluate(() => window.dispatchEvent(new CustomEvent(
+    "carnival:gmail-row-create-metadata-failed",
+    { detail: "{}" },
+  )));
+  await expect(target).not.toHaveAttribute("data-gmail-drop-target", "true");
+  await target.dispatchEvent("dragover", { dataTransfer: transfer });
+  await expect(target).toHaveAttribute("data-gmail-drop-target", "true");
   await auth.page.evaluate((request) => {
     sessionStorage.removeItem("gmail-row-star-request");
     window.addEventListener("carnival:gmail-star-thread", (event) => {
@@ -213,6 +230,7 @@ test("Gmail URL row drop creates one Play from the target without modifying it",
 
   const createdRow = playRow(auth.page, "Gmail-created Headline");
   await expect(createdRow).toBeVisible();
+  await expect(target).not.toHaveAttribute("data-gmail-drop-target", "true");
   await expect(createdRow.getByRole("button", { name: "Open Gmail thread" })).toBeVisible();
   await expect(createdRow.getByTestId("play-player")).toHaveText(auth.contacts[0].displayName);
   await expect(target.getByRole("button", { name: "Open Gmail thread" })).toHaveCount(0);

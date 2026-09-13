@@ -240,10 +240,14 @@ async function setPlayStatus(
         : lifecycle.message,
     );
   }
+  if (lifecycle.warning) {
+    console.warn("[PlayHouse Gmail] lifecycle sync warning", { playId, status });
+  }
 
   revalidatePath("/");
   return {
-    message: status === "done" ? "Play marked done." : "Play moved to Trash.",
+    message: lifecycle.warning ??
+      (status === "done" ? "Play marked done." : "Play moved to Trash."),
     status: "success",
   };
 }
@@ -725,6 +729,14 @@ export async function bulkSetPlayStatus(request: {
     })));
     const failed = results.find((result) => !result.success);
     if (failed) return errorState(failed.message);
+    results.forEach((result, index) => {
+      if (result.success && result.warning) {
+        console.warn("[PlayHouse Gmail] lifecycle sync warning", {
+          playId: playIds[index],
+          status: request.status,
+        });
+      }
+    });
     revalidatePath("/");
     return {
       message: `${playIds.length} ${playIds.length === 1 ? "Play" : "Plays"} ${

@@ -423,6 +423,9 @@ function PlayhouseShellView({
     dragPreviewHostRef.current?.replaceChildren();
     dragPreviewRef.current = null;
     dragIconRef.current = null;
+    gmailDropTargetRef.current = null;
+    gmailCorrelationIdRef.current = null;
+    setGmailDropTarget(null);
     setDraggedIds([]);
     setDropTarget(null);
     setBullseyeCategory("calendar");
@@ -528,9 +531,11 @@ function PlayhouseShellView({
           typeof createGmailPlayFromRow
         >[0]);
         if (result.status !== "success" || !result.playId) {
+          clearDragState();
           setMoveError(result.message);
           return;
         }
+        clearDragState();
         setMoveError(null);
         if (result.play) {
           const listContext = gmailCreateListContextRef.current;
