@@ -1,5 +1,6 @@
 export const AUX_ROLE_URLS = {
   calendar: "https://calendar.google.com/calendar/u/0/r",
+  contacts: "https://contacts.google.com/",
   gmail: "https://mail.google.com/mail/u/0/#inbox",
   misc: "https://www.google.com/",
 };
@@ -76,7 +77,10 @@ export function snapshotTabs(tabs, roleTabIds = {}, primaryTabId = null) {
 export function auxRoleForUrl(value) {
   if (!isRestorableTabUrl(value)) return null;
   try {
-    return new URL(value).hostname === "mail.google.com" ? "gmail" : "misc";
+    const host = new URL(value).hostname;
+    if (host === "mail.google.com") return "gmail";
+    if (host === "contacts.google.com") return "contacts";
+    return "misc";
   } catch {
     return null;
   }

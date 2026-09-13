@@ -4,6 +4,7 @@ import type {
   PlayerSearchResponse,
   PlayerSelectionResponse,
 } from "../../domain/player-search";
+import { isUuid } from "../../domain/play-input";
 import { upsertSelectedContactReference } from "../../lib/google/contact-reference";
 import {
   canSearchGooglePeople,
@@ -121,4 +122,33 @@ export async function selectPlayerContact(
   } catch (error) {
     return { message: playerSearchErrorMessage(error), status: "error" };
   }
+}
+
+export async function resolvePlayerContactResourceName(
+  playerContactId: string,
+): Promise<
+  | { resourceName: string; status: "success" }
+  | { message: string; status: "error" }
+> {
+  if (!isUuid(playerContactId)) {
+    return { message: "That Player selection is invalid.", status: "error" };
+  }
+
+  const auth = await authenticatedClient();
+  if (!auth) {
+    return { message: "Your session expired. Refresh and sign in again.", status: "error" };
+  }
+
+  const { data, error } = await auth.supabase
+    .from("contact_references")
+    .select("provider_resource_name")
+    .eq("id", playerContactId)
+    .eq("owner_user_id", auth.userId)
+    .maybeSingle();
+  const resourceName = data?.provider_resource_name;
+  if (error || typeof resourceName !== "string" || !/^people\/[A-Za-z0-9_-]+$/.test(resourceName)) {
+    return { message: "This Player cannot be opened in Google Contacts.", status: "error" };
+  }
+
+  return { resourceName, status: "success" };
 }

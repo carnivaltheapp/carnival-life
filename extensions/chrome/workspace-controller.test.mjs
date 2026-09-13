@@ -321,6 +321,23 @@ test("repeated Email and Chrome routing reuse their durable Aux role tabs withou
   assert.equal(chrome.getTab(initial.playhouseTabId).url, PLAYHOUSE_URL);
 });
 
+test("repeated Google Contacts routing creates one durable Aux role tab and reuses it", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const initial = await workspace.summon(workArea, "display-1");
+
+  await workspace.openCarnivalContext("https://contacts.google.com/person/c123", workArea, "display-1");
+  const afterFirst = await workspace.state();
+  await workspace.openCarnivalContext("https://contacts.google.com/person/c456", workArea, "display-1");
+  const afterSecond = await workspace.state();
+
+  assert.equal(chrome.calls.createTab.length, 1);
+  assert.equal(afterFirst.contextRoleTabIds.contacts, afterSecond.contextRoleTabIds.contacts);
+  assert.equal(chrome.getTab(afterSecond.contextRoleTabIds.contacts).url, "https://contacts.google.com/person/c456");
+  assert.equal(chrome.getTabs(initial.contextWindowId).length, 4);
+});
+
 test("Aux tab order, active tab, pins, roles, and user tabs restore after window close", async () => {
   const chrome = fakeChrome();
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };

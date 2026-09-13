@@ -854,8 +854,8 @@ export class CarnivalWorkspaceController {
     if (!isAllowedContextUrl(url)) throw new Error("Carnival context URLs must use HTTP or HTTPS.");
     if (!validWorkArea(workArea)) throw new Error("A valid monitor work area is required.");
     const role = requestedRole ?? auxRoleForUrl(url);
-    if (role !== "gmail" && role !== "misc") {
-      throw new Error("Carnival context navigation requires a Gmail or Misc role.");
+    if (role !== "contacts" && role !== "gmail" && role !== "misc") {
+      throw new Error("Carnival context navigation requires a Contacts, Gmail, or Misc role.");
     }
 
     this.logger.info?.("Carnival: resolving Aux context window");
@@ -898,7 +898,10 @@ export class CarnivalWorkspaceController {
       await this.chrome.tabs.update(roleTab.id, { active: true, url });
     }
     this.logger.info?.("AUX_ROLE_TAB_ACTIVATED", { role, tabId: roleTab.id });
-    this.logger.info?.(role === "gmail" ? "GMAIL_ROLE_NAVIGATED" : "MISC_ROLE_NAVIGATED", {
+    const navigatedEvent = role === "gmail"
+      ? "GMAIL_ROLE_NAVIGATED"
+      : role === "contacts" ? "CONTACTS_ROLE_NAVIGATED" : "MISC_ROLE_NAVIGATED";
+    this.logger.info?.(navigatedEvent, {
       host: new URL(url).hostname,
       path: new URL(url).pathname,
       tabId: roleTab.id,

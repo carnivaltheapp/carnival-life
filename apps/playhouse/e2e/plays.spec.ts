@@ -419,7 +419,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-DESCRIPTION-AUX-49", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-PLAYER-CONTACT-AUX-50", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');
@@ -1096,6 +1096,9 @@ test("Play moved from Backlog to Today remains visible after refresh", async ({ 
 test("Player can be created, displayed, changed, and cleared", async ({ auth }) => {
   await auth.page.goto("/");
   const createForm = await openCreatePlay(auth.page);
+  await expect(
+    createForm.getByRole("button", { name: "Open Player in Google Contacts" }),
+  ).toBeDisabled();
   await createForm.getByLabel("Title").fill("Player lifecycle");
   await choosePlayer(createForm, "Dav", auth.contacts[0].displayName);
   await createForm.getByRole("button", { name: "Create Play" }).click();
@@ -1125,6 +1128,24 @@ test("Player can be created, displayed, changed, and cleared", async ({ auth }) 
   await expect(
     edit.form.getByRole("combobox", { name: "Player", exact: true }),
   ).toHaveValue(auth.contacts[0].displayName);
+  const playerInfo = edit.form.getByRole("button", {
+    name: "Open Player in Google Contacts",
+  });
+  await expect(playerInfo).toBeEnabled();
+  await auth.page.evaluate(() => {
+    window.addEventListener("message", (event) => {
+      if (event.data?.source !== "carnival-playhouse" || event.data?.type !== "openInAux") return;
+      window.postMessage({
+        ok: true,
+        requestId: event.data.requestId,
+        source: "carnival-playhouse-bridge",
+        type: "openInAuxResult",
+      }, window.location.origin);
+    }, { once: true });
+  });
+  await playerInfo.click();
+  await expect(edit.form).toBeVisible();
+  await expect(edit.form.getByLabel("Title")).toHaveValue("Player lifecycle");
   await choosePlayer(edit.form, "Bla", auth.contacts[1].displayName);
   await edit.form.getByRole("button", { name: "Save changes" }).click();
 
@@ -1163,4 +1184,10 @@ test("Player can be created, displayed, changed, and cleared", async ({ auth }) 
     .single();
   expect(persistence.error).toBeNull();
   expect(persistence.data?.player_contact_id).toBeNull();
+
+  edit = await openEditPlay(auth.page, "Player lifecycle");
+  await expect(
+    edit.form.getByRole("button", { name: "Open Player in Google Contacts" }),
+  ).toBeDisabled();
+  await edit.form.getByRole("button", { name: "Close" }).click();
 });

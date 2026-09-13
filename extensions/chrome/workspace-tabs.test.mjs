@@ -66,8 +66,9 @@ test("saved definitions reject transient or privileged URLs", () => {
   });
 });
 
-test("Aux routing selects Gmail only for Gmail URLs and Misc otherwise", () => {
+test("Aux routing selects durable Gmail and Contacts roles and Misc otherwise", () => {
   assert.equal(auxRoleForUrl("https://mail.google.com/mail/u/2/#all/thread"), "gmail");
+  assert.equal(auxRoleForUrl("https://contacts.google.com/person/c123"), "contacts");
   assert.equal(auxRoleForUrl("https://example.com/play"), "misc");
   assert.equal(auxRoleForUrl("chrome://settings"), null);
 });

@@ -20,6 +20,7 @@ import { NextPlayRelationshipForm } from "./next-play-relationship-form";
 import { openPlayDetailsAndRouteAux } from "./play-description-aux";
 import { applySuccessfulPlaySave } from "./play-form-success";
 import { PlayerCombobox } from "./player-combobox";
+import { PlayerContactInfo } from "./player-contact-info";
 import { PlayInfo, PlayWorkflowActions } from "./play-status-actions";
 
 const PLACE_OPTIONS = ["office", "outside", "any"] as const;
@@ -245,11 +246,14 @@ export function PlayForm({
           </label>
         </div>
 
-        <PlayerCombobox
-          error={state.fieldErrors?.playerContactId}
-          initialSelection={initialPlayer}
-          key={`${submittedPlayerId ?? play?.playerContactId ?? "none"}:${submittedPlayerName ?? play?.playerDisplayName ?? ""}`}
-        />
+        <div className="playerInfoRow field--wide">
+          <PlayerCombobox
+            error={state.fieldErrors?.playerContactId}
+            initialSelection={initialPlayer}
+            key={`${submittedPlayerId ?? play?.playerContactId ?? "none"}:${submittedPlayerName ?? play?.playerDisplayName ?? ""}`}
+          />
+          <PlayerContactInfo playerContactId={play?.playerContactId ?? null} />
+        </div>
 
         <div className="formRow dateUrlRow field--wide">
           {placementKind === "calendar" ? (
