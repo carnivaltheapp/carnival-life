@@ -171,45 +171,6 @@ export type Database = {
         };
         Relationships: [];
       };
-      slack_connections: {
-        Row: {
-          connection_status: Database["public"]["Enums"]["google_connection_status"];
-          created_at: string;
-          granted_scopes: string[];
-          id: string;
-          owner_user_id: string;
-          slack_user_id: string;
-          sync_error: string | null;
-          team_id: string;
-          team_name: string;
-          updated_at: string;
-        };
-        Insert: {
-          connection_status?: Database["public"]["Enums"]["google_connection_status"];
-          created_at?: string;
-          granted_scopes?: string[];
-          id?: string;
-          owner_user_id: string;
-          slack_user_id: string;
-          sync_error?: string | null;
-          team_id: string;
-          team_name: string;
-          updated_at?: string;
-        };
-        Update: {
-          connection_status?: Database["public"]["Enums"]["google_connection_status"];
-          created_at?: string;
-          granted_scopes?: string[];
-          id?: string;
-          owner_user_id?: string;
-          slack_user_id?: string;
-          sync_error?: string | null;
-          team_id?: string;
-          team_name?: string;
-          updated_at?: string;
-        };
-        Relationships: [];
-      };
       plays: {
         Row: {
           basket_id: string | null;
@@ -386,14 +347,6 @@ export type Database = {
           encryption_version: 1;
         }[];
       };
-      get_slack_connection_credential: {
-        Args: { p_owner_user_id: string; p_slack_connection_id: string };
-        Returns: {
-          encrypted_access_token: string;
-          encryption_iv: string;
-          encryption_version: 1;
-        }[];
-      };
       done_create_existing: {
         Args: { p_play_id: string };
         Returns: {
@@ -427,16 +380,6 @@ export type Database = {
           p_encryption_version?: 1;
           p_google_account_id: string;
           p_owner_user_id: string;
-        };
-        Returns: undefined;
-      };
-      store_slack_connection_credential: {
-        Args: {
-          p_encrypted_access_token: string;
-          p_encryption_iv: string;
-          p_encryption_version?: 1;
-          p_owner_user_id: string;
-          p_slack_connection_id: string;
         };
         Returns: undefined;
       };

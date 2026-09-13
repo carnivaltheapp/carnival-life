@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { storeSlackToken } from "../../../lib/slack/connection.server";
+import { storeSlackConnection } from "../../../lib/slack/connection.server";
 import { parseSlackOAuthResponse, validSlackOAuthState } from "../../../lib/slack/oauth";
 import { createClient } from "../../../lib/supabase/server";
 
@@ -35,23 +35,16 @@ export async function GET(request: NextRequest) {
       console.error("[PlayHouse Slack] OAuth exchange failed", { reason: rawBody.error ?? "invalid_response" });
       return redirect(request, "connection_error");
     }
-    const { data: connection, error } = await supabase.from("slack_connections").upsert({
-      connection_status: "connected",
-      granted_scopes: body.grantedScopes,
-      owner_user_id: ownerUserId,
-      slack_user_id: body.slackUserId,
-      sync_error: null,
-      team_id: body.teamId,
-      team_name: body.teamName,
-    }, { onConflict: "owner_user_id,team_id" }).select("id").single();
-    if (error || !connection) return redirect(request, "storage_error");
     try {
-      await storeSlackToken({ connectionId: connection.id, ownerUserId, accessToken: body.accessToken });
+      await storeSlackConnection({
+        accessToken: body.accessToken,
+        grantedScopes: body.grantedScopes,
+        ownerUserId,
+        slackUserId: body.slackUserId,
+        teamId: body.teamId,
+        teamName: body.teamName,
+      });
     } catch {
-      await supabase.from("slack_connections")
-        .update({ connection_status: "error", sync_error: "Reconnect Slack to finish setup." })
-        .eq("id", connection.id)
-        .eq("owner_user_id", ownerUserId);
       return redirect(request, "storage_error");
     }
     return redirect(request, "connected");

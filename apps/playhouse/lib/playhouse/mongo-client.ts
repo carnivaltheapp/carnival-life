@@ -48,3 +48,8 @@ export async function getLegacyTaskCollection() {
   const client = await mongoClientPromise();
   return client.db(DATABASE_NAME).collection<LegacyTaskDocument>(COLLECTION_NAME);
 }
+
+export async function getCarnivalMongoDatabase() {
+  const client = await mongoClientPromise();
+  return client.db(DATABASE_NAME);
+}

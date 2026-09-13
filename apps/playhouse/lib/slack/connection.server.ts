@@ -1,8 +1,8 @@
 import "server-only";
 
-import { createAdminClient } from "../supabase/admin";
 import { fetchSlackResourceName, SlackNameCache, SlackReconnectRequiredError } from "./api";
 import { decryptSlackAccessToken, encryptSlackAccessToken } from "./credential-crypto";
+import { MongoSlackConnectionRepository } from "./connection-repository";
 import { parseSlackResource } from "./resource";
 
 const cache = new SlackNameCache();
@@ -14,59 +14,50 @@ function encryptionKey() {
   return value;
 }
 
-export async function storeSlackToken({ connectionId, ownerUserId, accessToken }: {
-  connectionId: string;
+export async function storeSlackConnection({
+  accessToken,
+  grantedScopes,
+  ownerUserId,
+  slackUserId,
+  teamId,
+  teamName,
+}: {
   ownerUserId: string;
   accessToken: string;
+  grantedScopes: string[];
+  slackUserId: string;
+  teamId: string;
+  teamName: string;
 }) {
   const credential = encryptSlackAccessToken(accessToken, encryptionKey());
-  const { error } = await createAdminClient().rpc("store_slack_connection_credential", {
-    p_encrypted_access_token: credential.encryptedAccessToken,
-    p_encryption_iv: credential.encryptionIv,
-    p_encryption_version: credential.encryptionVersion,
-    p_owner_user_id: ownerUserId,
-    p_slack_connection_id: connectionId,
+  return new MongoSlackConnectionRepository().upsert({
+    credential,
+    grantedScopes,
+    ownerUserId,
+    slackUserId,
+    teamId,
+    teamName,
   });
-  if (error) throw new Error("Slack authorization could not be stored securely.");
-}
-
-async function accessToken(connectionId: string, ownerUserId: string) {
-  const { data, error } = await createAdminClient().rpc("get_slack_connection_credential", {
-    p_owner_user_id: ownerUserId,
-    p_slack_connection_id: connectionId,
-  });
-  const stored = data?.[0];
-  if (error || !stored) throw new SlackReconnectRequiredError(RECONNECT_MESSAGE);
-  return decryptSlackAccessToken({
-    encryptedAccessToken: stored.encrypted_access_token,
-    encryptionIv: stored.encryption_iv,
-    encryptionVersion: stored.encryption_version,
-  }, encryptionKey());
 }
 
 export async function resolveSlackNameForOwner(ownerUserId: string, value: string) {
   const resource = parseSlackResource(value);
   if (!resource) return null;
-  const admin = createAdminClient();
-  let query = admin.from("slack_connections")
-    .select("id, team_id")
-    .eq("owner_user_id", ownerUserId)
-    .eq("connection_status", "connected")
-    .order("updated_at", { ascending: false })
-    .limit(1);
-  if (resource.teamId) query = query.eq("team_id", resource.teamId);
-  const { data: connection } = await query.maybeSingle();
+  const repository = new MongoSlackConnectionRepository();
+  const connection = await repository.findConnected(ownerUserId, resource.teamId);
   if (!connection) return null;
   try {
-    const token = await accessToken(connection.id, ownerUserId);
-    return await cache.get(`${connection.team_id}:${resource.type}:${resource.id}`, () =>
+    const token = decryptSlackAccessToken({
+      authenticationTag: connection.token_auth_tag,
+      encryptedAccessToken: connection.encrypted_access_token,
+      encryptionIv: connection.token_iv,
+      encryptionVersion: connection.encryption_version,
+    }, encryptionKey());
+    return await cache.get(`${connection.slack_team_id}:${resource.type}:${resource.id}`, () =>
       fetchSlackResourceName(token, resource));
   } catch (error) {
     if (error instanceof SlackReconnectRequiredError) {
-      await admin.from("slack_connections")
-        .update({ connection_status: "error", sync_error: RECONNECT_MESSAGE })
-        .eq("id", connection.id)
-        .eq("owner_user_id", ownerUserId);
+      await repository.markReconnectRequired(ownerUserId, connection.slack_team_id, RECONNECT_MESSAGE);
     }
     console.warn("[PlayHouse Slack] name resolution failed", {
       reason: error instanceof SlackReconnectRequiredError ? "reconnect_required" : "unavailable",

@@ -4,6 +4,7 @@ const ALGORITHM = "aes-256-gcm";
 const AUTH_TAG_BYTES = 16;
 
 export type EncryptedSlackCredential = {
+  authenticationTag: string;
   encryptedAccessToken: string;
   encryptionIv: string;
   encryptionVersion: 1;
@@ -20,7 +21,8 @@ export function encryptSlackAccessToken(token: string, encodedKey: string): Encr
   const cipher = createCipheriv(ALGORITHM, keyFromBase64(encodedKey), iv);
   const ciphertext = Buffer.concat([cipher.update(token, "utf8"), cipher.final()]);
   return {
-    encryptedAccessToken: Buffer.concat([ciphertext, cipher.getAuthTag()]).toString("base64"),
+    authenticationTag: cipher.getAuthTag().toString("base64"),
+    encryptedAccessToken: ciphertext.toString("base64"),
     encryptionIv: iv.toString("base64"),
     encryptionVersion: 1,
   };
@@ -29,15 +31,15 @@ export function encryptSlackAccessToken(token: string, encodedKey: string): Encr
 export function decryptSlackAccessToken(credential: EncryptedSlackCredential, encodedKey: string) {
   if (credential.encryptionVersion !== 1) throw new Error("Unsupported Slack credential encryption version.");
   const encrypted = Buffer.from(credential.encryptedAccessToken, "base64");
-  if (encrypted.length <= AUTH_TAG_BYTES) throw new Error("Stored Slack credential is invalid.");
+  const authenticationTag = Buffer.from(credential.authenticationTag, "base64");
+  if (!encrypted.length || authenticationTag.length !== AUTH_TAG_BYTES) {
+    throw new Error("Stored Slack credential is invalid.");
+  }
   const decipher = createDecipheriv(
     ALGORITHM,
     keyFromBase64(encodedKey),
     Buffer.from(credential.encryptionIv, "base64"),
   );
-  decipher.setAuthTag(encrypted.subarray(-AUTH_TAG_BYTES));
-  return Buffer.concat([
-    decipher.update(encrypted.subarray(0, -AUTH_TAG_BYTES)),
-    decipher.final(),
-  ]).toString("utf8");
+  decipher.setAuthTag(authenticationTag);
+  return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
 }
