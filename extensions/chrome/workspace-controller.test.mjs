@@ -393,6 +393,38 @@ test("Google Contacts routing ignores unrelated Google and Gmail tabs", async ()
   assert.equal(chrome.getTab(state.contextRoleTabIds.contacts).url, "https://contacts.google.com/person/c123");
 });
 
+test("Slack routing reuses its durable role tab without creating duplicates", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const initial = await workspace.summon(workArea, "display-1");
+
+  await workspace.openCarnivalContext("https://app.slack.com/client/T1/C1", workArea, "display-1");
+  const first = await workspace.state();
+  await workspace.openCarnivalContext("https://carnival.slack.com/archives/C2", workArea, "display-1");
+  const second = await workspace.state();
+
+  assert.equal(chrome.calls.createTab.length, 1);
+  assert.equal(first.contextRoleTabIds.slack, second.contextRoleTabIds.slack);
+  assert.equal(chrome.getTab(second.contextRoleTabIds.slack).url, "https://carnival.slack.com/archives/C2");
+  assert.equal(chrome.getTabs(initial.contextWindowId).length, 4);
+});
+
+test("Slack routing adopts an existing Slack-host Aux tab when no role is saved", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const initial = await workspace.summon(workArea, "display-1");
+  const slack = chrome.addTab(initial.contextWindowId, "https://app.slack.com/client/T1/OLD");
+
+  await workspace.openCarnivalContext("https://app.slack.com/client/T1/NEW", workArea, "display-1");
+  const state = await workspace.state();
+
+  assert.equal(chrome.calls.createTab.length, 0);
+  assert.equal(state.contextRoleTabIds.slack, slack.id);
+  assert.equal(chrome.getTab(slack.id).url, "https://app.slack.com/client/T1/NEW");
+});
+
 test("Aux tab order, active tab, pins, roles, and user tabs restore after window close", async () => {
   const chrome = fakeChrome();
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };

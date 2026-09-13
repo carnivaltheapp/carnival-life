@@ -20,9 +20,11 @@ const SEARCH_DEBOUNCE_MS = 300;
 export function PlayerCombobox({
   error,
   initialSelection,
+  onSelectionChange,
 }: {
   error?: string;
   initialSelection: PlayerSelection | null;
+  onSelectionChange?: (selection: PlayerSelection | null) => void;
 }) {
   const listboxId = useId();
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -82,6 +84,7 @@ export function PlayerCombobox({
     }
 
     setSelected(response.contact);
+    onSelectionChange?.(response.contact);
     setQuery(response.contact.displayName);
     setResults([]);
     setIsFocused(false);
@@ -105,6 +108,7 @@ export function PlayerCombobox({
           onChange={(event) => {
             setQuery(event.target.value);
             setSelected(null);
+            onSelectionChange?.(null);
             setMessage(null);
             setResults([]);
             setStatus("idle");
@@ -145,6 +149,7 @@ export function PlayerCombobox({
           onClick={() => {
             setQuery("");
             setSelected(null);
+            onSelectionChange?.(null);
             setResults([]);
           }}
           type="button"

@@ -12,7 +12,6 @@ import {
   type DragEvent,
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode,
 } from "react";
 
 import {
@@ -23,6 +22,7 @@ import {
   repositionPlays,
   unlinkGmailFromPlay,
 } from "../app/plays/actions";
+import { loadPlayerSlackValues } from "../app/players/actions";
 import type {
   BasketSummary,
   NextPlayOption,
@@ -80,6 +80,7 @@ import {
 import { playVisualForPlay } from "../domain/play-visual";
 import { compareChronologicalPlays, comparePlayRankAndPriority } from "../domain/play-sort";
 import { reminderContextDate } from "../domain/reminder";
+import { PLAYER_SLACK_UPDATED_EVENT, usableSlackUrl } from "../lib/google/contact-slack";
 import { AccountMenu } from "./account-menu";
 import { BrowserTimeZone } from "./browser-time-zone";
 import { useGridFontSizePreference } from "./grid-settings";
@@ -87,11 +88,10 @@ import { requestGmailThreadUnstar } from "./gmail-thread-sync";
 import { PlayForm } from "./play-form";
 import { PlaySearch } from "./play-search";
 import {
-  BrowserIcon,
   DoneIcon,
   FlipRankIcon,
-  GmailIcon,
   PlayStatusActions,
+  SlackIcon,
   TrashIcon,
 } from "./play-status-actions";
 
@@ -210,51 +210,6 @@ function GridSortHeader({
   );
 }
 
-function GridIconSortHeader({
-  children,
-  column,
-  label,
-  onSort,
-  sort,
-}: {
-  children: ReactNode;
-  column: "gmail" | "url";
-  label: string;
-  onSort: (sort: PlayGridSort) => void;
-  sort: PlayGridSort | null;
-}) {
-  const active = sort?.column === column;
-  const direction = active ? sort.direction : null;
-  return (
-    <span
-      aria-label={column === "gmail" ? "Gmail" : "URL"}
-      aria-sort={direction === "asc"
-        ? "ascending"
-        : direction === "desc" ? "descending" : "none"}
-      className="playGridIconSortHeader"
-      role="columnheader"
-    >
-      <button
-        aria-label={`Sort by ${label}`}
-        aria-pressed={active}
-        onClick={() => onSort({
-          column,
-          direction: direction === "asc" ? "desc" : "asc",
-        })}
-        title={`Sort by ${label}`}
-        type="button"
-      >
-        {children}
-        {direction ? (
-          <span aria-hidden="true" className="playGridIconSortIndicator">
-            {direction === "asc" ? "↑" : "↓"}
-          </span>
-        ) : null}
-      </button>
-    </span>
-  );
-}
-
 export function PlayhouseShell(props: PlayhouseShellProps) {
   return <PlayhouseShellView key={selectedViewIdentity(props.selectedView)} {...props} />;
 }
@@ -313,12 +268,33 @@ function PlayhouseShellView({
     source: PlayListItem[];
     value: PlayListItem[];
   } | null>(null);
+  const [playerSlack, setPlayerSlack] = useState<Record<string, string>>({});
   const [movePending, startMove] = useTransition();
   const [bulkPending, startBulk] = useTransition();
   const [flipPending, startFlip] = useTransition();
   const [gmailAttachPending, startGmailAttach] = useTransition();
   const [gmailCreatePending, startGmailCreate] = useTransition();
   const localPlays = optimisticPlays?.source === plays ? optimisticPlays.value : plays;
+  useEffect(() => {
+    const ids = [...new Set(localPlays.flatMap((play) =>
+      play.playerContactId ? [play.playerContactId] : [],
+    ))];
+    let current = true;
+    if (!ids.length) return () => { current = false; };
+    void loadPlayerSlackValues(ids).then((response) => {
+      if (current && response.status === "success") setPlayerSlack(response.values);
+    });
+    return () => { current = false; };
+  }, [localPlays]);
+  useEffect(() => {
+    const update = (event: Event) => {
+      const detail = (event as CustomEvent<{ playerContactId: string; slack: string }>).detail;
+      if (!detail?.playerContactId) return;
+      setPlayerSlack((values) => ({ ...values, [detail.playerContactId]: detail.slack }));
+    };
+    window.addEventListener(PLAYER_SLACK_UPDATED_EVENT, update);
+    return () => window.removeEventListener(PLAYER_SLACK_UPDATED_EVENT, update);
+  }, []);
   const gmailCreateListContextRef = useRef({
     baskets,
     localPlays,
@@ -1439,22 +1415,8 @@ function PlayhouseShellView({
                 <div className="statusActions playGridActionHeaders">
                   <span aria-label="Done" role="columnheader" title="Done"><DoneIcon /></span>
                   <span aria-label="Trash" role="columnheader" title="Trash"><TrashIcon /></span>
-                  <GridIconSortHeader
-                    column="gmail"
-                    label="Gmail linkage"
-                    onSort={setGridSort}
-                    sort={gridSort}
-                  >
-                    <GmailIcon />
-                  </GridIconSortHeader>
-                  <GridIconSortHeader
-                    column="url"
-                    label="URL"
-                    onSort={setGridSort}
-                    sort={gridSort}
-                  >
-                    <BrowserIcon />
-                  </GridIconSortHeader>
+                  <span aria-label="Slack" role="columnheader" title="Slack"><SlackIcon /></span>
+                  <span aria-hidden="true" />
                   {gridSort ? (
                     <button
                       aria-label="Return to natural order"
@@ -1666,6 +1628,9 @@ function PlayhouseShellView({
                           ? undefined
                           : () => requestRankFlip(play)}
                         play={play}
+                        slackUrl={play.playerContactId
+                          ? usableSlackUrl(playerSlack[play.playerContactId])
+                          : null}
                       />
                     )}
                   </div>

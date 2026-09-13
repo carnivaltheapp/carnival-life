@@ -1610,6 +1610,48 @@ h1 {
   align-items: start;
 }
 
+.playerSlackRow {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  align-items: start;
+}
+
+.playerSlackField {
+  position: relative;
+}
+
+.playerSlackField input {
+  padding-right: 50px;
+}
+
+.playerSlackSaveButton {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  height: 26px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(109, 63, 242, 0.1);
+  color: var(--accent-deep);
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.playerSlackSaveButton:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.playerSlackError {
+  color: #81243b;
+  font-size: 0.68rem;
+}
+
 .playerInfoRow .playerField {
   grid-column: auto;
 }
@@ -2501,6 +2543,12 @@ h1 {
   font-size: 0.62rem;
   line-height: 1.2;
   pointer-events: none;
+}
+
+.slackGlyph {
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .gmailContextMenu {

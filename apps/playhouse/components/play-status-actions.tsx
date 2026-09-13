@@ -11,7 +11,6 @@ import type {
   PlayPlacement,
 } from "../domain/play";
 import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
-import { gmailThreadUrl, usablePlayUrl } from "../domain/play-display";
 import { openInAux } from "../lib/desktop/open-in-aux";
 import { requestGmailThreadUnstar } from "./gmail-thread-sync";
 
@@ -43,6 +42,10 @@ export function BrowserIcon() {
       <path d="M10 3h6M4 6.2l3 5.2m1.7 5.5 3-5.2" />
     </svg>
   );
+}
+
+export function SlackIcon() {
+  return <span aria-hidden="true" className="slackGlyph">#</span>;
 }
 
 export function FlipRankIcon() {
@@ -113,10 +116,12 @@ export function PlayStatusActions({
   flipPending = false,
   onFlipRank,
   play,
+  slackUrl = null,
 }: {
   flipPending?: boolean;
   onFlipRank?: () => void;
   play: PlayListItem;
+  slackUrl?: string | null;
 }) {
   const router = useRouter();
   const [doneState, doneAction, donePending] = useActionState(
@@ -146,7 +151,6 @@ export function PlayStatusActions({
       : trashState.status === "error"
         ? trashState.message
         : null;
-  const playUrl = usablePlayUrl(play.url);
 
   return (
     <div className="statusActionArea">
@@ -175,44 +179,23 @@ export function PlayStatusActions({
             {trashPending ? <span aria-hidden="true">…</span> : <TrashIcon />}
           </button>
         </form>
-        {play.gmailThreadId ? (
+        {slackUrl ? (
           <button
-            aria-label="Open Gmail thread"
-            className="rowIconButton gmailButton"
+            aria-label="Open Player Slack"
+            className="rowIconButton slackButton"
             onClick={(event) => {
               event.stopPropagation();
-              const url = gmailThreadUrl(
-                play.gmailThreadId!,
-                play.gmailAccountIndex ?? 0,
-              );
-              console.info("PH AUX ROUTE CLICK", new URL(url).origin);
-              openInAux(url);
+              openInAux(slackUrl);
             }}
-            title="Open Gmail thread"
+            title="Open Player Slack"
             type="button"
           >
-            <GmailIcon />
+            <SlackIcon />
           </button>
         ) : (
           <span aria-hidden="true" className="rowActionPlaceholder" />
         )}
-        {playUrl ? (
-          <button
-            aria-label="Open Play URL"
-            className="rowIconButton urlButton"
-            onClick={(event) => {
-              event.stopPropagation();
-              console.info("PH AUX ROUTE CLICK", new URL(playUrl).origin);
-              openInAux(playUrl);
-            }}
-            title="Open Play URL"
-            type="button"
-          >
-            <BrowserIcon />
-          </button>
-        ) : (
-          <span aria-hidden="true" className="rowActionPlaceholder" />
-        )}
+        <span aria-hidden="true" className="rowActionPlaceholder" />
         {onFlipRank ? (
           <button
             aria-label="Flip rank"

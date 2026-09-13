@@ -21,6 +21,7 @@ import { openPlayDetailsAndRouteAux } from "./play-description-aux";
 import { applySuccessfulPlaySave } from "./play-form-success";
 import { PlayerCombobox } from "./player-combobox";
 import { PlayerContactInfo } from "./player-contact-info";
+import { PlayerSlackField } from "./player-slack-field";
 import { PlayInfo, PlayWorkflowActions } from "./play-status-actions";
 
 const PLACE_OPTIONS = ["office", "outside", "any"] as const;
@@ -129,6 +130,7 @@ export function PlayForm({
           id: play.playerContactId,
         }
       : null;
+  const [selectedPlayerId, setSelectedPlayerId] = useState(initialPlayer?.id ?? null);
 
   useEffect(() => {
     applySuccessfulPlaySave(state.status, {
@@ -246,13 +248,17 @@ export function PlayForm({
           </label>
         </div>
 
-        <div className="playerInfoRow field--wide">
-          <PlayerCombobox
-            error={state.fieldErrors?.playerContactId}
-            initialSelection={initialPlayer}
-            key={`${submittedPlayerId ?? play?.playerContactId ?? "none"}:${submittedPlayerName ?? play?.playerDisplayName ?? ""}`}
-          />
-          <PlayerContactInfo playerContactId={play?.playerContactId ?? null} />
+        <div className="playerSlackRow field--wide">
+          <div className="playerInfoRow">
+            <PlayerCombobox
+              error={state.fieldErrors?.playerContactId}
+              initialSelection={initialPlayer}
+              key={`${submittedPlayerId ?? play?.playerContactId ?? "none"}:${submittedPlayerName ?? play?.playerDisplayName ?? ""}`}
+              onSelectionChange={(selection) => setSelectedPlayerId(selection?.id ?? null)}
+            />
+            <PlayerContactInfo playerContactId={selectedPlayerId} />
+          </div>
+          <PlayerSlackField key={selectedPlayerId ?? "none"} playerContactId={selectedPlayerId} />
         </div>
 
         <div className="formRow dateUrlRow field--wide">

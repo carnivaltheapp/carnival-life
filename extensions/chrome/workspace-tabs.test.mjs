@@ -6,6 +6,7 @@ import {
   auxRoleForUrl,
   defaultAuxTabs,
   isGoogleContactsUrl,
+  isSlackUrl,
   isRestorableTabUrl,
   snapshotTabs,
   validSavedTabs,
@@ -70,8 +71,15 @@ test("saved definitions reject transient or privileged URLs", () => {
 test("Aux routing selects durable Gmail and Contacts roles and Misc otherwise", () => {
   assert.equal(auxRoleForUrl("https://mail.google.com/mail/u/2/#all/thread"), "gmail");
   assert.equal(auxRoleForUrl("https://contacts.google.com/person/c123"), "contacts");
+  assert.equal(auxRoleForUrl("https://app.slack.com/client/T1/C1"), "slack");
   assert.equal(auxRoleForUrl("https://example.com/play"), "misc");
   assert.equal(auxRoleForUrl("chrome://settings"), null);
+});
+
+test("Slack matching accepts Slack hostnames only", () => {
+  assert.equal(isSlackUrl("https://app.slack.com/client/T1/C1"), true);
+  assert.equal(isSlackUrl("https://carnival.slack.com/archives/C1"), true);
+  assert.equal(isSlackUrl("https://example.com/slack"), false);
 });
 
 test("Google Contacts matching uses the exact hostname regardless of path, query, or hash", () => {

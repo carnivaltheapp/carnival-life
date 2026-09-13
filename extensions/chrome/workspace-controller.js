@@ -855,8 +855,8 @@ export class CarnivalWorkspaceController {
     if (!isAllowedContextUrl(url)) throw new Error("Carnival context URLs must use HTTP or HTTPS.");
     if (!validWorkArea(workArea)) throw new Error("A valid monitor work area is required.");
     const role = requestedRole ?? auxRoleForUrl(url);
-    if (role !== "contacts" && role !== "gmail" && role !== "misc") {
-      throw new Error("Carnival context navigation requires a Contacts, Gmail, or Misc role.");
+    if (role !== "contacts" && role !== "gmail" && role !== "misc" && role !== "slack") {
+      throw new Error("Carnival context navigation requires a Contacts, Gmail, Slack, or Misc role.");
     }
 
     this.logger.info?.("Carnival: resolving Aux context window");
@@ -891,9 +891,15 @@ export class CarnivalWorkspaceController {
     const contactsTabs = role === "contacts"
       ? (await this.tabsInWindow(contextWindow.id)).filter((tab) => isGoogleContactsUrl(tab.url))
       : [];
+    const slackTabs = role === "slack"
+      ? (await this.tabsInWindow(contextWindow.id)).filter((tab) => auxRoleForUrl(tab.url) === "slack")
+      : [];
     let roleTab = role === "contacts"
       ? contactsTabs.find((tab) => tab.active) ?? contactsTabs[0] ?? null
       : await existingTab(this.chrome, context.roleTabIds[role]);
+    if (role === "slack" && !roleTab) {
+      roleTab = slackTabs.find((tab) => tab.active) ?? slackTabs[0] ?? null;
+    }
     const roleIds = { ...context.roleTabIds };
     if (!roleTab || roleTab.windowId !== contextWindow.id) {
       roleTab = await this.chrome.tabs.create({ active: true, url, windowId: contextWindow.id });
@@ -906,7 +912,9 @@ export class CarnivalWorkspaceController {
     this.logger.info?.("AUX_ROLE_TAB_ACTIVATED", { role, tabId: roleTab.id });
     const navigatedEvent = role === "gmail"
       ? "GMAIL_ROLE_NAVIGATED"
-      : role === "contacts" ? "CONTACTS_ROLE_NAVIGATED" : "MISC_ROLE_NAVIGATED";
+      : role === "contacts"
+        ? "CONTACTS_ROLE_NAVIGATED"
+        : role === "slack" ? "SLACK_ROLE_NAVIGATED" : "MISC_ROLE_NAVIGATED";
     this.logger.info?.(navigatedEvent, {
       host: new URL(url).hostname,
       path: new URL(url).pathname,

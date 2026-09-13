@@ -3,6 +3,7 @@ export const AUX_ROLE_URLS = {
   contacts: "https://contacts.google.com/",
   gmail: "https://mail.google.com/mail/u/0/#inbox",
   misc: "https://www.google.com/",
+  slack: "https://app.slack.com/",
 };
 
 const AUX_ROLES = new Set(Object.keys(AUX_ROLE_URLS));
@@ -80,9 +81,20 @@ export function auxRoleForUrl(value) {
     const host = new URL(value).hostname;
     if (host === "mail.google.com") return "gmail";
     if (isGoogleContactsUrl(value)) return "contacts";
+    if (isSlackUrl(value)) return "slack";
     return "misc";
   } catch {
     return null;
+  }
+}
+
+export function isSlackUrl(value) {
+  if (!isRestorableTabUrl(value)) return false;
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return host === "slack.com" || host.endsWith(".slack.com");
+  } catch {
+    return false;
   }
 }
 

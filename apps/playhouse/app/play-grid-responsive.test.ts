@@ -6,6 +6,11 @@ const playhouseShell = readFileSync(
   new URL("../components/playhouse-shell.tsx", import.meta.url),
   "utf8",
 );
+const playStatusActions = readFileSync(
+  new URL("../components/play-status-actions.tsx", import.meta.url),
+  "utf8",
+);
+const playForm = readFileSync(new URL("../components/play-form.tsx", import.meta.url), "utf8");
 
 function rule(selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -71,5 +76,14 @@ describe("Play grid responsive squeeze contract", () => {
     expect(rule(".playList")).toContain("overflow-x: hidden");
     expect(rule(".playRow")).toContain("min-width: 0");
     expect(stylesheet).toMatch(/\.playGridHeader\s*\{\s*min-width:\s*0/);
+  });
+
+  it("pairs Player information with Slack and shows only the conditional Slack row icon", () => {
+    expect(rule(".playerSlackRow")).toContain("grid-template-columns: repeat(2, minmax(0, 1fr))");
+    expect(playForm).toContain("<PlayerContactInfo playerContactId={selectedPlayerId} />");
+    expect(playForm).toContain("<PlayerSlackField");
+    expect(playStatusActions).toContain('aria-label="Open Player Slack"');
+    expect(playStatusActions).not.toContain('aria-label="Open Gmail thread"');
+    expect(playStatusActions).not.toContain('aria-label="Open Play URL"');
   });
 });

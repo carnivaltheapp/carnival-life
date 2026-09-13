@@ -2,9 +2,12 @@ import "server-only";
 
 import {
   getGoogleContact,
+  getGoogleContactSlack,
+  getGoogleContactsSlack,
   searchGoogleContacts,
   type GoogleContactSummary,
   warmGoogleContactSearch,
+  updateGoogleContactSlack,
 } from "./people";
 import { getGoogleAccessToken } from "./token-broker.server";
 
@@ -84,4 +87,54 @@ export async function resolvePersonForAccount({
     ownerUserId,
   });
   return getGoogleContact(accessToken, resourceName);
+}
+
+export async function readSlackForAccount({
+  googleAccountId,
+  ownerUserId,
+  resourceName,
+}: {
+  googleAccountId: string;
+  ownerUserId: string;
+  resourceName: string;
+}) {
+  if (isDeterministicTestAdapterEnabled()) return { resourceName, slack: "" };
+  const accessToken = await getGoogleAccessToken({ googleAccountId, ownerUserId });
+  return getGoogleContactSlack(accessToken, resourceName);
+}
+
+export async function readSlackValuesForAccount({
+  googleAccountId,
+  ownerUserId,
+  resourceNames,
+}: {
+  googleAccountId: string;
+  ownerUserId: string;
+  resourceNames: string[];
+}) {
+  if (isDeterministicTestAdapterEnabled()) return {};
+  const accessToken = await getGoogleAccessToken({ googleAccountId, ownerUserId });
+  const chunks: string[][] = [];
+  for (let index = 0; index < resourceNames.length; index += 100) {
+    chunks.push(resourceNames.slice(index, index + 100));
+  }
+  return Object.assign({}, ...await Promise.all(chunks.map((chunk) =>
+    getGoogleContactsSlack(accessToken, chunk),
+  )));
+}
+
+export async function writeSlackForAccount({
+  googleAccountId,
+  ownerUserId,
+  resourceName,
+  slack,
+}: {
+  googleAccountId: string;
+  ownerUserId: string;
+  resourceName: string;
+  slack: string;
+}) {
+  if (isDeterministicTestAdapterEnabled()) return { resourceName, slack: slack.trim() };
+  const accessToken = await getGoogleAccessToken({ googleAccountId, ownerUserId });
+  return updateGoogleContactSlack(accessToken, resourceName, slack);
 }

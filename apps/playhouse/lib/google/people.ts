@@ -8,12 +8,19 @@ type PersonField = {
 
 type GooglePerson = {
   emailAddresses?: PersonField[];
+  etag?: string;
+  metadata?: { sources?: unknown[] };
   names?: Array<PersonField & { displayName?: string }>;
   resourceName?: string;
+  userDefined?: Array<{ key?: string; value?: string }>;
 };
 
 type SearchContactsResponse = {
   results?: Array<{ person?: GooglePerson }>;
+};
+
+type BatchGetPeopleResponse = {
+  responses?: Array<{ person?: GooglePerson }>;
 };
 
 export type GoogleContactSummary = {
@@ -21,6 +28,28 @@ export type GoogleContactSummary = {
   email: string | null;
   resourceName: string;
 };
+
+export type GoogleContactSlack = {
+  resourceName: string;
+  slack: string;
+};
+
+export class GoogleContactsPermissionError extends Error {}
+
+export function slackFromUserDefined(
+  values: GooglePerson["userDefined"],
+) {
+  return values?.find(({ key }) => key === "slack")?.value?.trim() ?? "";
+}
+
+export function updateSlackUserDefined(
+  values: GooglePerson["userDefined"],
+  slack: string,
+) {
+  const preserved = (values ?? []).filter(({ key }) => key !== "slack");
+  const normalized = slack.trim();
+  return normalized ? [...preserved, { key: "slack", value: normalized }] : preserved;
+}
 
 function primaryField<T extends PersonField>(fields: T[] | undefined) {
   return fields?.find((field) => field.metadata?.primary) ?? fields?.[0];
@@ -114,4 +143,84 @@ export async function getGoogleContact(
     throw new Error("Google contact could not be verified.");
   }
   return contact;
+}
+
+export async function getGoogleContactSlack(
+  accessToken: string,
+  resourceName: string,
+  request: typeof fetch = fetch,
+): Promise<GoogleContactSlack> {
+  if (!/^people\/[A-Za-z0-9_-]+$/.test(resourceName)) {
+    throw new Error("Google contact identifier is invalid.");
+  }
+  const url = new URL(`/v1/${resourceName}`, PEOPLE_API_ORIGIN);
+  url.searchParams.set("personFields", "metadata,userDefined");
+  const response = await googlePeopleRequest(url, accessToken, request);
+  const person = (await response.json()) as GooglePerson;
+  if (person.resourceName !== resourceName) {
+    throw new Error("Google contact could not be verified.");
+  }
+  return { resourceName, slack: slackFromUserDefined(person.userDefined) };
+}
+
+export async function getGoogleContactsSlack(
+  accessToken: string,
+  resourceNames: string[],
+  request: typeof fetch = fetch,
+) {
+  const validNames = [...new Set(resourceNames.filter((value) =>
+    /^people\/[A-Za-z0-9_-]+$/.test(value),
+  ))];
+  if (!validNames.length) return {};
+  const url = new URL("/v1/people:batchGet", PEOPLE_API_ORIGIN);
+  for (const resourceName of validNames) url.searchParams.append("resourceNames", resourceName);
+  url.searchParams.set("personFields", "userDefined");
+  const response = await googlePeopleRequest(url, accessToken, request);
+  const page = (await response.json()) as BatchGetPeopleResponse;
+  return Object.fromEntries((page.responses ?? []).flatMap(({ person }) =>
+    person?.resourceName
+      ? [[person.resourceName, slackFromUserDefined(person.userDefined)]]
+      : [],
+  ));
+}
+
+export async function updateGoogleContactSlack(
+  accessToken: string,
+  resourceName: string,
+  slack: string,
+  request: typeof fetch = fetch,
+): Promise<GoogleContactSlack> {
+  if (!/^people\/[A-Za-z0-9_-]+$/.test(resourceName)) {
+    throw new Error("Google contact identifier is invalid.");
+  }
+  const readUrl = new URL(`/v1/${resourceName}`, PEOPLE_API_ORIGIN);
+  readUrl.searchParams.set("personFields", "metadata,userDefined");
+  const currentResponse = await googlePeopleRequest(readUrl, accessToken, request);
+  const current = (await currentResponse.json()) as GooglePerson;
+  if (current.resourceName !== resourceName || !current.metadata?.sources?.length) {
+    throw new Error("Google contact could not be updated safely.");
+  }
+
+  const updateUrl = new URL(`/v1/${resourceName}:updateContact`, PEOPLE_API_ORIGIN);
+  updateUrl.searchParams.set("updatePersonFields", "userDefined");
+  updateUrl.searchParams.set("personFields", "metadata,userDefined");
+  const response = await request(updateUrl, {
+    body: JSON.stringify({
+      etag: current.etag,
+      metadata: { sources: current.metadata.sources },
+      resourceName,
+      userDefined: updateSlackUserDefined(current.userDefined, slack),
+    }),
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    method: "PATCH",
+  });
+  if (response.status === 401 || response.status === 403) {
+    throw new GoogleContactsPermissionError("Google Contacts permission is required.");
+  }
+  if (!response.ok) throw new Error("Google contact update failed.");
+  const updated = (await response.json()) as GooglePerson;
+  return { resourceName, slack: slackFromUserDefined(updated.userDefined) };
 }

@@ -11,17 +11,30 @@ import {
 } from "../../lib/google/contact-reference";
 import {
   canSearchGooglePeople,
+  GoogleContactsPermissionError,
   normalizePlayerSearchQuery,
 } from "../../lib/google/people";
+import { usableSlackUrl } from "../../lib/google/contact-slack";
 import {
+  readSlackForAccount,
+  readSlackValuesForAccount,
   resolvePersonForAccount,
   searchPeopleForAccount,
+  writeSlackForAccount,
 } from "../../lib/google/people.server";
 import {
   PLAYER_RECONNECT_MESSAGE,
   playerSearchErrorMessage,
 } from "../../lib/google/player-search-error";
 import { createClient } from "../../lib/supabase/server";
+import { GOOGLE_CONTACTS_WRITE_SCOPE } from "../../lib/google/scopes";
+
+const SLACK_RECONNECT_MESSAGE =
+  "Reconnect Google and approve Contacts access before editing Slack.";
+
+type PlayerSlackResponse =
+  | { slack: string; status: "success" }
+  | { message: string; status: "error" };
 
 async function authenticatedClient() {
   const supabase = await createClient();
@@ -154,4 +167,118 @@ export async function resolvePlayerContactResourceName(
   }
 
   return { resourceName, status: "success" };
+}
+
+
+async function ownedGoogleContact(
+  auth: NonNullable<Awaited<ReturnType<typeof authenticatedClient>>>,
+  playerContactId: string,
+) {
+  if (!isUuid(playerContactId)) return null;
+  const { data, error } = await auth.supabase
+    .from("contact_references")
+    .select("google_account_id, provider_resource_name")
+    .eq("id", playerContactId)
+    .eq("owner_user_id", auth.userId)
+    .maybeSingle();
+  if (
+    error || !data?.google_account_id ||
+    !isGooglePeopleResourceName(data.provider_resource_name)
+  ) return null;
+  return {
+    googleAccountId: data.google_account_id,
+    resourceName: data.provider_resource_name,
+  };
+}
+
+export async function loadPlayerSlack(
+  playerContactId: string,
+): Promise<PlayerSlackResponse> {
+  const auth = await authenticatedClient();
+  if (!auth) return { message: "Your session expired. Refresh and sign in again.", status: "error" };
+  const contact = await ownedGoogleContact(auth, playerContactId);
+  if (!contact) return { message: "This Player is not linked to Google Contacts.", status: "error" };
+  try {
+    return {
+      slack: (await readSlackForAccount({ ...contact, ownerUserId: auth.userId })).slack,
+      status: "success",
+    };
+  } catch {
+    return { message: "Slack could not be loaded from Google Contacts.", status: "error" };
+  }
+}
+
+export async function loadPlayerSlackValues(
+  playerContactIds: string[],
+): Promise<{ values: Record<string, string>; status: "success" } | { status: "error" }> {
+  const auth = await authenticatedClient();
+  if (!auth) return { status: "error" };
+  const ids = [...new Set(playerContactIds.filter(isUuid))];
+  if (!ids.length) return { status: "success", values: {} };
+  const { data, error } = await auth.supabase
+    .from("contact_references")
+    .select("google_account_id, id, provider_resource_name")
+    .eq("owner_user_id", auth.userId)
+    .in("id", ids);
+  if (error) return { status: "error" };
+  const byAccount = new Map<string, Array<{ id: string; resourceName: string }>>();
+  for (const contact of data ?? []) {
+    if (!contact.google_account_id || !isGooglePeopleResourceName(contact.provider_resource_name)) continue;
+    const contacts = byAccount.get(contact.google_account_id) ?? [];
+    contacts.push({ id: contact.id, resourceName: contact.provider_resource_name });
+    byAccount.set(contact.google_account_id, contacts);
+  }
+  const pairs = await Promise.all([...byAccount].map(async ([googleAccountId, contacts]) => {
+    try {
+      const values = await readSlackValuesForAccount({
+        googleAccountId,
+        ownerUserId: auth.userId,
+        resourceNames: contacts.map(({ resourceName }) => resourceName),
+      });
+      return contacts.map(({ id, resourceName }) => [id, values[resourceName] ?? ""] as const);
+    } catch {
+      return [];
+    }
+  }));
+  return { status: "success", values: Object.fromEntries(pairs.flat()) };
+}
+
+export async function savePlayerSlack(
+  playerContactId: string,
+  slack: string,
+): Promise<PlayerSlackResponse> {
+  const auth = await authenticatedClient();
+  if (!auth) return { message: "Your session expired. Refresh and sign in again.", status: "error" };
+  const contact = await ownedGoogleContact(auth, playerContactId);
+  if (!contact) return { message: "This Player is not linked to Google Contacts.", status: "error" };
+  if (slack.trim() && !usableSlackUrl(slack)) {
+    return { message: "Enter a valid Slack URL.", status: "error" };
+  }
+  const { data: account, error } = await auth.supabase
+    .from("google_accounts")
+    .select("connection_status, granted_scopes")
+    .eq("id", contact.googleAccountId)
+    .eq("owner_user_id", auth.userId)
+    .maybeSingle();
+  if (
+    error || !account || account.connection_status !== "connected" ||
+    !account.granted_scopes.includes(GOOGLE_CONTACTS_WRITE_SCOPE)
+  ) return { message: SLACK_RECONNECT_MESSAGE, status: "error" };
+  try {
+    return {
+      slack: (await writeSlackForAccount({
+        ...contact,
+        ownerUserId: auth.userId,
+        slack,
+      })).slack,
+      status: "success",
+    };
+  } catch (caught) {
+    return {
+      message: caught instanceof GoogleContactsPermissionError
+        ? SLACK_RECONNECT_MESSAGE
+        : "Slack could not be updated in Google Contacts.",
+      status: "error",
+    };
+  }
 }
