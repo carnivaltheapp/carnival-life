@@ -268,36 +268,28 @@ a {
 }
 
 .bullseyeControl {
-  display: flex;
-  width: 108px;
-  min-height: 34px;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 8px;
-  gap: 7px;
-  color: var(--accent-deep);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.62);
+  display: grid;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  place-items: center;
+  color: var(--accent);
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 8px 18px rgba(109, 63, 242, 0.16);
   cursor: pointer;
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 750;
 }
 
 .bullseyeIcon {
-  color: var(--accent);
-  font-size: 1.1rem;
-  line-height: 1;
+  display: block;
+  width: 32px;
+  height: 32px;
 }
 
 .bullseyeControl:hover,
 .bullseyeControl[aria-expanded="true"] {
   background: rgba(109, 63, 242, 0.1);
-}
-
-.bullseyeControl[aria-expanded="true"] {
-  border-radius: 10px 0 0 10px;
 }
 
 .bullseyeControl:focus-visible,
@@ -310,7 +302,7 @@ a {
   position: absolute;
   z-index: 20;
   top: 0;
-  left: 107px;
+  left: 43px;
   display: flex;
   width: max-content;
   min-height: 34px;

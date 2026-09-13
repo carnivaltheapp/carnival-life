@@ -1003,8 +1003,15 @@ function PlayhouseShellView({
                 }}
                 type="button"
               >
-                <span aria-hidden="true" className="bullseyeIcon">◎</span>
-                Bullseye
+                <svg
+                  aria-hidden="true"
+                  className="bullseyeIcon"
+                  viewBox="0 0 32 32"
+                >
+                  <circle cx="16" cy="16" fill="none" r="13" stroke="currentColor" strokeWidth="4" />
+                  <circle cx="16" cy="16" fill="none" r="7" stroke="currentColor" strokeWidth="4" />
+                  <circle cx="16" cy="16" fill="currentColor" r="2.5" />
+                </svg>
               </button>
               {bullseyeOpen && draggedIds.length ? (
                 <div

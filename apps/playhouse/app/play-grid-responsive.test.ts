@@ -2,6 +2,10 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const stylesheet = readFileSync(new URL("./globals.css", import.meta.url), "utf8");
+const playhouseShell = readFileSync(
+  new URL("../components/playhouse-shell.tsx", import.meta.url),
+  "utf8",
+);
 
 function rule(selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -39,6 +43,18 @@ describe("Play grid responsive squeeze contract", () => {
   it("moves the deployment marker exactly 100px left", () => {
     expect(rule(".versionStamp")).toContain("right: 108px");
     expect(rule(".versionStamp")).toContain("bottom: 6px");
+  });
+
+  it("renders the Bullseye as a 38px purple SVG target without a caption", () => {
+    const controlRule = rule(".bullseyeControl");
+
+    expect(controlRule).toContain("width: 38px");
+    expect(controlRule).toContain("height: 38px");
+    expect(controlRule).toContain("color: var(--accent)");
+    expect(controlRule).toContain("border-radius: 50%");
+    expect(playhouseShell).toContain('className="bullseyeIcon"');
+    expect(playhouseShell).toContain('<circle cx="16" cy="16"');
+    expect(playhouseShell).not.toMatch(/<\/svg>\s*Bullseye/);
   });
 
   it("preserves the complete five-icon action width without horizontal scrolling", () => {
