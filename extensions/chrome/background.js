@@ -280,13 +280,15 @@ chrome.tabs.onMoved.addListener((_tabId, moveInfo) => scheduleTabSave(moveInfo.w
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === UNSTAR_GMAIL_THREAD) {
     const diagnostic = {
-      accountIndex: message.accountIndex,
       action: message.action,
       playId: message.playId,
       threadRef: message.threadRef,
     };
     recordDiagnostic("info", "GMAIL_UNSTAR_STARTED", diagnostic);
-    recordDiagnostic("info", "GMAIL_UNSTAR_TAB_LOOKUP_STARTED", diagnostic);
+    recordDiagnostic("info", "GMAIL_UNSTAR_TAB_LOOKUP", {
+      ...diagnostic,
+      accountIndex: message.accountIndex,
+    });
     chrome.tabs.query({ url: "https://mail.google.com/*" }).then(async (tabs) => {
       const tab = selectGmailMetadataTab(tabs, message);
       if (!tab) {
@@ -325,11 +327,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ ok: false, reason: response?.reason ?? "unstar_failed" });
         return;
       }
-      recordDiagnostic("info", "GMAIL_UNSTAR_UI_COMPLETE", {
-        ...matched,
-        alreadyUnstarred: Boolean(response.alreadyUnstarred),
-        starElementFound: Boolean(response.starElementFound),
-      });
+      recordDiagnostic("info", "GMAIL_UNSTAR_UI_COMPLETE", matched);
       recordDiagnostic("info", "GMAIL_UNSTAR_COMPLETE", diagnostic);
       sendResponse({ ok: true });
     }).catch(() => {

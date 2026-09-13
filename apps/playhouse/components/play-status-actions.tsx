@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useActionState, useCallback, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 
 import { doneCreate, markPlayDone, trashPlay } from "../app/plays/actions";
 import type {
@@ -11,7 +11,6 @@ import type {
   PlayPlacement,
 } from "../domain/play";
 import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
-import type { PlayMutationState } from "../domain/play-mutation";
 import { gmailThreadUrl, usablePlayUrl } from "../domain/play-display";
 import { openInAux } from "../lib/desktop/open-in-aux";
 import { requestGmailThreadUnstar } from "./gmail-thread-sync";
@@ -120,52 +119,26 @@ export function PlayStatusActions({
   play: PlayListItem;
 }) {
   const router = useRouter();
-  const runDone = useCallback(async (
-    previousState: PlayMutationState,
-    formData: FormData,
-  ) => {
-    if (play.gmailThreadId) {
-      console.info("GMAIL_UNSTAR_LINKAGE_CAPTURED", {
-        accountIndex: play.gmailAccountIndex ?? 0,
-        action: "done",
-        playId: play.id,
-        threadRef: play.gmailThreadId,
-      });
-    }
-    const result = await markPlayDone(previousState, formData);
-    if (result.status === "success") {
-      requestGmailThreadUnstar(play, "done");
-      router.refresh();
-    }
-    return result;
-  }, [play, router]);
-  const runTrash = useCallback(async (
-    previousState: PlayMutationState,
-    formData: FormData,
-  ) => {
-    if (play.gmailThreadId) {
-      console.info("GMAIL_UNSTAR_LINKAGE_CAPTURED", {
-        accountIndex: play.gmailAccountIndex ?? 0,
-        action: "trash",
-        playId: play.id,
-        threadRef: play.gmailThreadId,
-      });
-    }
-    const result = await trashPlay(previousState, formData);
-    if (result.status === "success") {
-      requestGmailThreadUnstar(play, "trash");
-      router.refresh();
-    }
-    return result;
-  }, [play, router]);
   const [doneState, doneAction, donePending] = useActionState(
-    runDone,
+    markPlayDone,
     INITIAL_PLAY_MUTATION_STATE,
   );
   const [trashState, trashAction, trashPending] = useActionState(
-    runTrash,
+    trashPlay,
     INITIAL_PLAY_MUTATION_STATE,
   );
+  const syncedStatusRef = useRef<"done" | "trash" | null>(null);
+  useEffect(() => {
+    const status = doneState.status === "success"
+      ? "done"
+      : trashState.status === "success"
+        ? "trash"
+        : null;
+    if (!status || syncedStatusRef.current === status) return;
+    syncedStatusRef.current = status;
+    requestGmailThreadUnstar(play, status);
+    router.refresh();
+  }, [doneState.status, play, router, trashState.status]);
   const anyPending = donePending || trashPending || flipPending;
   const errorMessage =
     doneState.status === "error"

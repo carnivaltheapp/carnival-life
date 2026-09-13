@@ -10,10 +10,6 @@ function dataTransfer(initial = {}) {
   return { getData: (type) => values.get(type) ?? "" };
 }
 
-function sendContentMessage(listener, message) {
-  return new Promise((resolve) => listener(message, null, resolve));
-}
-
 function playhouseContext(sendMessage) {
   let drop;
   const dispatched = [];
@@ -179,13 +175,12 @@ test("Gmail content script stars only the exact open thread without navigation",
   assert.equal(clicked, 1);
 });
 
-test("Gmail content script unstars and verifies the exact open thread", async () => {
+test("Gmail content script unstars only the exact open thread without navigation", () => {
   let metadataListener;
   let clicked = 0;
-  let starLabel = "Remove star";
   const unstar = {
-    click: () => { clicked += 1; starLabel = "Not starred"; },
-    getAttribute: (attribute) => attribute === "aria-label" ? starLabel : null,
+    click: () => { clicked += 1; },
+    getAttribute: (attribute) => attribute === "aria-label" ? "Remove star" : null,
   };
   const latest = {
     getAttribute: () => null,
@@ -204,83 +199,29 @@ test("Gmail content script unstars and verifies the exact open thread", async ()
     chrome: {
       runtime: { onMessage: { addListener: (listener) => { metadataListener = listener; } } },
     },
-    console: { info() {}, warn() {} },
     decodeURIComponent,
     document: { querySelectorAll: () => [latest] },
-    setTimeout: (callback) => callback(),
     window: { location },
   });
 
-  let response = await sendContentMessage(metadataListener,
+  let response;
+  metadataListener(
     { threadRef: "FMexact", type: "unstarVisibleGmailThread" },
+    null,
+    (value) => { response = value; },
   );
   assert.equal(response.ok, true);
-  assert.equal(response.alreadyUnstarred, false);
-  assert.equal(response.starElementFound, true);
   assert.equal(clicked, 1);
   assert.equal(location.href, "https://mail.google.com/mail/u/2/#all/FMexact");
 
-  response = await sendContentMessage(metadataListener,
-    { threadRef: "FMexact", type: "unstarVisibleGmailThread" },
-  );
-  assert.equal(response.ok, true);
-  assert.equal(response.alreadyUnstarred, true);
-  assert.equal(clicked, 1);
-
-  response = await sendContentMessage(metadataListener,
+  metadataListener(
     { threadRef: "FMwrong", type: "unstarVisibleGmailThread" },
+    null,
+    (value) => { response = value; },
   );
   assert.equal(response.ok, false);
   assert.equal(response.reason, "thread_mismatch");
   assert.equal(clicked, 1);
-});
-
-test("Gmail content script reports a missing or unchanged visible star explicitly", async () => {
-  let metadataListener;
-  let controls = [];
-  const latest = {
-    getAttribute: () => null,
-    getClientRects: () => [{}],
-    querySelector: () => null,
-    querySelectorAll: () => controls,
-  };
-  vm.runInNewContext(bridgeSource, {
-    URL,
-    chrome: {
-      runtime: { onMessage: { addListener: (listener) => { metadataListener = listener; } } },
-    },
-    console: { info() {}, warn() {} },
-    decodeURIComponent,
-    document: { querySelectorAll: () => [latest] },
-    setTimeout: (callback) => callback(),
-    window: {
-      location: {
-        hostname: "mail.google.com",
-        href: "https://mail.google.com/mail/u/2/#all/FMexact",
-      },
-    },
-  });
-
-  let response = await sendContentMessage(metadataListener,
-    { threadRef: "FMexact", type: "unstarVisibleGmailThread" },
-  );
-  assert.deepEqual(JSON.parse(JSON.stringify(response)), {
-    ok: false,
-    reason: "star_control_not_found",
-    starElementFound: false,
-    threadRef: "FMexact",
-  });
-
-  controls = [{
-    click() {},
-    getAttribute: (attribute) => attribute === "aria-label" ? "Remove star" : null,
-  }];
-  response = await sendContentMessage(metadataListener,
-    { threadRef: "FMexact", type: "unstarVisibleGmailThread" },
-  );
-  assert.equal(response.ok, false);
-  assert.equal(response.reason, "star_state_unchanged");
-  assert.equal(response.starElementFound, true);
 });
 
 test("omnibox Gmail URL drop requests exact-tab metadata for row-create", async () => {
@@ -411,32 +352,6 @@ test("PlayHouse requests exact-thread unstar and preserves lifecycle context", a
     correlationId: "correlation-1",
     ok: true,
     playId: "play-1",
-    threadRef: "FMexact",
-  });
-});
-
-test("PlayHouse reports a stale Gmail content-script failure without throwing", async () => {
-  const context = playhouseContext(async () => {
-    throw new Error("Receiving end does not exist");
-  });
-  context.windowEvent("carnival:gmail-unstar-thread", JSON.stringify({
-    accountIndex: 2,
-    action: "done",
-    correlationId: "correlation-1",
-    playId: "play-1",
-    threadRef: "FMexact",
-  }));
-  await Promise.resolve();
-  await Promise.resolve();
-
-  assert.equal(context.dispatched().type, "carnival:gmail-unstar-result");
-  assert.deepEqual(JSON.parse(context.dispatched().detail), {
-    accountIndex: 2,
-    action: "done",
-    correlationId: "correlation-1",
-    ok: false,
-    playId: "play-1",
-    reason: "extension_request_failed",
     threadRef: "FMexact",
   });
 });
