@@ -8,6 +8,7 @@ function persistGmailTrace(event, payload) {
   const details = {
     correlationId: payload?.correlationId ?? null,
     gmailParticipants,
+    reason: payload?.reason ?? null,
     toCount: gmailParticipants?.to?.length ?? 0,
     url: payload?.url ?? null,
   };
@@ -75,10 +76,14 @@ function gmailParticipant(element) {
 }
 
 function latestGmailParticipants() {
-  const latest = Array.from(document.querySelectorAll("[data-message-id]")).at(-1);
-  if (!latest) return null;
+  const messages = Array.from(document.querySelectorAll("[data-message-id]"));
+  const latest = messages.filter((message) => {
+    if (message.getAttribute?.("aria-hidden") === "true") return false;
+    return typeof message.getClientRects !== "function" || message.getClientRects().length > 0;
+  }).at(-1);
+  if (!latest) return { participants: null, reason: "latest_visible_message_not_found" };
   const from = gmailParticipant(latest.querySelector(".gD[email], [data-hovercard-id*='@']"));
-  if (!from) return null;
+  if (!from) return { participants: null, reason: "from_participant_not_found" };
   const seen = new Set();
   const to = Array.from(latest.querySelectorAll("[email], [data-hovercard-id*='@']"))
     .map(gmailParticipant)
@@ -90,17 +95,46 @@ function latestGmailParticipants() {
       seen.add(email);
       return true;
     });
-  return { from, to };
+  return { participants: { from, to }, reason: null };
 }
 
 if (window.location.hostname === "mail.google.com") {
-  document.addEventListener("dragstart", (event) => {
+  let sourceCorrelationId = null;
+  persistGmailTrace("GMAIL_SOURCE_HANDLER_ACTIVE", {
+    correlationId: null,
+    gmailParticipants: null,
+    url: parseGmailUrl(window.location.href)?.canonicalUrl ?? window.location.href,
+  });
+  window.addEventListener("pointerdown", () => {
+    sourceCorrelationId = crypto.randomUUID();
+    persistGmailTrace("GMAIL_SOURCE_POINTER_DOWN", {
+      correlationId: sourceCorrelationId,
+      gmailParticipants: null,
+      url: parseGmailUrl(window.location.href)?.canonicalUrl ?? window.location.href,
+    });
+  }, true);
+  window.addEventListener("dragstart", (event) => {
+    const correlationId = sourceCorrelationId ?? crypto.randomUUID();
+    sourceCorrelationId = null;
+    persistGmailTrace("GMAIL_SOURCE_DRAGSTART", {
+      correlationId,
+      gmailParticipants: null,
+      url: parseGmailUrl(window.location.href)?.canonicalUrl ?? window.location.href,
+    });
     if (!event.dataTransfer) return;
     const attachment = gmailUrlFromTransfer(event.dataTransfer) ??
       parseGmailUrl(window.location.href);
     if (!attachment) return;
-    const correlationId = crypto.randomUUID();
-    const gmailParticipants = latestGmailParticipants();
+    const extraction = latestGmailParticipants();
+    const gmailParticipants = extraction.participants;
+    if (!gmailParticipants) {
+      persistGmailTrace("GMAIL_SOURCE_PARTICIPANT_EXTRACTION_FAILED", {
+        correlationId,
+        gmailParticipants: null,
+        reason: extraction.reason,
+        url: attachment.canonicalUrl,
+      });
+    }
     const payload = {
       ...attachment,
       correlationId,
@@ -133,7 +167,26 @@ if (window.location.hostname === "mail.google.com") {
       attachment: payload,
       correlationId,
       type: GMAIL_DRAG_STARTED,
-    }).catch(() => {});
+    }).then((response) => {
+      persistGmailTrace(
+        response?.ok
+          ? "GMAIL_SOURCE_PENDING_STORE_COMPLETE"
+          : "GMAIL_SOURCE_PENDING_STORE_FAILED",
+        {
+          correlationId,
+          gmailParticipants,
+          reason: response?.ok ? null : "pending_store_rejected",
+          url: attachment.canonicalUrl,
+        },
+      );
+    }).catch(() => {
+      persistGmailTrace("GMAIL_SOURCE_PENDING_STORE_FAILED", {
+        correlationId,
+        gmailParticipants,
+        reason: "pending_store_message_failed",
+        url: attachment.canonicalUrl,
+      });
+    });
   }, true);
 } else {
   document.addEventListener("drop", (event) => {
