@@ -40,6 +40,7 @@ import {
 } from "./mongo-play-mapping";
 import type {
   AssignPlayerRequest,
+  CreateGmailPlayRequest,
   FlipPlayRankRequest,
   AttachGmailRequest,
   PlayRepository,
@@ -91,6 +92,34 @@ export class MongoPlayRepository implements PlayRepository {
       },
     });
     return result.matchedCount === 1;
+  }
+
+  async createGmail({ attachment, input, playerResourceName }: CreateGmailPlayRequest) {
+    const taskDate = legacyTaskDate(input, this.dependencies.baskets);
+    const latest = await this.dependencies.collection.findOne(
+      {
+        ...mongoActiveFilter(),
+        task_date: taskDate,
+      },
+      { projection: { priority_index: 1 }, sort: { priority_index: -1 } },
+    );
+    const document = mongoCreateDocument({
+      baskets: this.dependencies.baskets,
+      input,
+      playerResourceName,
+      priorityIndex: nextLegacyPriorityIndex(latest?.priority_index),
+    });
+    document.carnival_google = {
+      gmail_attachment: {
+        account_index: attachment.accountIndex,
+        canonical_url: attachment.canonicalUrl,
+        thread_ref: attachment.threadRef,
+      },
+    };
+    document.regarding = "email";
+    document.thread_id = attachment.threadRef;
+    const result = await this.dependencies.collection.insertOne(document);
+    return result.acknowledged ? result.insertedId.toHexString() : null;
   }
 
   async unlinkGmail({ playId }: UnlinkGmailRequest) {

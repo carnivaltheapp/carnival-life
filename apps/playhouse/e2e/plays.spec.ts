@@ -387,7 +387,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-BULLSEYE-ALIGN-46", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-GMAIL-BULLSEYE-CREATE-47", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');
@@ -535,6 +535,21 @@ test("Bullseye changes selected Plays and replaces the right-click menu", async 
       .in("title", ["Bulk Trash One", "Bulk Trash Two"]);
     return data?.map(({ status }) => status);
   }).toEqual(["trash", "trash"]);
+});
+
+test("external Gmail drag exposes only Calendar and Baskets in Bullseye", async ({ auth }) => {
+  await auth.page.goto("/");
+  const transfer = await auth.page.evaluateHandle(() => {
+    const data = new DataTransfer();
+    data.setData("text/uri-list", "https://mail.google.com/mail/u/0/#all/FMexact");
+    return data;
+  });
+  await auth.page.getByRole("button", { name: "Bullseye drag actions" })
+    .dispatchEvent("dragenter", { dataTransfer: transfer });
+
+  const categories = auth.page.getByRole("menu", { name: "Bullseye categories" });
+  await expect(categories).toBeVisible();
+  await expect(categories.getByRole("menuitem")).toHaveText(["Calendar", "Baskets"]);
 });
 
 test("Edit updates title and URL while preserving Duration and Place", async ({ auth }) => {

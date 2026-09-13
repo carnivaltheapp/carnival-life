@@ -83,6 +83,44 @@ describe("MongoPlayRepository mutations", () => {
     expect(updateOne.mock.calls[0][1].$set).not.toHaveProperty("url");
   });
 
+  it("creates exactly one Gmail Headline with destination, attachment, and Player", async () => {
+    const id = new ObjectId();
+    const findOne = vi.fn().mockResolvedValue({ priority_index: "10-00000128" });
+    const insertOne = vi.fn().mockResolvedValue({ acknowledged: true, insertedId: id });
+    await expect(repository({
+      findOne: findOne as never,
+      insertOne: insertOne as never,
+    }).createGmail({
+      attachment: {
+        accountIndex: 2,
+        canonicalUrl: "https://mail.google.com/mail/u/2/#all/FMnew",
+        threadRef: "FMnew",
+      },
+      input: playInput({
+        placement: { kind: "basket", basketId: baskets[0].id },
+        playerContactId: "contact-kayla",
+        title: "Quarterly planning",
+      }),
+      playerResourceName: "people/kayla",
+    })).resolves.toBe(id.toHexString());
+    expect(insertOne).toHaveBeenCalledOnce();
+    expect(insertOne.mock.calls[0][0]).toMatchObject({
+      action_type: "Quarterly planning",
+      carnival_google: {
+        gmail_attachment: {
+          account_index: 2,
+          canonical_url: "https://mail.google.com/mail/u/2/#all/FMnew",
+          thread_ref: "FMnew",
+        },
+      },
+      contact_id: "people/kayla",
+      regarding: "email",
+      task_type: "H",
+      thread_id: "FMnew",
+      user_id: 43,
+    });
+  });
+
   it("assigns only the targeted Play without changing rank or placement", async () => {
     const id = new ObjectId();
     const updateOne = vi.fn().mockResolvedValue({ matchedCount: 1 });

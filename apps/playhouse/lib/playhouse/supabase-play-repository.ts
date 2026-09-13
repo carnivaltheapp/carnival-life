@@ -18,6 +18,7 @@ import type { Database } from "../supabase/database.types";
 import type { SelectedView } from "./data";
 import type {
   AssignPlayerRequest,
+  CreateGmailPlayRequest,
   FlipPlayRankRequest,
   AttachGmailRequest,
   PlayRepository,
@@ -78,6 +79,20 @@ export class SupabasePlayRepository implements PlayRepository {
       .select("id")
       .maybeSingle();
     return !error && data?.id === playId;
+  }
+
+  async createGmail({ attachment, input }: CreateGmailPlayRequest) {
+    const { data, error } = await this.supabase
+      .from("plays")
+      .insert({
+        ...playValues(input),
+        owner_user_id: this.ownerUserId,
+        source_metadata: gmailMetadataWithAttachment({}, attachment),
+        source_type: "gmail",
+      })
+      .select("id")
+      .maybeSingle();
+    return error ? null : data?.id ?? null;
   }
 
   async unlinkGmail({ playId }: UnlinkGmailRequest) {

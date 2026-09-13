@@ -41,6 +41,12 @@ export type AttachGmailRequest = {
   playId: string;
 };
 
+export type CreateGmailPlayRequest = {
+  attachment: GmailAttachment;
+  input: PlayInput;
+  playerResourceName: string | null;
+};
+
 export type UnlinkGmailRequest = {
   playId: string;
 };
@@ -54,6 +60,7 @@ export type AssignPlayerRequest = {
 export interface PlayRepository {
   readonly supportsWorkflows: boolean;
   attachGmail(request: AttachGmailRequest): Promise<boolean>;
+  createGmail(request: CreateGmailPlayRequest): Promise<string | null>;
   unlinkGmail(request: UnlinkGmailRequest): Promise<boolean>;
   assignPlayer(request: AssignPlayerRequest): Promise<boolean>;
   get(playId: string): Promise<PlayListItem | null>;

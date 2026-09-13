@@ -1,5 +1,7 @@
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
 const GET_VISIBLE_GMAIL_PARTICIPANTS = "getVisibleGmailParticipants";
+const STAR_GMAIL_THREAD = "starGmailThread";
+const STAR_VISIBLE_GMAIL_THREAD = "starVisibleGmailThread";
 
 function parseGmailUrl(value) {
   try {
@@ -43,12 +45,16 @@ function gmailParticipant(element) {
   };
 }
 
-function latestGmailParticipants() {
+function latestVisibleGmailMessage() {
   const messages = Array.from(document.querySelectorAll("[data-message-id]"));
-  const latest = messages.filter((message) => {
+  return messages.filter((message) => {
     if (message.getAttribute?.("aria-hidden") === "true") return false;
     return typeof message.getClientRects !== "function" || message.getClientRects().length > 0;
-  }).at(-1);
+  }).at(-1) ?? null;
+}
+
+function latestGmailParticipants() {
+  const latest = latestVisibleGmailMessage();
   if (!latest) return { participants: null, reason: "latest_visible_message_not_found" };
   const from = gmailParticipant(latest.querySelector(".gD[email], [data-hovercard-id*='@']"));
   if (!from) return { participants: null, reason: "from_participant_not_found" };
@@ -66,13 +72,47 @@ function latestGmailParticipants() {
   return { participants: { from, to }, reason: null };
 }
 
+function visibleGmailSubject() {
+  const subject = document.querySelector("h2.hP")?.textContent?.trim() ?? "";
+  return subject ? subject.slice(0, 500) : null;
+}
+
+function starVisibleGmailThread(expectedThreadRef) {
+  const currentThreadRef = parseGmailUrl(window.location.href)?.threadRef ?? null;
+  if (!currentThreadRef || currentThreadRef !== expectedThreadRef) {
+    return { ok: false, reason: "thread_mismatch", threadRef: currentThreadRef };
+  }
+  const latest = latestVisibleGmailMessage();
+  if (!latest) return { ok: false, reason: "latest_visible_message_not_found", threadRef: currentThreadRef };
+  const controls = Array.from(latest.querySelectorAll("[aria-label], [data-tooltip], [title]"));
+  const label = (control) => [
+    control.getAttribute?.("aria-label"),
+    control.getAttribute?.("data-tooltip"),
+    control.getAttribute?.("title"),
+  ].filter(Boolean).join(" ").toLowerCase();
+  const star = controls.find((control) => /add star|not starred/.test(label(control)));
+  if (star && typeof star.click === "function") {
+    star.click();
+    return { alreadyStarred: false, ok: true, threadRef: currentThreadRef };
+  }
+  if (controls.some((control) => /remove star|\bstarred\b/.test(label(control)))) {
+    return { alreadyStarred: true, ok: true, threadRef: currentThreadRef };
+  }
+  return { ok: false, reason: "star_control_not_found", threadRef: currentThreadRef };
+}
+
 if (window.location.hostname === "mail.google.com") {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === STAR_VISIBLE_GMAIL_THREAD) {
+      sendResponse(starVisibleGmailThread(message.threadRef));
+      return false;
+    }
     if (message?.type !== GET_VISIBLE_GMAIL_PARTICIPANTS) return false;
     const currentThreadRef = parseGmailUrl(window.location.href)?.threadRef ?? null;
     const extraction = latestGmailParticipants();
     sendResponse({
       gmailParticipants: extraction.participants,
+      gmailSubject: visibleGmailSubject(),
       threadRef: currentThreadRef,
     });
     return false;
@@ -86,16 +126,31 @@ if (window.location.hostname === "mail.google.com") {
       ? event.target.closest("[data-play-row-id]")
       : null;
     const playId = row?.getAttribute("data-play-row-id");
-    if (!playId) return;
+    const destination = event.target instanceof Element
+      ? event.target.closest("[data-gmail-new-play-placement]")
+      : null;
+    const bullseyeActive = destination?.closest("[data-gmail-bullseye-active='true']");
+    if (!playId && !bullseyeActive) return;
+    let placement = null;
+    if (!playId) {
+      try {
+        placement = JSON.parse(destination.getAttribute("data-gmail-new-play-placement"));
+      } catch {
+        return;
+      }
+    }
     event.preventDefault();
     event.stopImmediatePropagation();
     const correlationId = crypto.randomUUID();
-    const dispatchAttachment = (gmailParticipants) => {
-      window.dispatchEvent(new CustomEvent("carnival:gmail-drop-fallback", {
+    const dispatchAttachment = (response) => {
+      const eventName = playId
+        ? "carnival:gmail-drop-fallback"
+        : "carnival:gmail-bullseye-drop";
+      window.dispatchEvent(new CustomEvent(eventName, {
         detail: JSON.stringify({
           correlationId,
-          gmailParticipants: gmailParticipants ?? undefined,
-          playId,
+          gmailParticipants: response?.gmailParticipants ?? undefined,
+          ...(playId ? { playId } : { placement, subject: response?.gmailSubject ?? undefined }),
           url: transferredAttachment.canonicalUrl,
         }),
       }));
@@ -112,7 +167,32 @@ if (window.location.hostname === "mail.google.com") {
       threadRef: transferredAttachment.threadRef,
       type: GET_GMAIL_THREAD_PARTICIPANTS,
     }).then((response) => {
-      dispatchAttachment(response?.gmailParticipants ?? null);
+      dispatchAttachment(response);
     }).catch(() => dispatchAttachment(null));
   }, true);
+
+  window.addEventListener("carnival:gmail-star-thread", (event) => {
+    if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
+    let request;
+    try {
+      request = JSON.parse(event.detail);
+    } catch {
+      return;
+    }
+    chrome.runtime.sendMessage({ ...request, type: STAR_GMAIL_THREAD })
+      .then((response) => window.dispatchEvent(new CustomEvent(
+        "carnival:gmail-star-result",
+        { detail: JSON.stringify({ ...response, correlationId: request.correlationId }) },
+      )))
+      .catch(() => window.dispatchEvent(new CustomEvent(
+        "carnival:gmail-star-result",
+        {
+          detail: JSON.stringify({
+            correlationId: request.correlationId,
+            ok: false,
+            reason: "extension_request_failed",
+          }),
+        },
+      )));
+  });
 }

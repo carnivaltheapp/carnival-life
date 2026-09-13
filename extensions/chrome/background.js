@@ -12,6 +12,8 @@ const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
 const GET_VISIBLE_GMAIL_PARTICIPANTS = "getVisibleGmailParticipants";
+const STAR_GMAIL_THREAD = "starGmailThread";
+const STAR_VISIBLE_GMAIL_THREAD = "starVisibleGmailThread";
 const TAB_SAVE_DELAY_MS = 300;
 const DIAGNOSTIC_STORAGE_KEY = "carnivalWorkspaceDiagnostics";
 const DIAGNOSTIC_LIMIT = 500;
@@ -274,6 +276,46 @@ chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
 chrome.tabs.onActivated.addListener(({ windowId }) => scheduleTabSave(windowId, "tab-activated"));
 chrome.tabs.onMoved.addListener((_tabId, moveInfo) => scheduleTabSave(moveInfo.windowId, "tab-moved"));
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === STAR_GMAIL_THREAD) {
+    const diagnostic = {
+      accountIndex: message.accountIndex,
+      correlationId: message.correlationId,
+      threadRef: message.threadRef,
+    };
+    recordDiagnostic("info", "GMAIL_THREAD_STAR_STARTED", diagnostic);
+    chrome.tabs.query({ url: "https://mail.google.com/*" }).then(async (tabs) => {
+      const tab = selectGmailMetadataTab(tabs, message);
+      if (!tab) {
+        recordDiagnostic("warn", "GMAIL_THREAD_STAR_FAILED", {
+          ...diagnostic,
+          reason: "matching_tab_not_found",
+        });
+        sendResponse({ ok: false, reason: "matching_tab_not_found" });
+        return;
+      }
+      const response = await chrome.tabs.sendMessage(tab.id, {
+        threadRef: message.threadRef,
+        type: STAR_VISIBLE_GMAIL_THREAD,
+      });
+      if (!response?.ok) {
+        recordDiagnostic("warn", "GMAIL_THREAD_STAR_FAILED", {
+          ...diagnostic,
+          reason: response?.reason ?? "star_failed",
+        });
+        sendResponse({ ok: false, reason: response?.reason ?? "star_failed" });
+        return;
+      }
+      recordDiagnostic("info", "GMAIL_THREAD_STAR_COMPLETE", diagnostic);
+      sendResponse({ ok: true });
+    }).catch(() => {
+      recordDiagnostic("warn", "GMAIL_THREAD_STAR_FAILED", {
+        ...diagnostic,
+        reason: "extension_request_failed",
+      });
+      sendResponse({ ok: false, reason: "extension_request_failed" });
+    });
+    return true;
+  }
   if (message?.type === GET_GMAIL_THREAD_PARTICIPANTS) {
     const diagnostic = {
       accountIndex: message.accountIndex,
@@ -285,7 +327,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       const tab = selectGmailMetadataTab(tabs, message);
       if (!tab) {
         recordDiagnostic("warn", "GMAIL_METADATA_TAB_NOT_FOUND", diagnostic);
-        sendResponse({ gmailParticipants: null, returnedThreadRef: null });
+        sendResponse({ gmailParticipants: null, gmailSubject: null, returnedThreadRef: null });
         return;
       }
       const matched = { ...diagnostic, matchedTabId: tab.id };
@@ -302,20 +344,25 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           ...matched,
           reason: "gmail_content_script_unavailable",
         });
-        sendResponse({ gmailParticipants: null, returnedThreadRef: null });
+        sendResponse({ gmailParticipants: null, gmailSubject: null, returnedThreadRef: null });
         return;
       }
       const received = {
         ...matched,
         fromExists: Boolean(response?.gmailParticipants?.from),
         returnedThreadRef: response?.threadRef ?? null,
+        subjectPresent: Boolean(response?.gmailSubject),
         toCount: response?.gmailParticipants?.to?.length ?? 0,
       };
       recordDiagnostic("info", "GMAIL_METADATA_RESPONSE_RECEIVED", received);
       const verified = verifyVisibleGmailParticipants(response, message.threadRef);
       if (verified.status === "thread_mismatch") {
         recordDiagnostic("warn", "GMAIL_METADATA_THREAD_MISMATCH", received);
-        sendResponse({ gmailParticipants: null, returnedThreadRef: response?.threadRef ?? null });
+        sendResponse({
+          gmailParticipants: null,
+          gmailSubject: null,
+          returnedThreadRef: response?.threadRef ?? null,
+        });
         return;
       }
       if (verified.status === "participants_unavailable") {
@@ -323,12 +370,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           ...received,
           reason: "participant_extraction_failed",
         });
-        sendResponse({ gmailParticipants: null, returnedThreadRef: response.threadRef });
+        sendResponse({
+          gmailParticipants: null,
+          gmailSubject: response.gmailSubject ?? null,
+          returnedThreadRef: response.threadRef,
+        });
         return;
       }
       recordDiagnostic("info", "GMAIL_PARTICIPANTS_RESOLVED_FROM_OPEN_TAB", received);
       sendResponse({
         gmailParticipants: verified.gmailParticipants,
+        gmailSubject: response.gmailSubject ?? null,
         returnedThreadRef: response.threadRef,
       });
     }).catch(() => {
@@ -336,7 +388,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         ...diagnostic,
         reason: "tab_query_failed",
       });
-      sendResponse({ gmailParticipants: null, returnedThreadRef: null });
+      sendResponse({ gmailParticipants: null, gmailSubject: null, returnedThreadRef: null });
     });
     return true;
   }

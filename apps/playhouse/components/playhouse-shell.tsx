@@ -20,6 +20,7 @@ import {
   attachGmailToPlay,
   bulkSetPlayStatus,
   bulkUpdatePlays,
+  createGmailPlayFromBullseye,
   flipPlayRank,
   repositionPlays,
   unlinkGmailFromPlay,
@@ -42,6 +43,10 @@ import {
   sanitizeGmailParticipants,
   type GmailAttachment,
 } from "../domain/gmail-attachment";
+import {
+  claimGmailNewPlayDrop,
+  parseGmailNewPlayRequest,
+} from "../domain/gmail-new-play";
 import type { SelectedView } from "../lib/playhouse/data";
 import {
   displayBranch,
@@ -293,6 +298,8 @@ function PlayhouseShellView({
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [bullseyeOpen, setBullseyeOpen] = useState(false);
   const [bullseyeCategory, setBullseyeCategory] = useState<BullseyeCategory>("calendar");
+  const processedGmailBullseyeDropsRef = useRef(new Set<string>());
+  const [gmailBullseyeDragActive, setGmailBullseyeDragActive] = useState(false);
   const gmailCorrelationIdRef = useRef<string | null>(null);
   const gmailDropTargetRef = useRef<string | null>(null);
   const [gmailDropTarget, setGmailDropTarget] = useState<string | null>(null);
@@ -313,6 +320,7 @@ function PlayhouseShellView({
   const [bulkPending, startBulk] = useTransition();
   const [flipPending, startFlip] = useTransition();
   const [gmailAttachPending, startGmailAttach] = useTransition();
+  const [gmailCreatePending, startGmailCreate] = useTransition();
   const localPlays = optimisticPlays?.source === plays ? optimisticPlays.value : plays;
   useEffect(() => {
     if (!gmailContextMenu) return;
@@ -407,6 +415,7 @@ function PlayhouseShellView({
     setDropTarget(null);
     setBullseyeCategory("calendar");
     setBullseyeOpen(false);
+    setGmailBullseyeDragActive(false);
   }
 
   const persistGmailAttachment = useCallback((
@@ -552,6 +561,96 @@ function PlayhouseShellView({
       acceptExtensionFallback,
     );
   }, [persistGmailAttachment]);
+
+  useEffect(() => {
+    function acceptGmailBullseyeDrop(event: Event) {
+      if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
+      let request: unknown;
+      try {
+        request = JSON.parse(event.detail);
+      } catch {
+        console.warn("GMAIL_NEW_PLAY_FAILED", { reason: "malformed_extension_payload" });
+        return;
+      }
+      const parsed = parseGmailNewPlayRequest(request);
+      if (!parsed) {
+        console.warn("GMAIL_NEW_PLAY_FAILED", { reason: "metadata_or_destination_missing" });
+        setMoveError("Gmail could not create a Play because its subject or destination was missing.");
+        clearDragState();
+        return;
+      }
+      if (
+        gmailCreatePending ||
+        !claimGmailNewPlayDrop(
+          processedGmailBullseyeDropsRef.current,
+          parsed.correlationId,
+        )
+      ) return;
+      const destinationId = parsed.input.placement.kind === "basket"
+        ? parsed.input.placement.basketId
+        : parsed.input.placement.scheduledDate;
+      console.info("GMAIL_BULLSEYE_DESTINATION_SELECTED", {
+        correlationId: parsed.correlationId,
+        destinationId,
+        destinationType: parsed.input.placement.kind,
+      });
+      clearDragState();
+      startGmailCreate(async () => {
+        const result = await createGmailPlayFromBullseye(request as Parameters<
+          typeof createGmailPlayFromBullseye
+        >[0]);
+        if (result.status !== "success" || !result.playId) {
+          setMoveError(result.message);
+          return;
+        }
+        setMoveError(null);
+        console.info("GMAIL_THREAD_STAR_STARTED", {
+          accountIndex: parsed.attachment.accountIndex,
+          correlationId: parsed.correlationId,
+          threadRef: parsed.attachment.threadRef,
+        });
+        window.dispatchEvent(new CustomEvent("carnival:gmail-star-thread", {
+          detail: JSON.stringify({
+            accountIndex: parsed.attachment.accountIndex,
+            correlationId: parsed.correlationId,
+            threadRef: parsed.attachment.threadRef,
+          }),
+        }));
+        router.refresh();
+      });
+    }
+
+    function acceptGmailStarResult(event: Event) {
+      if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
+      try {
+        const result = JSON.parse(event.detail) as {
+          correlationId?: unknown;
+          ok?: unknown;
+          reason?: unknown;
+        };
+        if (result.ok) {
+          console.info("GMAIL_THREAD_STAR_COMPLETE", {
+            correlationId: result.correlationId,
+          });
+          return;
+        }
+        console.warn("GMAIL_THREAD_STAR_FAILED", {
+          correlationId: result.correlationId,
+          reason: result.reason,
+        });
+        setMoveError("The Play was created, but Gmail could not star the thread.");
+      } catch {
+        // Ignore malformed cross-context extension events.
+      }
+    }
+
+    window.addEventListener("carnival:gmail-bullseye-drop", acceptGmailBullseyeDrop);
+    window.addEventListener("carnival:gmail-star-result", acceptGmailStarResult);
+    return () => {
+      window.removeEventListener("carnival:gmail-bullseye-drop", acceptGmailBullseyeDrop);
+      window.removeEventListener("carnival:gmail-star-result", acceptGmailStarResult);
+    };
+  }, [gmailCreatePending, router]);
 
   function beginDrag(playId: string, event: DragEvent<HTMLLIElement>) {
     const ids = playIdsForDrag({
@@ -888,8 +987,17 @@ function PlayhouseShellView({
 
   function destinationDropProps(placement: PlayPlacement, key: string) {
     return {
+      "data-gmail-new-play-placement": gmailBullseyeDragActive
+        ? JSON.stringify(placement)
+        : undefined,
       "data-drop-target": dropTarget === key || undefined,
       onDragOver: (event: DragEvent<HTMLElement>) => {
+        if (gmailBullseyeDragActive) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+          setDropTarget(key);
+          return;
+        }
         if (!draggedIds.length) return;
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
@@ -897,6 +1005,7 @@ function PlayhouseShellView({
       },
       onDrop: (event: DragEvent<HTMLElement>) => {
         event.preventDefault();
+        if (gmailBullseyeDragActive) return;
         persistMove(placement, null);
       },
     };
@@ -985,21 +1094,31 @@ function PlayhouseShellView({
         onPointerDown={beginRegionDrag}
       >
         <aside className="sidebar" aria-label="Play destinations">
-          <nav className="destinationNav">
+          <nav
+            className="destinationNav"
+            data-gmail-bullseye-active={gmailBullseyeDragActive || undefined}
+          >
             <div className="bullseyeSwitcher">
               <button
                 aria-expanded={bullseyeOpen}
                 aria-label="Bullseye drag actions"
                 className="bullseyeControl"
-                onDragEnter={() => {
-                  if (!draggedIds.length) return;
+                onDragEnter={(event) => {
+                  if (draggedIds.length) {
+                    setBullseyeOpen(true);
+                    console.info("BULLSEYE_OPENED", { count: draggedIds.length });
+                    return;
+                  }
+                  if (!mayContainGmailDrag(event.dataTransfer)) return;
+                  setGmailBullseyeDragActive(true);
+                  setBullseyeCategory("calendar");
                   setBullseyeOpen(true);
-                  console.info("BULLSEYE_OPENED", { count: draggedIds.length });
+                  console.info("GMAIL_BULLSEYE_DRAG_ENTER");
                 }}
                 onDragOver={(event) => {
-                  if (!draggedIds.length) return;
+                  if (!draggedIds.length && !gmailBullseyeDragActive) return;
                   event.preventDefault();
-                  event.dataTransfer.dropEffect = "move";
+                  event.dataTransfer.dropEffect = gmailBullseyeDragActive ? "copy" : "move";
                 }}
                 type="button"
               >
@@ -1013,14 +1132,17 @@ function PlayhouseShellView({
                   <circle cx="16" cy="16" fill="currentColor" r="2.5" />
                 </svg>
               </button>
-              {bullseyeOpen && draggedIds.length ? (
+              {bullseyeOpen && (draggedIds.length || gmailBullseyeDragActive) ? (
                 <div
                   aria-label="Bullseye categories"
                   aria-orientation="horizontal"
                   className="bullseyeCategories"
                   role="menu"
                 >
-                  {(["calendar", "baskets", "rank", "push"] as const).map((category) => (
+                  {(gmailBullseyeDragActive
+                    ? ["calendar", "baskets"] as const
+                    : ["calendar", "baskets", "rank", "push"] as const
+                  ).map((category) => (
                     <button
                       data-active={bullseyeCategory === category || undefined}
                       key={category}
@@ -1031,7 +1153,7 @@ function PlayhouseShellView({
                       {category[0].toUpperCase() + category.slice(1)}
                     </button>
                   ))}
-                  <button
+                  {!gmailBullseyeDragActive ? <button
                     data-drop-target={dropTarget === "status:done" || undefined}
                     onDragOver={(event) => {
                       if (!draggedIds.length) return;
@@ -1047,8 +1169,8 @@ function PlayhouseShellView({
                     )}
                     role="menuitem"
                     type="button"
-                  >Done</button>
-                  <button
+                  >Done</button> : null}
+                  {!gmailBullseyeDragActive ? <button
                     data-drop-target={dropTarget === "status:trash" || undefined}
                     onDragOver={(event) => {
                       if (!draggedIds.length) return;
@@ -1064,7 +1186,7 @@ function PlayhouseShellView({
                     )}
                     role="menuitem"
                     type="button"
-                  >Trash</button>
+                  >Trash</button> : null}
                 </div>
               ) : null}
             </div>

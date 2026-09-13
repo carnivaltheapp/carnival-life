@@ -7,7 +7,7 @@ function query(result: { count?: number | null; data: unknown; error: unknown })
     then?: PromiseLike<unknown>["then"];
   } = {};
   for (const method of [
-    "eq", "in", "is", "lt", "maybeSingle", "order", "select", "update",
+    "eq", "in", "insert", "is", "lt", "maybeSingle", "order", "select", "update",
   ]) {
     builder[method] = vi.fn(() => method === "maybeSingle"
       ? Promise.resolve(result)
@@ -93,6 +93,45 @@ describe("Supabase Play lifecycle identity", () => {
 });
 
 describe("Supabase Gmail attachment", () => {
+  it("creates one owner-scoped Headline with its Gmail attachment and Player", async () => {
+    const insert = query({ data: { id: "gmail-play-1" }, error: null });
+    const from = vi.fn().mockReturnValue(insert);
+    await expect(new SupabasePlayRepository(
+      { from } as never,
+      "owner-user",
+    ).createGmail({
+      attachment: {
+        accountIndex: 2,
+        canonicalUrl: "https://mail.google.com/mail/u/2/#all/FMnew",
+        threadRef: "FMnew",
+      },
+      input: {
+        branch: null,
+        durationMinutes: 30,
+        note: null,
+        place: "Office",
+        placement: { kind: "calendar", scheduledDate: "2026-09-14" },
+        playType: "normal",
+        playerContactId: "contact-1",
+        pushRule: "everyday",
+        title: "Quarterly planning",
+        url: null,
+      },
+      playerResourceName: "people/1",
+    })).resolves.toBe("gmail-play-1");
+    expect(insert.insert).toHaveBeenCalledWith(expect.objectContaining({
+      owner_user_id: "owner-user",
+      player_contact_id: "contact-1",
+      play_type: "normal",
+      scheduled_date: "2026-09-14",
+      source_metadata: expect.objectContaining({
+        gmail_attachment: expect.objectContaining({ thread_ref: "FMnew" }),
+      }),
+      source_type: "gmail",
+      title: "Quarterly planning",
+    }));
+  });
+
   it("merges and replaces Gmail metadata without changing source or unrelated fields", async () => {
     const existing = query({
       data: {
