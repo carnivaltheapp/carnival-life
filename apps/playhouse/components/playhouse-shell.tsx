@@ -83,6 +83,7 @@ import { reminderContextDate } from "../domain/reminder";
 import { AccountMenu } from "./account-menu";
 import { BrowserTimeZone } from "./browser-time-zone";
 import { useGridFontSizePreference } from "./grid-settings";
+import { requestGmailThreadUnstar } from "./gmail-thread-sync";
 import { PlayForm } from "./play-form";
 import { PlaySearch } from "./play-search";
 import {
@@ -606,12 +607,41 @@ function PlayhouseShellView({
       }
     }
 
+    function acceptGmailUnstarResult(event: Event) {
+      if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
+      try {
+        const result = JSON.parse(event.detail) as {
+          action?: "done" | "trash";
+          ok?: unknown;
+          playId?: unknown;
+          reason?: unknown;
+          threadRef?: unknown;
+        };
+        const diagnostic = {
+          action: result.action,
+          playId: result.playId,
+          threadRef: result.threadRef,
+        };
+        if (result.ok) {
+          console.info("GMAIL_UNSTAR_COMPLETE", diagnostic);
+          return;
+        }
+        console.warn("GMAIL_UNSTAR_FAILED", { ...diagnostic, reason: result.reason });
+        setMoveError(result.action === "done"
+          ? "Play completed. Gmail sync could not be completed."
+          : "Play trashed. Gmail sync could not be completed.");
+      } catch {
+        console.warn("GMAIL_UNSTAR_FAILED", { reason: "malformed_extension_response" });
+      }
+    }
+
     window.addEventListener("carnival:gmail-row-create", acceptGmailRowCreate);
     window.addEventListener(
       "carnival:gmail-row-create-metadata-failed",
       acceptGmailMetadataFailure,
     );
     window.addEventListener("carnival:gmail-star-result", acceptGmailStarResult);
+    window.addEventListener("carnival:gmail-unstar-result", acceptGmailUnstarResult);
     return () => {
       window.removeEventListener("carnival:gmail-row-create", acceptGmailRowCreate);
       window.removeEventListener(
@@ -619,6 +649,7 @@ function PlayhouseShellView({
         acceptGmailMetadataFailure,
       );
       window.removeEventListener("carnival:gmail-star-result", acceptGmailStarResult);
+      window.removeEventListener("carnival:gmail-unstar-result", acceptGmailUnstarResult);
     };
   }, [baskets, gmailCreatePending, localPlays, plays, router, searchQuery, selectedView]);
 
@@ -854,6 +885,9 @@ function PlayhouseShellView({
       try {
         const result = await bulkSetPlayStatus({ playIds, status });
         if (result.status === "success") {
+          localPlays
+            .filter((play) => playIds.includes(play.id))
+            .forEach((play) => requestGmailThreadUnstar(play, status));
           setMoveError(null);
           console.info("DRAG_ACTION_COMPLETE", { count: playIds.length, kind: status });
           return;

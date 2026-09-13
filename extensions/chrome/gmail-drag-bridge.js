@@ -2,6 +2,8 @@ const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
 const GET_VISIBLE_GMAIL_PARTICIPANTS = "getVisibleGmailParticipants";
 const STAR_GMAIL_THREAD = "starGmailThread";
 const STAR_VISIBLE_GMAIL_THREAD = "starVisibleGmailThread";
+const UNSTAR_GMAIL_THREAD = "unstarGmailThread";
+const UNSTAR_VISIBLE_GMAIL_THREAD = "unstarVisibleGmailThread";
 
 function parseGmailUrl(value) {
   try {
@@ -101,10 +103,41 @@ function starVisibleGmailThread(expectedThreadRef) {
   return { ok: false, reason: "star_control_not_found", threadRef: currentThreadRef };
 }
 
+function unstarVisibleGmailThread(expectedThreadRef) {
+  const currentThreadRef = parseGmailUrl(window.location.href)?.threadRef ?? null;
+  if (!currentThreadRef || currentThreadRef !== expectedThreadRef) {
+    return { ok: false, reason: "thread_mismatch", threadRef: currentThreadRef };
+  }
+  const latest = latestVisibleGmailMessage();
+  if (!latest) return { ok: false, reason: "latest_visible_message_not_found", threadRef: currentThreadRef };
+  const controls = Array.from(latest.querySelectorAll("[aria-label], [data-tooltip], [title]"));
+  const label = (control) => [
+    control.getAttribute?.("aria-label"),
+    control.getAttribute?.("data-tooltip"),
+    control.getAttribute?.("title"),
+  ].filter(Boolean).join(" ").toLowerCase();
+  const unstar = controls.find((control) => {
+    const value = label(control);
+    return !/add star|not starred/.test(value) && /remove star|\bstarred\b/.test(value);
+  });
+  if (unstar && typeof unstar.click === "function") {
+    unstar.click();
+    return { alreadyUnstarred: false, ok: true, threadRef: currentThreadRef };
+  }
+  if (controls.some((control) => /add star|not starred/.test(label(control)))) {
+    return { alreadyUnstarred: true, ok: true, threadRef: currentThreadRef };
+  }
+  return { ok: false, reason: "star_control_not_found", threadRef: currentThreadRef };
+}
+
 if (window.location.hostname === "mail.google.com") {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === STAR_VISIBLE_GMAIL_THREAD) {
       sendResponse(starVisibleGmailThread(message.threadRef));
+      return false;
+    }
+    if (message?.type === UNSTAR_VISIBLE_GMAIL_THREAD) {
+      sendResponse(unstarVisibleGmailThread(message.threadRef));
       return false;
     }
     if (message?.type !== GET_VISIBLE_GMAIL_PARTICIPANTS) return false;
@@ -213,6 +246,25 @@ if (window.location.hostname === "mail.google.com") {
             reason: "extension_request_failed",
           }),
         },
+      )));
+  });
+
+  window.addEventListener("carnival:gmail-unstar-thread", (event) => {
+    if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
+    let request;
+    try {
+      request = JSON.parse(event.detail);
+    } catch {
+      return;
+    }
+    chrome.runtime.sendMessage({ ...request, type: UNSTAR_GMAIL_THREAD })
+      .then((response) => window.dispatchEvent(new CustomEvent(
+        "carnival:gmail-unstar-result",
+        { detail: JSON.stringify({ ...request, ...response }) },
+      )))
+      .catch(() => window.dispatchEvent(new CustomEvent(
+        "carnival:gmail-unstar-result",
+        { detail: JSON.stringify({ ...request, ok: false, reason: "extension_request_failed" }) },
       )));
   });
 }

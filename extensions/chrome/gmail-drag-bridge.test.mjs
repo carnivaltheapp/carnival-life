@@ -175,6 +175,55 @@ test("Gmail content script stars only the exact open thread without navigation",
   assert.equal(clicked, 1);
 });
 
+test("Gmail content script unstars only the exact open thread without navigation", () => {
+  let metadataListener;
+  let clicked = 0;
+  const unstar = {
+    click: () => { clicked += 1; },
+    getAttribute: (attribute) => attribute === "aria-label" ? "Remove star" : null,
+  };
+  const latest = {
+    getAttribute: () => null,
+    getClientRects: () => [{}],
+    querySelector: () => null,
+    querySelectorAll: (selector) => selector === "[aria-label], [data-tooltip], [title]"
+      ? [unstar]
+      : [],
+  };
+  const location = {
+    hostname: "mail.google.com",
+    href: "https://mail.google.com/mail/u/2/#all/FMexact",
+  };
+  vm.runInNewContext(bridgeSource, {
+    URL,
+    chrome: {
+      runtime: { onMessage: { addListener: (listener) => { metadataListener = listener; } } },
+    },
+    decodeURIComponent,
+    document: { querySelectorAll: () => [latest] },
+    window: { location },
+  });
+
+  let response;
+  metadataListener(
+    { threadRef: "FMexact", type: "unstarVisibleGmailThread" },
+    null,
+    (value) => { response = value; },
+  );
+  assert.equal(response.ok, true);
+  assert.equal(clicked, 1);
+  assert.equal(location.href, "https://mail.google.com/mail/u/2/#all/FMexact");
+
+  metadataListener(
+    { threadRef: "FMwrong", type: "unstarVisibleGmailThread" },
+    null,
+    (value) => { response = value; },
+  );
+  assert.equal(response.ok, false);
+  assert.equal(response.reason, "thread_mismatch");
+  assert.equal(clicked, 1);
+});
+
 test("omnibox Gmail URL drop requests exact-tab metadata for row-create", async () => {
   let request;
   const gmailParticipants = {
@@ -269,6 +318,41 @@ test("PlayHouse requests exact-thread starring and reports failure without navig
     correlationId: "correlation-1",
     ok: false,
     reason: "star_control_not_found",
+  });
+});
+
+test("PlayHouse requests exact-thread unstar and preserves lifecycle context", async () => {
+  let request;
+  const context = playhouseContext(async (message) => {
+    request = message;
+    return { ok: true };
+  });
+  context.windowEvent("carnival:gmail-unstar-thread", JSON.stringify({
+    accountIndex: 2,
+    action: "trash",
+    correlationId: "correlation-1",
+    playId: "play-1",
+    threadRef: "FMexact",
+  }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(request)), {
+    accountIndex: 2,
+    action: "trash",
+    correlationId: "correlation-1",
+    playId: "play-1",
+    threadRef: "FMexact",
+    type: "unstarGmailThread",
+  });
+  assert.equal(context.dispatched().type, "carnival:gmail-unstar-result");
+  assert.deepEqual(JSON.parse(context.dispatched().detail), {
+    accountIndex: 2,
+    action: "trash",
+    correlationId: "correlation-1",
+    ok: true,
+    playId: "play-1",
+    threadRef: "FMexact",
   });
 });
 

@@ -14,6 +14,8 @@ const GEOMETRY_SAVE_DELAY_MS = 350;
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
 const STAR_GMAIL_THREAD = "starGmailThread";
 const STAR_VISIBLE_GMAIL_THREAD = "starVisibleGmailThread";
+const UNSTAR_GMAIL_THREAD = "unstarGmailThread";
+const UNSTAR_VISIBLE_GMAIL_THREAD = "unstarVisibleGmailThread";
 const TAB_SAVE_DELAY_MS = 300;
 const DIAGNOSTIC_STORAGE_KEY = "carnivalWorkspaceDiagnostics";
 const DIAGNOSTIC_LIMIT = 500;
@@ -276,6 +278,46 @@ chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
 chrome.tabs.onActivated.addListener(({ windowId }) => scheduleTabSave(windowId, "tab-activated"));
 chrome.tabs.onMoved.addListener((_tabId, moveInfo) => scheduleTabSave(moveInfo.windowId, "tab-moved"));
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === UNSTAR_GMAIL_THREAD) {
+    const diagnostic = {
+      action: message.action,
+      playId: message.playId,
+      threadRef: message.threadRef,
+    };
+    recordDiagnostic("info", "GMAIL_UNSTAR_STARTED", diagnostic);
+    chrome.tabs.query({ url: "https://mail.google.com/*" }).then(async (tabs) => {
+      const tab = selectGmailMetadataTab(tabs, message);
+      if (!tab) {
+        recordDiagnostic("warn", "GMAIL_UNSTAR_FAILED", {
+          ...diagnostic,
+          reason: "matching_tab_not_found",
+        });
+        sendResponse({ ok: false, reason: "matching_tab_not_found" });
+        return;
+      }
+      const response = await chrome.tabs.sendMessage(tab.id, {
+        threadRef: message.threadRef,
+        type: UNSTAR_VISIBLE_GMAIL_THREAD,
+      });
+      if (!response?.ok) {
+        recordDiagnostic("warn", "GMAIL_UNSTAR_FAILED", {
+          ...diagnostic,
+          reason: response?.reason ?? "unstar_failed",
+        });
+        sendResponse({ ok: false, reason: response?.reason ?? "unstar_failed" });
+        return;
+      }
+      recordDiagnostic("info", "GMAIL_UNSTAR_COMPLETE", diagnostic);
+      sendResponse({ ok: true });
+    }).catch(() => {
+      recordDiagnostic("warn", "GMAIL_UNSTAR_FAILED", {
+        ...diagnostic,
+        reason: "extension_request_failed",
+      });
+      sendResponse({ ok: false, reason: "extension_request_failed" });
+    });
+    return true;
+  }
   if (message?.type === STAR_GMAIL_THREAD) {
     const diagnostic = {
       accountIndex: message.accountIndex,

@@ -26,8 +26,6 @@ import {
 } from "../../domain/gmail-row-create";
 import { reminderContextDate } from "../../domain/reminder";
 import { resolveGmailAssigneeForParticipants } from "../../lib/google/gmail-assignee.server";
-import { applyPlayLifecycle } from "../../lib/google/gmail-lifecycle";
-import { unstarGmailPlayThread } from "../../lib/google/gmail-lifecycle.server";
 import { resolvePlayhouseDataSource } from "../../lib/playhouse/data-source";
 import { dateInTimeZone } from "../../lib/playhouse/data";
 import { createPlayRepository } from "../../lib/playhouse/play-repository";
@@ -215,39 +213,16 @@ async function setPlayStatus(
     source: resolvePlayhouseDataSource(),
     supabase: auth.supabase,
   });
-  const play = await repository.getLifecycleIdentity(playId);
-  if (!play) {
-    return errorState("This Play is no longer active. Refresh and try again.");
-  }
-  const lifecycle = await applyPlayLifecycle({
-    gmailThreadId: play.gmailThreadId,
-    setLocalStatus: (nextStatus) => repository.setStatus(playId, nextStatus),
-    sourceType: play.sourceType,
-    status,
-    unstarThread: (threadId) => unstarGmailPlayThread({
-      ownerUserId: auth.userId,
-      supabase: auth.supabase,
-      threadId,
-    }),
-  });
-
-  if (!lifecycle.success) {
+  if (!await repository.setStatus(playId, status)) {
     return errorState(
-      lifecycle.message === "The Play could not be updated. Refresh and try again."
-        ? status === "done"
-          ? "This Play could not be marked done. Refresh and try again."
-          : "This Play could not be moved to Trash. Refresh and try again."
-        : lifecycle.message,
+      status === "done"
+        ? "This Play could not be marked done. Refresh and try again."
+        : "This Play could not be moved to Trash. Refresh and try again.",
     );
   }
-  if (lifecycle.warning) {
-    console.warn("[PlayHouse Gmail] lifecycle sync warning", { playId, status });
-  }
 
-  revalidatePath("/");
   return {
-    message: lifecycle.warning ??
-      (status === "done" ? "Play marked done." : "Play moved to Trash."),
+    message: status === "done" ? "Play marked done." : "Play moved to Trash.",
     status: "success",
   };
 }
@@ -716,27 +691,12 @@ export async function bulkSetPlayStatus(request: {
       return errorState("One or more Plays are no longer active. Refresh and try again.");
     }
     const eligiblePlays = plays.filter((play) => play !== null);
-    const results = await Promise.all(eligiblePlays.map((play, index) => applyPlayLifecycle({
-      gmailThreadId: play.gmailThreadId,
-      setLocalStatus: (nextStatus) => repository.setStatus(playIds[index], nextStatus),
-      sourceType: play.sourceType,
-      status: request.status,
-      unstarThread: (threadId) => unstarGmailPlayThread({
-        ownerUserId: auth.userId,
-        supabase: auth.supabase,
-        threadId,
-      }),
-    })));
-    const failed = results.find((result) => !result.success);
-    if (failed) return errorState(failed.message);
-    results.forEach((result, index) => {
-      if (result.success && result.warning) {
-        console.warn("[PlayHouse Gmail] lifecycle sync warning", {
-          playId: playIds[index],
-          status: request.status,
-        });
-      }
-    });
+    const results = await Promise.all(
+      eligiblePlays.map((play) => repository.setStatus(play.id, request.status)),
+    );
+    if (results.some((success) => !success)) {
+      return errorState("One or more Plays could not be updated. Refresh and try again.");
+    }
     revalidatePath("/");
     return {
       message: `${playIds.length} ${playIds.length === 1 ? "Play" : "Plays"} ${

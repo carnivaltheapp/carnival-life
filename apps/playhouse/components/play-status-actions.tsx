@@ -13,6 +13,7 @@ import type {
 import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
 import { gmailThreadUrl, usablePlayUrl } from "../domain/play-display";
 import { openInAux } from "../lib/desktop/open-in-aux";
+import { requestGmailThreadUnstar } from "./gmail-thread-sync";
 
 export function DoneIcon() {
   return <span aria-hidden="true">✓</span>;
@@ -117,6 +118,7 @@ export function PlayStatusActions({
   onFlipRank?: () => void;
   play: PlayListItem;
 }) {
+  const router = useRouter();
   const [doneState, doneAction, donePending] = useActionState(
     markPlayDone,
     INITIAL_PLAY_MUTATION_STATE,
@@ -125,6 +127,18 @@ export function PlayStatusActions({
     trashPlay,
     INITIAL_PLAY_MUTATION_STATE,
   );
+  const syncedStatusRef = useRef<"done" | "trash" | null>(null);
+  useEffect(() => {
+    const status = doneState.status === "success"
+      ? "done"
+      : trashState.status === "success"
+        ? "trash"
+        : null;
+    if (!status || syncedStatusRef.current === status) return;
+    syncedStatusRef.current = status;
+    requestGmailThreadUnstar(play, status);
+    router.refresh();
+  }, [doneState.status, play, router, trashState.status]);
   const anyPending = donePending || trashPending || flipPending;
   const errorMessage =
     doneState.status === "error"
