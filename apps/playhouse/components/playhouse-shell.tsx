@@ -22,6 +22,7 @@ import {
   bulkUpdatePlays,
   flipPlayRank,
   repositionPlays,
+  unlinkGmailFromPlay,
 } from "../app/plays/actions";
 import type {
   BasketSummary,
@@ -35,6 +36,7 @@ import {
   gmailAttachmentFromDragData,
   gmailCorrelationIdFromDragData,
   gmailMetadataWithAttachment,
+  gmailMetadataWithoutAttachment,
   mayContainGmailDrag,
   parseGmailAttachmentUrl,
   sanitizeGmailParticipants,
@@ -294,6 +296,12 @@ function PlayhouseShellView({
   const gmailCorrelationIdRef = useRef<string | null>(null);
   const gmailDropTargetRef = useRef<string | null>(null);
   const [gmailDropTarget, setGmailDropTarget] = useState<string | null>(null);
+  const [gmailContextMenu, setGmailContextMenu] = useState<{
+    hasGmail: boolean;
+    playId: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [gridSort, setGridSort] = useState<PlayGridSort | null>(null);
   const [flippingPlayId, setFlippingPlayId] = useState<string | null>(null);
@@ -306,6 +314,25 @@ function PlayhouseShellView({
   const [flipPending, startFlip] = useTransition();
   const [gmailAttachPending, startGmailAttach] = useTransition();
   const localPlays = optimisticPlays?.source === plays ? optimisticPlays.value : plays;
+  useEffect(() => {
+    if (!gmailContextMenu) return;
+    const closeOnPointerDown = (event: globalThis.PointerEvent) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest(".gmailContextMenu")
+      ) return;
+      setGmailContextMenu(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setGmailContextMenu(null);
+    };
+    window.addEventListener("pointerdown", closeOnPointerDown);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("pointerdown", closeOnPointerDown);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [gmailContextMenu]);
   const playCountLabel = `${localPlays.length} ${localPlays.length === 1 ? "Play" : "Plays"}`;
   const viewTitle = !searchQuery && selectedView.kind === "calendar" &&
       selectedView.key !== "week"
@@ -452,6 +479,37 @@ function PlayhouseShellView({
       }
     });
   }, [eligiblePlayIds, gmailAttachPending, localPlays, optimisticPlays, plays]);
+
+  function unlinkGmail(playId: string) {
+    if (gmailAttachPending) return;
+    const previousOptimisticPlays = optimisticPlays;
+    setGmailContextMenu(null);
+    setOptimisticPlays({
+      source: plays,
+      value: localPlays.map((play) => play.id === playId
+        ? {
+            ...play,
+            gmailAccountIndex: null,
+            gmailThreadId: null,
+            sourceMetadata: gmailMetadataWithoutAttachment(play.sourceMetadata),
+          }
+        : play),
+    });
+    startGmailAttach(async () => {
+      try {
+        const result = await unlinkGmailFromPlay({ playId });
+        if (result.status === "success") {
+          setMoveError(null);
+          return;
+        }
+        setOptimisticPlays(previousOptimisticPlays);
+        setMoveError(result.message);
+      } catch {
+        setOptimisticPlays(previousOptimisticPlays);
+        setMoveError("Email could not be unlinked from this Play.");
+      }
+    });
+  }
 
   useEffect(() => {
     function acceptExtensionFallback(event: Event) {
@@ -1322,6 +1380,16 @@ function PlayhouseShellView({
                   data-play-row-id={play.id}
                   key={play.id}
                   draggable={!isPlaceContext && !searchQuery && eligiblePlayIds.has(play.id)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setGmailContextMenu({
+                      hasGmail: Boolean(play.gmailThreadId),
+                      playId: play.id,
+                      x: Math.min(event.clientX, window.innerWidth - 168),
+                      y: Math.min(event.clientY, window.innerHeight - 48),
+                    });
+                  }}
                   onClickCapture={(event) => {
                     if (!(event.ctrlKey || event.metaKey) || !eligiblePlayIds.has(play.id)) return;
                     event.preventDefault();
@@ -1495,6 +1563,23 @@ function PlayhouseShellView({
           )}
         </section>
       </div>
+      {gmailContextMenu ? (
+        <div
+          aria-label="Play actions"
+          className="gmailContextMenu"
+          role="menu"
+          style={{ left: gmailContextMenu.x, top: gmailContextMenu.y }}
+        >
+          <button
+            disabled={!gmailContextMenu.hasGmail || gmailAttachPending}
+            onClick={() => unlinkGmail(gmailContextMenu.playId)}
+            role="menuitem"
+            type="button"
+          >
+            Unlink email
+          </button>
+        </div>
+      ) : null}
     </main>
   );
 }

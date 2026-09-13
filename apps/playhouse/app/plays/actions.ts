@@ -485,6 +485,34 @@ export async function attachGmailToPlay(request: {
   }
 }
 
+export async function unlinkGmailFromPlay(request: {
+  playId: string;
+}): Promise<PlayMutationState> {
+  try {
+    const auth = await authenticatedClient();
+    if (!auth) return errorState("Your session expired. Refresh the page and sign in again.");
+    const source = resolvePlayhouseDataSource();
+    if (
+      !request.playId ||
+      request.playId.length > 100 ||
+      (source === "supabase" && !isUuid(request.playId))
+    ) return errorState("That Play could not be identified. Refresh and try again.");
+    const repository = await createPlayRepository({
+      baskets: [],
+      ownerUserId: auth.userId,
+      source,
+      supabase: auth.supabase,
+    });
+    if (!await repository.unlinkGmail({ playId: request.playId })) {
+      return errorState("Email could not be unlinked from this Play.");
+    }
+    revalidatePath("/");
+    return { message: "Email unlinked.", status: "success" };
+  } catch {
+    return errorState("Email could not be unlinked from this Play.");
+  }
+}
+
 export async function bulkUpdatePlays(request: {
   change: BulkPlayChange;
   playIds: string[];

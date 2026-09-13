@@ -1,4 +1,4 @@
-import type { Locator } from "@playwright/test";
+import type { Locator, Route } from "@playwright/test";
 
 import { expect, test } from "./fixtures";
 import { GRID_FONT_SIZE_STORAGE_KEY } from "../domain/grid-font-size";
@@ -174,7 +174,7 @@ test("Email and URL row actions route to Aux without changing PlayHouse", async 
 
 test("Gmail URL drop attaches only the row under the pointer and persists replacement", async ({ auth }) => {
   await auth.page.goto("/");
-  await createPlay(auth.page, "Gmail drop target");
+  await createPlay(auth.page, "Gmail drop target", { url: "https://example.com/context" });
   await createPlay(auth.page, "Other selected Play");
   const target = playRow(auth.page, "Gmail drop target");
   const other = playRow(auth.page, "Other selected Play");
@@ -248,6 +248,50 @@ test("Gmail URL drop attaches only the row under the pointer and persists replac
   await expect.poll(() => auth.page.evaluate(
     () => sessionStorage.getItem("gmail-drop-route"),
   )).toBe("https://mail.google.com/mail/u/3/#all/FMreplacement");
+
+  await playRow(auth.page, "Other selected Play").click({ button: "right" });
+  const menu = auth.page.getByRole("menu", { name: "Play actions" });
+  await expect(menu.getByRole("menuitem")).toHaveText("Unlink email");
+  await expect(menu.getByRole("menuitem")).toBeDisabled();
+  await expect(menu.getByRole("menuitem")).toHaveCount(1);
+  await auth.page.getByRole("heading", { name: /Today|PlayHouse/ }).first().click();
+  await expect(menu).toHaveCount(0);
+
+  const attachedRow = playRow(auth.page, "Gmail drop target");
+  await attachedRow.click({ button: "right" });
+  await expect(menu.getByRole("menuitem", { name: "Unlink email" })).toBeEnabled();
+  await auth.page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+
+  const abortPost = async (route: Route) => {
+    if (route.request().method() === "POST") await route.abort();
+    else await route.continue();
+  };
+  await auth.page.route("**/*", abortPost);
+  await attachedRow.click({ button: "right" });
+  await menu.getByRole("menuitem", { name: "Unlink email" }).click();
+  await expect(auth.page.getByText("Email could not be unlinked from this Play."))
+    .toBeVisible();
+  await expect(attachedRow.getByRole("button", { name: "Open Gmail thread" })).toBeVisible();
+  await auth.page.unroute("**/*", abortPost);
+
+  await attachedRow.click({ button: "right" });
+  await menu.getByRole("menuitem", { name: "Unlink email" }).click();
+  await expect(attachedRow.getByRole("button", { name: "Open Gmail thread" })).toHaveCount(0);
+  await expect.poll(async () => {
+    const { data } = await auth.user
+      .from("plays")
+      .select("player_contact_id, play_type, source_metadata, url")
+      .eq("owner_user_id", auth.userId)
+      .eq("title", "Gmail drop target")
+      .single();
+    return data;
+  }).toMatchObject({
+    player_contact_id: null,
+    play_type: "normal",
+    source_metadata: { external_ids: {} },
+    url: "https://example.com/context",
+  });
 });
 
 test("invalid Create stays open and preserves every entered value", async ({ auth }) => {
@@ -326,7 +370,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-GMAIL-OMNIBOX-CLEAN-43", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-GMAIL-UNLINK-44", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');

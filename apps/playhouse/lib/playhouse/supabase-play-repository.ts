@@ -2,7 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { NextPlayOption, PlayListItem } from "../../domain/play";
 import type { BulkPlayChange } from "../../domain/play-bulk-change";
-import { gmailMetadataWithAttachment } from "../../domain/gmail-attachment";
+import {
+  gmailMetadataWithoutAttachment,
+  gmailMetadataWithAttachment,
+} from "../../domain/gmail-attachment";
 import {
   gmailAccountIndexFromMetadata,
   gmailThreadIdFromMetadata,
@@ -21,6 +24,7 @@ import type {
   RepositoryPlayList,
   RepositionPlaysRequest,
   SavePlayRequest,
+  UnlinkGmailRequest,
 } from "./play-repository";
 
 function playValues(data: SavePlayRequest["input"]) {
@@ -67,6 +71,29 @@ export class SupabasePlayRepository implements PlayRepository {
       .from("plays")
       .update({
         source_metadata: gmailMetadataWithAttachment(metadata, attachment),
+      })
+      .eq("id", playId)
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", "open")
+      .select("id")
+      .maybeSingle();
+    return !error && data?.id === playId;
+  }
+
+  async unlinkGmail({ playId }: UnlinkGmailRequest) {
+    const { data: existing, error: existingError } = await this.supabase
+      .from("plays")
+      .select("source_metadata")
+      .eq("id", playId)
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", "open")
+      .maybeSingle();
+    if (existingError || !existing) return false;
+    const { data, error } = await this.supabase
+      .from("plays")
+      .update({
+        source_metadata: gmailMetadataWithoutAttachment(existing.source_metadata) as
+          Database["public"]["Tables"]["plays"]["Update"]["source_metadata"],
       })
       .eq("id", playId)
       .eq("owner_user_id", this.ownerUserId)

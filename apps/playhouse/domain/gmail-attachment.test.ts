@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   CARNIVAL_GMAIL_DRAG_TYPE,
   gmailAttachmentFromDragData,
+  gmailMetadataWithoutAttachment,
   gmailMetadataWithAttachment,
   parseGmailAttachmentUrl,
   sanitizeGmailParticipants,
@@ -70,6 +71,19 @@ describe("Gmail URL drop payloads", () => {
         thread_ref: "FMfcgzExample",
       },
       legacy_source: { task_type: "H" },
+    });
+  });
+
+  it("removes only Gmail linkage metadata", () => {
+    expect(gmailMetadataWithoutAttachment({
+      external_ids: { event_id: "calendar-1", thread_id: "FMthread" },
+      gmail_attachment: { account_index: 2, thread_ref: "FMthread" },
+      legacy_source: { note: "Keep", thread_id: "legacy-thread" },
+      migration: { batch_id: "batch-1" },
+    })).toEqual({
+      external_ids: { event_id: "calendar-1" },
+      legacy_source: { note: "Keep" },
+      migration: { batch_id: "batch-1" },
     });
   });
 });

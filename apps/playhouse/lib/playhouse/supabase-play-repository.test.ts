@@ -156,6 +156,33 @@ describe("Supabase Gmail attachment", () => {
     expect(existing.update).not.toHaveBeenCalled();
   });
 
+  it("unlinks Gmail metadata through an owner-scoped update", async () => {
+    const existing = query({
+      data: {
+        source_metadata: {
+          external_ids: { event_id: "event-1", thread_id: "FMnew" },
+          gmail_attachment: { account_index: 3, thread_ref: "FMnew" },
+          legacy_source: { note: "Keep", thread_id: "legacy-thread" },
+        },
+      },
+      error: null,
+    });
+    const update = query({ data: { id: "play-1" }, error: null });
+    const from = vi.fn().mockReturnValueOnce(existing).mockReturnValueOnce(update);
+    await expect(new SupabasePlayRepository(
+      { from } as never,
+      "owner-user",
+    ).unlinkGmail({ playId: "play-1" })).resolves.toBe(true);
+    expect(update.update).toHaveBeenCalledWith({
+      source_metadata: {
+        external_ids: { event_id: "event-1" },
+        legacy_source: { note: "Keep" },
+      },
+    });
+    expect(update.eq).toHaveBeenCalledWith("owner_user_id", "owner-user");
+    expect(update.eq).toHaveBeenCalledWith("status", "open");
+  });
+
   it("assigns only the owner-scoped target without changing rank or placement", async () => {
     const update = query({ data: { id: "play-1" }, error: null });
     const from = vi.fn().mockReturnValue(update);

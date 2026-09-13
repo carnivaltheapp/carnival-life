@@ -46,6 +46,7 @@ import type {
   RepositoryPlayList,
   RepositionPlaysRequest,
   SavePlayRequest,
+  UnlinkGmailRequest,
 } from "./play-repository";
 import { mongoDiagnostic } from "./mongo-options";
 
@@ -90,6 +91,24 @@ export class MongoPlayRepository implements PlayRepository {
       },
     });
     return result.matchedCount === 1;
+  }
+
+  async unlinkGmail({ playId }: UnlinkGmailRequest) {
+    try {
+      const result = await this.dependencies.collection.updateOne({
+        ...mongoActiveFilter(),
+        ...mongoMutationFilter(playId),
+      }, {
+        $set: { updated_date: new Date() },
+        $unset: {
+          "carnival_google.gmail_attachment": "",
+          thread_id: "",
+        },
+      });
+      return result.matchedCount === 1;
+    } catch {
+      return false;
+    }
   }
 
   async assignPlayer({ playId, playerResourceName }: AssignPlayerRequest) {

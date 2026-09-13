@@ -107,6 +107,28 @@ describe("MongoPlayRepository mutations", () => {
     expect(updateOne.mock.calls[0][1].$set).not.toHaveProperty("task_date");
   });
 
+  it("unlinks only Gmail fields from the exact active owner-scoped Play", async () => {
+    const id = new ObjectId();
+    const updateOne = vi.fn().mockResolvedValue({ matchedCount: 1 });
+    await expect(repository({ updateOne: updateOne as never }).unlinkGmail({
+      playId: id.toHexString(),
+    })).resolves.toBe(true);
+    expect(updateOne.mock.calls[0][0]).toEqual({
+      _id: id,
+      "carnival_google.semantic_role": { $ne: "place" },
+      is_active: true,
+      is_deleted: false,
+      user_id: 43,
+    });
+    expect(updateOne.mock.calls[0][1]).toEqual({
+      $set: { updated_date: expect.any(Date) },
+      $unset: {
+        "carnival_google.gmail_attachment": "",
+        thread_id: "",
+      },
+    });
+  });
+
   it.each([
     ["done", { is_active: false }],
     ["trash", { is_active: false, is_deleted: true }],

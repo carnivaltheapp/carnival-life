@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-GMAIL-OMNIBOX-CLEAN-43
+          P3-GMAIL-UNLINK-44
         </small>
       </body>
     </html>

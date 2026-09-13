@@ -143,3 +143,34 @@ export function gmailMetadataWithAttachment(
     },
   };
 }
+
+export function gmailMetadataWithoutAttachment(sourceMetadata: unknown) {
+  const metadata = sourceMetadata &&
+      typeof sourceMetadata === "object" &&
+      !Array.isArray(sourceMetadata)
+    ? sourceMetadata as Record<string, unknown>
+    : {};
+  const externalIds = metadata.external_ids &&
+      typeof metadata.external_ids === "object" &&
+      !Array.isArray(metadata.external_ids)
+    ? metadata.external_ids as Record<string, unknown>
+    : null;
+  const legacySource = metadata.legacy_source &&
+      typeof metadata.legacy_source === "object" &&
+      !Array.isArray(metadata.legacy_source)
+    ? metadata.legacy_source as Record<string, unknown>
+    : null;
+  const result = { ...metadata };
+  delete result.gmail_attachment;
+  if (externalIds) {
+    const remaining = { ...externalIds };
+    delete remaining.thread_id;
+    result.external_ids = remaining;
+  }
+  if (legacySource) {
+    const remaining = { ...legacySource };
+    delete remaining.thread_id;
+    result.legacy_source = remaining;
+  }
+  return result;
+}
