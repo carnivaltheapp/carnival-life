@@ -20,9 +20,10 @@ import {
   sanitizeGmailParticipants,
 } from "../../domain/gmail-attachment";
 import {
-  parseGmailNewPlayRequest,
-  type GmailNewPlayRequest,
-} from "../../domain/gmail-new-play";
+  gmailRowCreateInput,
+  parseGmailRowCreateRequest,
+  type GmailRowCreateRequest,
+} from "../../domain/gmail-row-create";
 import { reminderContextDate } from "../../domain/reminder";
 import { resolveGmailAssigneeForParticipants } from "../../lib/google/gmail-assignee.server";
 import { applyPlayLifecycle } from "../../lib/google/gmail-lifecycle";
@@ -489,47 +490,64 @@ export async function attachGmailToPlay(request: {
   }
 }
 
-export async function createGmailPlayFromBullseye(
-  request: GmailNewPlayRequest,
+export async function createGmailPlayFromRow(
+  request: GmailRowCreateRequest,
 ): Promise<PlayMutationState & { playId?: string }> {
-  const parsed = parseGmailNewPlayRequest(request);
+  const parsed = parseGmailRowCreateRequest(request);
   const diagnostic = {
     correlationId: typeof request?.correlationId === "string"
       ? request.correlationId.slice(0, 100)
       : null,
-    destinationId: request?.placement?.kind === "basket"
-      ? request.placement.basketId
-      : request?.placement?.kind === "calendar"
-        ? request.placement.scheduledDate
-        : null,
-    destinationType: request?.placement?.kind ?? null,
     subjectPresent: Boolean(typeof request?.subject === "string" && request.subject.trim()),
+    targetPlayId: typeof request?.targetPlayId === "string"
+      ? request.targetPlayId.slice(0, 100)
+      : null,
   };
   if (!parsed) {
-    console.warn("GMAIL_NEW_PLAY_FAILED", { ...diagnostic, reason: "invalid_request" });
+    console.warn("GMAIL_ROW_CREATE_FAILED", { ...diagnostic, reason: "invalid_request" });
     return errorState("That Gmail item could not create a Play.");
   }
 
   try {
     const auth = await authenticatedClient();
     if (!auth) {
-      console.warn("GMAIL_NEW_PLAY_FAILED", { ...diagnostic, reason: "session_expired" });
+      console.warn("GMAIL_ROW_CREATE_FAILED", { ...diagnostic, reason: "session_expired" });
       return errorState("Your session expired. Refresh the page and sign in again.");
     }
     const baskets = await loadBaskets(auth.supabase);
     if (!baskets) {
-      console.warn("GMAIL_NEW_PLAY_FAILED", { ...diagnostic, reason: "basket_load_failed" });
+      console.warn("GMAIL_ROW_CREATE_FAILED", { ...diagnostic, reason: "basket_load_failed" });
       return errorState("Your Baskets could not be loaded. Refresh and try again.");
     }
-    const basketId = parsed.input.placement.kind === "basket"
-      ? parsed.input.placement.basketId
+    const repository = await createPlayRepository({
+      baskets,
+      ownerUserId: auth.userId,
+      source: resolvePlayhouseDataSource(),
+      supabase: auth.supabase,
+    });
+    const target = await repository.get(parsed.targetPlayId);
+    const input = target ? gmailRowCreateInput(parsed, target) : null;
+    const basketId = input?.placement.kind === "basket"
+      ? input.placement.basketId
       : null;
-    if (basketId && !baskets.some(({ id }) => id === basketId)) {
-      console.warn("GMAIL_NEW_PLAY_FAILED", { ...diagnostic, reason: "invalid_basket" });
-      return errorState("That Basket is no longer available.");
+    if (
+      !target ||
+      !input ||
+      (basketId && !baskets.some(({ id }) => id === basketId))
+    ) {
+      console.warn("GMAIL_ROW_CREATE_FAILED", { ...diagnostic, reason: "invalid_target" });
+      return errorState("That target Play is no longer available.");
     }
-
-    console.info("GMAIL_NEW_PLAY_METADATA_RESOLVED", diagnostic);
+    const destinationId = input.placement.kind === "basket"
+      ? input.placement.basketId
+      : input.placement.scheduledDate;
+    const resolvedDiagnostic = {
+      ...diagnostic,
+      destinationId,
+      destinationType: input.placement.kind,
+      targetRank: input.playType === "reminder" ? "Reminder" : "Headline",
+    };
+    console.info("GMAIL_ROW_CREATE_METADATA_RESOLVED", resolvedDiagnostic);
     let playerContactId: string | null = null;
     let playerResourceName: string | null = null;
     if (parsed.gmailParticipants) {
@@ -550,33 +568,26 @@ export async function createGmailPlayFromBullseye(
       }
     }
 
-    const repository = await createPlayRepository({
-      baskets,
-      ownerUserId: auth.userId,
-      source: resolvePlayhouseDataSource(),
-      supabase: auth.supabase,
-    });
     const playId = await repository.createGmail({
       attachment: parsed.attachment,
-      input: { ...parsed.input, playerContactId },
+      input: { ...input, playerContactId },
       playerResourceName,
     });
     if (!playId) {
-      console.warn("GMAIL_NEW_PLAY_FAILED", { ...diagnostic, reason: "create_failed" });
+      console.warn("GMAIL_ROW_CREATE_FAILED", { ...resolvedDiagnostic, reason: "create_failed" });
       return errorState("That Gmail Play could not be created.");
     }
 
-    const completedDiagnostic = { ...diagnostic, playId };
-    console.info("GMAIL_NEW_PLAY_CREATED", completedDiagnostic);
-    console.info("GMAIL_NEW_PLAY_ATTACHMENT_COMPLETE", completedDiagnostic);
-    console.info("GMAIL_NEW_PLAY_ASSIGNEE_COMPLETE", {
+    const completedDiagnostic = { ...resolvedDiagnostic, playId };
+    console.info("GMAIL_ROW_CREATE_PLAY_CREATED", completedDiagnostic);
+    console.info("GMAIL_ROW_CREATE_ASSIGNEE_COMPLETE", {
       ...completedDiagnostic,
       assigned: Boolean(playerContactId),
     });
     revalidatePath("/");
     return { message: "Gmail Play created.", playId, status: "success" };
   } catch {
-    console.warn("GMAIL_NEW_PLAY_FAILED", { ...diagnostic, reason: "unexpected_failure" });
+    console.warn("GMAIL_ROW_CREATE_FAILED", { ...diagnostic, reason: "unexpected_failure" });
     return errorState("That Gmail Play could not be created.");
   }
 }

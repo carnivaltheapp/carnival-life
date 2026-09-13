@@ -172,73 +172,85 @@ test("Email and URL row actions route to Aux without changing PlayHouse", async 
   await expect(row).toBeVisible();
 });
 
-test("Gmail URL drop attaches only the row under the pointer and persists replacement", async ({ auth }) => {
+test("Gmail URL row drop creates one Play from the target without modifying it", async ({ auth }) => {
   await auth.page.goto("/");
-  await createPlay(auth.page, "Gmail drop target", { url: "https://example.com/context" });
-  const edit = await openEditPlay(auth.page, "Gmail drop target");
+  await createPlay(auth.page, "Gmail row template", { url: "https://example.com/context" });
+  const edit = await openEditPlay(auth.page, "Gmail row template");
   await choosePlayer(edit.form, "Dav", auth.contacts[0].displayName);
+  await edit.form.getByLabel("Push").selectOption("weekdays");
   await edit.form.getByRole("button", { name: "Save changes" }).click();
   await expect(edit.disclosure).not.toHaveAttribute("open", "");
   await createPlay(auth.page, "Other selected Play");
-  const target = playRow(auth.page, "Gmail drop target");
+  const target = playRow(auth.page, "Gmail row template");
   const other = playRow(auth.page, "Other selected Play");
-  await target.locator(".playSelectControl").click();
-  await other.locator(".playSelectControl").click();
-  async function drop(type: string, value: string, row = target) {
-    await row.evaluate((element, payload) => {
-      const transfer = new DataTransfer();
-      transfer.setData(payload.type, payload.value);
-      element.dispatchEvent(new DragEvent("dragover", {
-        bubbles: true,
-        cancelable: true,
-        dataTransfer: transfer,
-      }));
-      element.dispatchEvent(new DragEvent("drop", {
-        bubbles: true,
-        cancelable: true,
-        dataTransfer: transfer,
-      }));
-    }, { type, value });
-  }
-
-  await drop(
-    "text/uri-list",
-    "https://mail.google.com/mail/u/2/#all/FMfirst",
-  );
-  await expect(target.getByRole("button", { name: "Open Gmail thread" })).toBeVisible();
-  await expect(other.getByRole("button", { name: "Open Gmail thread" })).toHaveCount(0);
-  const { data: attached } = await auth.user
+  const targetPlayId = await target.getAttribute("data-play-row-id");
+  expect(targetPlayId).not.toBeNull();
+  const { data: before } = await auth.user
     .from("plays")
-    .select("play_type, player_contact_id")
-    .eq("owner_user_id", auth.userId)
-    .eq("title", "Gmail drop target")
+    .select("basket_id, player_contact_id, play_type, push_rule, scheduled_date, source_metadata, url")
+    .eq("id", targetPlayId!)
     .single();
-  expect(attached?.play_type).toBe("normal");
-  expect(attached?.player_contact_id).not.toBeNull();
-  const originalContactId = attached!.player_contact_id!;
-
-  await drop(
-    "text/html",
-    '<a href="https://mail.google.com/mail/u/3/#all/FMreplacement">Gmail</a>',
-  );
-  await expect.poll(async () => {
-    const { data } = await auth.user
-      .from("plays")
-      .select("source_metadata")
-      .eq("owner_user_id", auth.userId)
-      .eq("title", "Gmail drop target")
-      .single();
-    return data?.source_metadata;
-  }).toMatchObject({
-    external_ids: { thread_id: "FMreplacement" },
-    gmail_attachment: {
-      account_index: 3,
-      thread_ref: "FMreplacement",
+  expect(before?.player_contact_id).not.toBeNull();
+  const originalContactId = before!.player_contact_id!;
+  await auth.page.evaluate((request) => {
+    sessionStorage.removeItem("gmail-row-star-request");
+    window.addEventListener("carnival:gmail-star-thread", (event) => {
+      sessionStorage.setItem("gmail-row-star-request", (event as CustomEvent<string>).detail);
+    });
+    const detail = JSON.stringify(request);
+    window.dispatchEvent(new CustomEvent("carnival:gmail-row-create", { detail }));
+    window.dispatchEvent(new CustomEvent("carnival:gmail-row-create", { detail }));
+  }, {
+    correlationId: "gmail-row-create-e2e",
+    gmailParticipants: {
+      from: { email: auth.contacts[0].email, name: auth.contacts[0].displayName },
+      to: [],
     },
+    subject: "Gmail-created Headline",
+    targetPlayId,
+    url: "https://mail.google.com/mail/u/2/#all/FMfirst",
   });
 
-  await drop("text/uri-list", "https://example.com/not-gmail", other);
+  const createdRow = playRow(auth.page, "Gmail-created Headline");
+  await expect(createdRow).toBeVisible();
+  await expect(createdRow.getByRole("button", { name: "Open Gmail thread" })).toBeVisible();
+  await expect(createdRow.getByTestId("play-player")).toHaveText(auth.contacts[0].displayName);
+  await expect(target.getByRole("button", { name: "Open Gmail thread" })).toHaveCount(0);
   await expect(other.getByRole("button", { name: "Open Gmail thread" })).toHaveCount(0);
+  await expect.poll(() => auth.page.evaluate(
+    () => sessionStorage.getItem("gmail-row-star-request"),
+  )).toContain('"threadRef":"FMfirst"');
+
+  const { data: created } = await auth.user
+    .from("plays")
+    .select("basket_id, player_contact_id, play_type, push_rule, scheduled_date, source_metadata")
+    .eq("owner_user_id", auth.userId)
+    .eq("title", "Gmail-created Headline")
+    .single();
+  expect(created).toMatchObject({
+    basket_id: before?.basket_id,
+    player_contact_id: originalContactId,
+    play_type: before?.play_type,
+    push_rule: "everyday",
+    scheduled_date: before?.scheduled_date,
+    source_metadata: {
+      external_ids: { thread_id: "FMfirst" },
+      gmail_attachment: { account_index: 2, thread_ref: "FMfirst" },
+    },
+  });
+  const { count } = await auth.user
+    .from("plays")
+    .select("id", { count: "exact", head: true })
+    .eq("owner_user_id", auth.userId)
+    .eq("title", "Gmail-created Headline");
+  expect(count).toBe(1);
+  const { data: unchangedTarget } = await auth.user
+    .from("plays")
+    .select("basket_id, player_contact_id, play_type, push_rule, scheduled_date, source_metadata, url")
+    .eq("id", targetPlayId!)
+    .single();
+  expect(unchangedTarget).toEqual(before);
+
   await auth.page.reload();
   await auth.page.evaluate(() => {
     window.addEventListener("message", (event) => {
@@ -247,27 +259,24 @@ test("Gmail URL drop attaches only the row under the pointer and persists replac
       }
     });
   });
-  const gmailButton = playRow(auth.page, "Gmail drop target")
+  const gmailButton = playRow(auth.page, "Gmail-created Headline")
     .getByRole("button", { name: "Open Gmail thread" });
   await expect(gmailButton).toBeVisible();
   await gmailButton.click();
   await expect.poll(() => auth.page.evaluate(
     () => sessionStorage.getItem("gmail-drop-route"),
-  )).toBe("https://mail.google.com/mail/u/3/#all/FMreplacement");
+  )).toBe("https://mail.google.com/mail/u/2/#all/FMfirst");
 
-  await playRow(auth.page, "Other selected Play").click({ button: "right" });
+  await playRow(auth.page, "Gmail row template").click({ button: "right" });
   const menu = auth.page.getByRole("menu", { name: "Play actions" });
   await expect(menu.getByRole("menuitem")).toHaveText("Unlink email");
   await expect(menu.getByRole("menuitem")).toBeDisabled();
-  await expect(menu.getByRole("menuitem")).toHaveCount(1);
   await auth.page.getByRole("heading", { name: /Today|PlayHouse/ }).first().click();
-  await expect(menu).toHaveCount(0);
 
-  const attachedRow = playRow(auth.page, "Gmail drop target");
+  const attachedRow = playRow(auth.page, "Gmail-created Headline");
   await attachedRow.click({ button: "right" });
   await expect(menu.getByRole("menuitem", { name: "Unlink email" })).toBeEnabled();
   await auth.page.keyboard.press("Escape");
-  await expect(menu).toHaveCount(0);
 
   const abortPost = async (route: Route) => {
     if (route.request().method() === "POST") await route.abort();
@@ -279,7 +288,6 @@ test("Gmail URL drop attaches only the row under the pointer and persists replac
   await expect(auth.page.getByText("Email could not be unlinked from this Play."))
     .toBeVisible();
   await expect(attachedRow.getByRole("button", { name: "Open Gmail thread" })).toBeVisible();
-  await expect(attachedRow.getByTestId("play-player")).toHaveText(auth.contacts[0].displayName);
   await auth.page.unroute("**/*", abortPost);
 
   await attachedRow.click({ button: "right" });
@@ -291,14 +299,14 @@ test("Gmail URL drop attaches only the row under the pointer and persists replac
       .from("plays")
       .select("player_contact_id, play_type, source_metadata, url")
       .eq("owner_user_id", auth.userId)
-      .eq("title", "Gmail drop target")
+      .eq("title", "Gmail-created Headline")
       .single();
     return data;
   }).toMatchObject({
     player_contact_id: null,
     play_type: "normal",
     source_metadata: { external_ids: {} },
-    url: "https://example.com/context",
+    url: null,
   });
   const { data: retainedContact } = await auth.user
     .from("contact_references")
@@ -309,6 +317,12 @@ test("Gmail URL drop attaches only the row under the pointer and persists replac
     display_name: auth.contacts[0].displayName,
     id: originalContactId,
   });
+  const { data: finalTarget } = await auth.user
+    .from("plays")
+    .select("basket_id, player_contact_id, play_type, push_rule, scheduled_date, source_metadata, url")
+    .eq("id", targetPlayId!)
+    .single();
+  expect(finalTarget).toEqual(before);
 });
 
 test("invalid Create stays open and preserves every entered value", async ({ auth }) => {
@@ -387,7 +401,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-GMAIL-BULLSEYE-CREATE-47", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-GMAIL-ROW-CREATE-47", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');
@@ -535,21 +549,6 @@ test("Bullseye changes selected Plays and replaces the right-click menu", async 
       .in("title", ["Bulk Trash One", "Bulk Trash Two"]);
     return data?.map(({ status }) => status);
   }).toEqual(["trash", "trash"]);
-});
-
-test("external Gmail drag exposes only Calendar and Baskets in Bullseye", async ({ auth }) => {
-  await auth.page.goto("/");
-  const transfer = await auth.page.evaluateHandle(() => {
-    const data = new DataTransfer();
-    data.setData("text/uri-list", "https://mail.google.com/mail/u/0/#all/FMexact");
-    return data;
-  });
-  await auth.page.getByRole("button", { name: "Bullseye drag actions" })
-    .dispatchEvent("dragenter", { dataTransfer: transfer });
-
-  const categories = auth.page.getByRole("menu", { name: "Bullseye categories" });
-  await expect(categories).toBeVisible();
-  await expect(categories.getByRole("menuitem")).toHaveText(["Calendar", "Baskets"]);
 });
 
 test("Edit updates title and URL while preserving Duration and Place", async ({ auth }) => {

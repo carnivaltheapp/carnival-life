@@ -126,31 +126,17 @@ if (window.location.hostname === "mail.google.com") {
       ? event.target.closest("[data-play-row-id]")
       : null;
     const playId = row?.getAttribute("data-play-row-id");
-    const destination = event.target instanceof Element
-      ? event.target.closest("[data-gmail-new-play-placement]")
-      : null;
-    const bullseyeActive = destination?.closest("[data-gmail-bullseye-active='true']");
-    if (!playId && !bullseyeActive) return;
-    let placement = null;
-    if (!playId) {
-      try {
-        placement = JSON.parse(destination.getAttribute("data-gmail-new-play-placement"));
-      } catch {
-        return;
-      }
-    }
+    if (!playId) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     const correlationId = crypto.randomUUID();
     const dispatchAttachment = (response) => {
-      const eventName = playId
-        ? "carnival:gmail-drop-fallback"
-        : "carnival:gmail-bullseye-drop";
-      window.dispatchEvent(new CustomEvent(eventName, {
+      window.dispatchEvent(new CustomEvent("carnival:gmail-row-create", {
         detail: JSON.stringify({
           correlationId,
           gmailParticipants: response?.gmailParticipants ?? undefined,
-          ...(playId ? { playId } : { placement, subject: response?.gmailSubject ?? undefined }),
+          subject: response?.gmailSubject ?? undefined,
+          targetPlayId: playId,
           url: transferredAttachment.canonicalUrl,
         }),
       }));

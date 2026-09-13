@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   useEffect,
-  useCallback,
   useMemo,
   useRef,
   useState,
@@ -17,10 +16,9 @@ import {
 } from "react";
 
 import {
-  attachGmailToPlay,
   bulkSetPlayStatus,
   bulkUpdatePlays,
-  createGmailPlayFromBullseye,
+  createGmailPlayFromRow,
   flipPlayRank,
   repositionPlays,
   unlinkGmailFromPlay,
@@ -36,17 +34,14 @@ import {
   CARNIVAL_GMAIL_DRAG_TYPE,
   gmailAttachmentFromDragData,
   gmailCorrelationIdFromDragData,
-  gmailMetadataWithAttachment,
   gmailMetadataWithoutAttachment,
   mayContainGmailDrag,
-  parseGmailAttachmentUrl,
-  sanitizeGmailParticipants,
   type GmailAttachment,
 } from "../domain/gmail-attachment";
 import {
-  claimGmailNewPlayDrop,
-  parseGmailNewPlayRequest,
-} from "../domain/gmail-new-play";
+  claimGmailRowCreate,
+  parseGmailRowCreateRequest,
+} from "../domain/gmail-row-create";
 import type { SelectedView } from "../lib/playhouse/data";
 import {
   displayBranch,
@@ -298,8 +293,7 @@ function PlayhouseShellView({
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [bullseyeOpen, setBullseyeOpen] = useState(false);
   const [bullseyeCategory, setBullseyeCategory] = useState<BullseyeCategory>("calendar");
-  const processedGmailBullseyeDropsRef = useRef(new Set<string>());
-  const [gmailBullseyeDragActive, setGmailBullseyeDragActive] = useState(false);
+  const processedGmailRowCreatesRef = useRef(new Set<string>());
   const gmailCorrelationIdRef = useRef<string | null>(null);
   const gmailDropTargetRef = useRef<string | null>(null);
   const [gmailDropTarget, setGmailDropTarget] = useState<string | null>(null);
@@ -415,79 +409,7 @@ function PlayhouseShellView({
     setDropTarget(null);
     setBullseyeCategory("calendar");
     setBullseyeOpen(false);
-    setGmailBullseyeDragActive(false);
   }
-
-  const persistGmailAttachment = useCallback((
-    playId: string,
-    attachment: GmailAttachment,
-    correlationId: string,
-  ) => {
-    if (!eligiblePlayIds.has(playId) || gmailAttachPending) return;
-    const previousOptimisticPlays = optimisticPlays;
-    const diagnostic = {
-      correlationId,
-      gmailAccountIndex: attachment.accountIndex,
-      gmailHost: "mail.google.com",
-      gmailPath: `/mail/u/${attachment.accountIndex}/`,
-      gmailThreadRef: attachment.threadRef,
-      playId,
-    };
-    console.info("GMAIL_DROP_ON_PLAY", diagnostic);
-    console.info("GMAIL_URL_PARSED", diagnostic);
-    setOptimisticPlays({
-      source: plays,
-      value: localPlays.map((play) => play.id === playId
-        ? {
-            ...play,
-            gmailAccountIndex: attachment.accountIndex,
-            gmailThreadId: attachment.threadRef,
-            sourceMetadata: gmailMetadataWithAttachment(play.sourceMetadata, attachment),
-          }
-        : play),
-    });
-    gmailDropTargetRef.current = null;
-    gmailCorrelationIdRef.current = null;
-    setGmailDropTarget(null);
-    startGmailAttach(async () => {
-      try {
-        const request = {
-          correlationId,
-          gmailParticipants: attachment.gmailParticipants,
-          playId,
-          url: attachment.canonicalUrl,
-        };
-        console.info("GMAIL_ATTACH_ACTION_INPUT", {
-          ...request,
-          gmailParticipants: request.gmailParticipants ?? null,
-        });
-        const result = await attachGmailToPlay(request);
-        if (result.status === "success") {
-          if (result.values?.playerContactId && result.values.playerDisplayName) {
-            setOptimisticPlays((current) => ({
-              source: plays,
-              value: (current?.source === plays ? current.value : localPlays).map((play) =>
-                play.id === playId
-                  ? {
-                      ...play,
-                      playerContactId: result.values?.playerContactId ?? null,
-                      playerDisplayName: result.values?.playerDisplayName ?? null,
-                    }
-                  : play
-              ),
-            }));
-          }
-          setMoveError(null);
-          return;
-        }
-        setOptimisticPlays(previousOptimisticPlays);
-        setMoveError(result.message);
-      } catch {
-        setOptimisticPlays(previousOptimisticPlays);
-        setMoveError("Gmail could not be attached to this Play.");
-      }
-    });
-  }, [eligiblePlayIds, gmailAttachPending, localPlays, optimisticPlays, plays]);
 
   function unlinkGmail(playId: string) {
     if (gmailAttachPending) return;
@@ -523,81 +445,38 @@ function PlayhouseShellView({
   }
 
   useEffect(() => {
-    function acceptExtensionFallback(event: Event) {
-      if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
-      try {
-        const detail = JSON.parse(event.detail) as {
-          correlationId?: unknown;
-          gmailParticipants?: unknown;
-          playId?: unknown;
-          url?: unknown;
-        };
-        if (
-          typeof detail.playId !== "string" ||
-          typeof detail.url !== "string"
-        ) return;
-        const parsedAttachment = parseGmailAttachmentUrl(detail.url);
-        const gmailParticipants = sanitizeGmailParticipants(detail.gmailParticipants);
-        const attachment = parsedAttachment && gmailParticipants
-          ? { ...parsedAttachment, gmailParticipants }
-          : parsedAttachment;
-        inspectParsedGmailAttachment(
-          attachment,
-          typeof detail.correlationId === "string" ? detail.correlationId : null,
-        );
-        if (!attachment) return;
-        persistGmailAttachment(
-          detail.playId,
-          attachment,
-          typeof detail.correlationId === "string" ? detail.correlationId : crypto.randomUUID(),
-        );
-      } catch {
-        // Ignore malformed cross-context extension events.
-      }
-    }
-    window.addEventListener("carnival:gmail-drop-fallback", acceptExtensionFallback);
-    return () => window.removeEventListener(
-      "carnival:gmail-drop-fallback",
-      acceptExtensionFallback,
-    );
-  }, [persistGmailAttachment]);
-
-  useEffect(() => {
-    function acceptGmailBullseyeDrop(event: Event) {
+    function acceptGmailRowCreate(event: Event) {
       if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
       let request: unknown;
       try {
         request = JSON.parse(event.detail);
       } catch {
-        console.warn("GMAIL_NEW_PLAY_FAILED", { reason: "malformed_extension_payload" });
+        console.warn("GMAIL_ROW_CREATE_FAILED", { reason: "malformed_extension_payload" });
         return;
       }
-      const parsed = parseGmailNewPlayRequest(request);
+      const parsed = parseGmailRowCreateRequest(request);
+      console.info("GMAIL_ROW_CREATE_DROP", {
+        correlationId: parsed?.correlationId ?? null,
+        subjectPresent: Boolean(parsed?.subject),
+        targetPlayId: parsed?.targetPlayId ?? null,
+      });
       if (!parsed) {
-        console.warn("GMAIL_NEW_PLAY_FAILED", { reason: "metadata_or_destination_missing" });
-        setMoveError("Gmail could not create a Play because its subject or destination was missing.");
+        console.warn("GMAIL_ROW_CREATE_FAILED", { reason: "metadata_or_target_missing" });
+        setMoveError("Gmail could not create a Play because its subject or target was missing.");
         clearDragState();
         return;
       }
       if (
         gmailCreatePending ||
-        !claimGmailNewPlayDrop(
-          processedGmailBullseyeDropsRef.current,
+        !claimGmailRowCreate(
+          processedGmailRowCreatesRef.current,
           parsed.correlationId,
         )
       ) return;
-      const destinationId = parsed.input.placement.kind === "basket"
-        ? parsed.input.placement.basketId
-        : parsed.input.placement.scheduledDate;
-      console.info("GMAIL_BULLSEYE_DESTINATION_SELECTED", {
-        correlationId: parsed.correlationId,
-        destinationId,
-        destinationType: parsed.input.placement.kind,
-      });
       clearDragState();
       startGmailCreate(async () => {
-        const result = await createGmailPlayFromBullseye(request as Parameters<
-          typeof createGmailPlayFromBullseye
+        const result = await createGmailPlayFromRow(request as Parameters<
+          typeof createGmailPlayFromRow
         >[0]);
         if (result.status !== "success" || !result.playId) {
           setMoveError(result.message);
@@ -629,12 +508,12 @@ function PlayhouseShellView({
           reason?: unknown;
         };
         if (result.ok) {
-          console.info("GMAIL_THREAD_STAR_COMPLETE", {
+          console.info("GMAIL_ROW_CREATE_STAR_COMPLETE", {
             correlationId: result.correlationId,
           });
           return;
         }
-        console.warn("GMAIL_THREAD_STAR_FAILED", {
+        console.warn("GMAIL_ROW_CREATE_STAR_FAILED", {
           correlationId: result.correlationId,
           reason: result.reason,
         });
@@ -644,10 +523,10 @@ function PlayhouseShellView({
       }
     }
 
-    window.addEventListener("carnival:gmail-bullseye-drop", acceptGmailBullseyeDrop);
+    window.addEventListener("carnival:gmail-row-create", acceptGmailRowCreate);
     window.addEventListener("carnival:gmail-star-result", acceptGmailStarResult);
     return () => {
-      window.removeEventListener("carnival:gmail-bullseye-drop", acceptGmailBullseyeDrop);
+      window.removeEventListener("carnival:gmail-row-create", acceptGmailRowCreate);
       window.removeEventListener("carnival:gmail-star-result", acceptGmailStarResult);
     };
   }, [gmailCreatePending, router]);
@@ -987,17 +866,8 @@ function PlayhouseShellView({
 
   function destinationDropProps(placement: PlayPlacement, key: string) {
     return {
-      "data-gmail-new-play-placement": gmailBullseyeDragActive
-        ? JSON.stringify(placement)
-        : undefined,
       "data-drop-target": dropTarget === key || undefined,
       onDragOver: (event: DragEvent<HTMLElement>) => {
-        if (gmailBullseyeDragActive) {
-          event.preventDefault();
-          event.dataTransfer.dropEffect = "copy";
-          setDropTarget(key);
-          return;
-        }
         if (!draggedIds.length) return;
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
@@ -1005,7 +875,6 @@ function PlayhouseShellView({
       },
       onDrop: (event: DragEvent<HTMLElement>) => {
         event.preventDefault();
-        if (gmailBullseyeDragActive) return;
         persistMove(placement, null);
       },
     };
@@ -1094,31 +963,21 @@ function PlayhouseShellView({
         onPointerDown={beginRegionDrag}
       >
         <aside className="sidebar" aria-label="Play destinations">
-          <nav
-            className="destinationNav"
-            data-gmail-bullseye-active={gmailBullseyeDragActive || undefined}
-          >
+          <nav className="destinationNav">
             <div className="bullseyeSwitcher">
               <button
                 aria-expanded={bullseyeOpen}
                 aria-label="Bullseye drag actions"
                 className="bullseyeControl"
-                onDragEnter={(event) => {
-                  if (draggedIds.length) {
-                    setBullseyeOpen(true);
-                    console.info("BULLSEYE_OPENED", { count: draggedIds.length });
-                    return;
-                  }
-                  if (!mayContainGmailDrag(event.dataTransfer)) return;
-                  setGmailBullseyeDragActive(true);
-                  setBullseyeCategory("calendar");
+                onDragEnter={() => {
+                  if (!draggedIds.length) return;
                   setBullseyeOpen(true);
-                  console.info("GMAIL_BULLSEYE_DRAG_ENTER");
+                  console.info("BULLSEYE_OPENED", { count: draggedIds.length });
                 }}
                 onDragOver={(event) => {
-                  if (!draggedIds.length && !gmailBullseyeDragActive) return;
+                  if (!draggedIds.length) return;
                   event.preventDefault();
-                  event.dataTransfer.dropEffect = gmailBullseyeDragActive ? "copy" : "move";
+                  event.dataTransfer.dropEffect = "move";
                 }}
                 type="button"
               >
@@ -1132,17 +991,14 @@ function PlayhouseShellView({
                   <circle cx="16" cy="16" fill="currentColor" r="2.5" />
                 </svg>
               </button>
-              {bullseyeOpen && (draggedIds.length || gmailBullseyeDragActive) ? (
+              {bullseyeOpen && draggedIds.length ? (
                 <div
                   aria-label="Bullseye categories"
                   aria-orientation="horizontal"
                   className="bullseyeCategories"
                   role="menu"
                 >
-                  {(gmailBullseyeDragActive
-                    ? ["calendar", "baskets"] as const
-                    : ["calendar", "baskets", "rank", "push"] as const
-                  ).map((category) => (
+                  {(["calendar", "baskets", "rank", "push"] as const).map((category) => (
                     <button
                       data-active={bullseyeCategory === category || undefined}
                       key={category}
@@ -1153,7 +1009,7 @@ function PlayhouseShellView({
                       {category[0].toUpperCase() + category.slice(1)}
                     </button>
                   ))}
-                  {!gmailBullseyeDragActive ? <button
+                  <button
                     data-drop-target={dropTarget === "status:done" || undefined}
                     onDragOver={(event) => {
                       if (!draggedIds.length) return;
@@ -1169,8 +1025,8 @@ function PlayhouseShellView({
                     )}
                     role="menuitem"
                     type="button"
-                  >Done</button> : null}
-                  {!gmailBullseyeDragActive ? <button
+                  >Done</button>
+                  <button
                     data-drop-target={dropTarget === "status:trash" || undefined}
                     onDragOver={(event) => {
                       if (!draggedIds.length) return;
@@ -1186,7 +1042,7 @@ function PlayhouseShellView({
                     )}
                     role="menuitem"
                     type="button"
-                  >Trash</button> : null}
+                  >Trash</button>
                 </div>
               ) : null}
             </div>
@@ -1500,6 +1356,7 @@ function PlayhouseShellView({
                 {visiblePlays.map((play) => {
                   const playVisual = playVisualForPlay(play);
                   const isPlaceContext = play.contextType === "place";
+                  const isGmailRowTemplate = !isPlaceContext && play.legacyTaskType !== "A";
                   return (
                 <li
                   className={`playRow ${playVisual.className}`}
@@ -1555,7 +1412,7 @@ function PlayhouseShellView({
                   onDragOver={(event) => {
                     if (
                       !draggedIds.length &&
-                      !isPlaceContext &&
+                      isGmailRowTemplate &&
                       eligiblePlayIds.has(play.id) &&
                       mayContainGmailDrag(event.dataTransfer)
                     ) {
@@ -1586,7 +1443,7 @@ function PlayhouseShellView({
                     setDropTarget(`play:${play.id}`);
                   }}
                   onDrop={(event) => {
-                    if (!draggedIds.length && eligiblePlayIds.has(play.id)) {
+                    if (!draggedIds.length && isGmailRowTemplate && eligiblePlayIds.has(play.id)) {
                       inspectGmailDropDataTransfer(event, play.id);
                       const attachment = gmailAttachmentFromDragData(event.dataTransfer);
                       inspectParsedGmailAttachment(
@@ -1599,14 +1456,15 @@ function PlayhouseShellView({
                         const correlationId = gmailCorrelationIdFromDragData(event.dataTransfer) ??
                           gmailCorrelationIdRef.current ??
                           crypto.randomUUID();
-                        if (!gmailCorrelationIdRef.current) {
-                          console.info("GMAIL_DRAG_ENTER_PH", { correlationId, playId: play.id });
-                        }
-                        persistGmailAttachment(
-                          play.id,
-                          attachment,
+                        console.warn("GMAIL_ROW_CREATE_FAILED", {
                           correlationId,
-                        );
+                          reason: "extension_metadata_bridge_unavailable",
+                          targetPlayId: play.id,
+                        });
+                        gmailDropTargetRef.current = null;
+                        gmailCorrelationIdRef.current = null;
+                        setGmailDropTarget(null);
+                        setMoveError("Gmail metadata could not be resolved. Reload the extension and try again.");
                         return;
                       }
                     }

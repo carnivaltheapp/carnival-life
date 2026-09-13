@@ -10,23 +10,14 @@ function dataTransfer(initial = {}) {
   return { getData: (type) => values.get(type) ?? "" };
 }
 
-function playhouseContext(sendMessage, options = {}) {
+function playhouseContext(sendMessage) {
   let drop;
   const dispatched = [];
   const windowListeners = new Map();
-  const destination = {
-    closest: (selector) => selector === "[data-gmail-bullseye-active='true']"
-      ? destination
-      : null,
-    getAttribute: () => JSON.stringify(options.placement),
-  };
   class TestElement {
     closest(selector) {
       if (selector === "[data-play-row-id]") {
-        return options.placement ? null : { getAttribute: () => "play-1" };
-      }
-      if (selector === "[data-gmail-new-play-placement]") {
-        return options.placement ? destination : null;
+        return { getAttribute: () => "play-1" };
       }
       return null;
     }
@@ -177,7 +168,7 @@ test("Gmail content script stars only the exact open thread without navigation",
   assert.equal(clicked, 1);
 });
 
-test("omnibox Gmail URL drop requests exact-tab metadata and attaches participants", async () => {
+test("omnibox Gmail URL drop requests exact-tab metadata for row-create", async () => {
   let request;
   const gmailParticipants = {
     from: { email: "kayla@example.com", name: "Kayla" },
@@ -204,32 +195,11 @@ test("omnibox Gmail URL drop requests exact-tab metadata and attaches participan
   assert.deepEqual(JSON.parse(context.dispatched().detail), {
     correlationId: "correlation-1",
     gmailParticipants,
-    playId: "play-1",
-    url: "https://mail.google.com/mail/u/2/#all/FMexact",
-  });
-});
-
-test("omnibox Gmail URL dropped on an active Bullseye destination carries subject and placement", async () => {
-  const placement = { basketId: "11111111-1111-4111-8111-111111111111", kind: "basket" };
-  const context = playhouseContext(async () => ({
-    gmailParticipants: null,
-    gmailSubject: "Quarterly planning",
-    returnedThreadRef: "FMexact",
-  }), { placement });
-
-  context.drop(dataTransfer({
-    "text/uri-list": "https://mail.google.com/mail/u/2/#inbox/FMexact",
-  }));
-  await Promise.resolve();
-  await Promise.resolve();
-
-  assert.equal(context.dispatched().type, "carnival:gmail-bullseye-drop");
-  assert.deepEqual(JSON.parse(context.dispatched().detail), {
-    correlationId: "correlation-1",
-    placement,
     subject: "Quarterly planning",
+    targetPlayId: "play-1",
     url: "https://mail.google.com/mail/u/2/#all/FMexact",
   });
+  assert.equal(context.dispatched().type, "carnival:gmail-row-create");
 });
 
 test("PlayHouse requests exact-thread starring and reports failure without navigation", async () => {
@@ -260,7 +230,7 @@ test("PlayHouse requests exact-thread starring and reports failure without navig
   });
 });
 
-test("metadata failure preserves URL-only Gmail attachment", async () => {
+test("metadata failure carries no subject so row-create can fail without a malformed Play", async () => {
   const context = playhouseContext(async () => {
     throw new Error("matching Gmail tab unavailable");
   });
@@ -273,7 +243,7 @@ test("metadata failure preserves URL-only Gmail attachment", async () => {
 
   assert.deepEqual(JSON.parse(context.dispatched().detail), {
     correlationId: "correlation-1",
-    playId: "play-1",
+    targetPlayId: "play-1",
     url: "https://mail.google.com/mail/u/0/#all/FMonly",
   });
 });
