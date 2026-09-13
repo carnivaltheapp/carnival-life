@@ -1,5 +1,17 @@
 export const PLAYER_SLACK_UPDATED_EVENT = "playhouse:player-slack-updated";
 
+export function changedPlayerSlackFromFormData(formData: FormData) {
+  const playerContactId = formData.get("playerContactId");
+  const slack = formData.get("slack");
+  const confirmedSlack = formData.get("slackConfirmed");
+  if (
+    typeof playerContactId !== "string" || !playerContactId ||
+    typeof slack !== "string" || typeof confirmedSlack !== "string" ||
+    slack.trim() === confirmedSlack.trim()
+  ) return null;
+  return { playerContactId, slack };
+}
+
 export function usableSlackUrl(value: string | null | undefined) {
   const entered = value?.trim();
   if (!entered) return null;

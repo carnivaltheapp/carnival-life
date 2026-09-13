@@ -16,6 +16,8 @@ import type { PlayInputField } from "../domain/play-input";
 import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
 import { reminderDateError } from "../domain/reminder";
 import { playVisualForPlay } from "../domain/play-visual";
+import { openInAuxAndWait } from "../lib/desktop/open-in-aux";
+import { PLAYER_SLACK_UPDATED_EVENT, usableSlackUrl } from "../lib/google/contact-slack";
 import { NextPlayRelationshipForm } from "./next-play-relationship-form";
 import { openPlayDetailsAndRouteAux } from "./play-description-aux";
 import { applySuccessfulPlaySave } from "./play-form-success";
@@ -108,10 +110,12 @@ export function PlayForm({
   const [reminderDate, setReminderDate] = useState("");
   const [reminderDateMessage, setReminderDateMessage] = useState<string | null>(null);
   const [showReminderDate, setShowReminderDate] = useState(false);
+  const [saveFollowupError, setSaveFollowupError] = useState<string | null>(null);
   const [state, formAction, isPending] = useActionState(
     savePlay,
     INITIAL_PLAY_MUTATION_STATE,
   );
+  const completedStateRef = useRef<typeof state | null>(null);
   const isEditing = Boolean(play);
   const isAppointment = play ? playVisualForPlay(play).visualType === "appointment" : false;
   const hasNonstandardPlace = Boolean(
@@ -133,9 +137,31 @@ export function PlayForm({
   const [selectedPlayerId, setSelectedPlayerId] = useState(initialPlayer?.id ?? null);
 
   useEffect(() => {
-    applySuccessfulPlaySave(state.status, {
+    if (state.status !== "success" || completedStateRef.current === state) return;
+    completedStateRef.current = state;
+    const finish = () => applySuccessfulPlaySave(state.status, {
       close: () => detailsRef.current?.removeAttribute("open"),
       refresh: () => router.refresh(),
+    });
+    if (!state.slackUpdated) {
+      finish();
+      return;
+    }
+    const { playerContactId, slack } = state.slackUpdated;
+    window.dispatchEvent(new CustomEvent(PLAYER_SLACK_UPDATED_EVENT, {
+      detail: { playerContactId, slack },
+    }));
+    const destination = usableSlackUrl(slack);
+    if (!destination) {
+      finish();
+      return;
+    }
+    void openInAuxAndWait(destination).then((opened) => {
+      if (opened) finish();
+      else {
+        setSaveFollowupError("Slack was saved, but could not be opened in Aux.");
+        router.refresh();
+      }
     });
   }, [router, state]);
 
@@ -405,6 +431,9 @@ export function PlayForm({
             <p className="formError" role="alert">
               {state.message}
             </p>
+          ) : null}
+          {saveFollowupError ? (
+            <p className="formError" role="alert">{saveFollowupError}</p>
           ) : null}
         </div>
       </form>

@@ -26,6 +26,7 @@ import {
 } from "../../domain/gmail-row-create";
 import { reminderContextDate } from "../../domain/reminder";
 import { resolveGmailAssigneeForParticipants } from "../../lib/google/gmail-assignee.server";
+import { changedPlayerSlackFromFormData } from "../../lib/google/contact-slack";
 import { resolvePlayhouseDataSource } from "../../lib/playhouse/data-source";
 import { dateInTimeZone } from "../../lib/playhouse/data";
 import { createPlayRepository } from "../../lib/playhouse/play-repository";
@@ -34,6 +35,7 @@ import {
   resolveTimeZone,
 } from "../../lib/playhouse/time-zone";
 import { createClient } from "../../lib/supabase/server";
+import { savePlayerSlack } from "../players/actions";
 
 function errorState(message: string, fieldErrors?: PlayMutationState["fieldErrors"]): PlayMutationState {
   return { fieldErrors, message, status: "error" };
@@ -183,7 +185,30 @@ export async function savePlay(
 
   try {
     const result = await savePlayInternal(previousState, formData);
-    return result.status === "error" ? { ...result, values } : result;
+    if (result.status === "error") return { ...result, values };
+
+    const slackChange = changedPlayerSlackFromFormData(formData);
+    if (slackChange) {
+      const slackResult = await savePlayerSlack(
+        slackChange.playerContactId,
+        slackChange.slack,
+      );
+      if (slackResult.status === "error") {
+        return {
+          message: `Play saved, but ${slackResult.message}`,
+          status: "error",
+          values,
+        };
+      }
+      return {
+        ...result,
+        slackUpdated: {
+          playerContactId: slackChange.playerContactId,
+          slack: slackResult.slack,
+        },
+      };
+    }
+    return result;
   } catch {
     return {
       ...errorState("PlayHouse could not save this Play. Please try again."),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { usableSlackUrl } from "./contact-slack";
+import { changedPlayerSlackFromFormData, usableSlackUrl } from "./contact-slack";
 import { GOOGLE_CONTACTS_WRITE_SCOPE, GOOGLE_OAUTH_SCOPES } from "./scopes";
 
 describe("Google Contact Slack", () => {
@@ -18,5 +18,33 @@ describe("Google Contact Slack", () => {
       "https://carnival.slack.com/team/U1",
     );
     expect(usableSlackUrl("https://example.com/slack")).toBeNull();
+  });
+
+  it("submits changed and cleared Slack values through the main form only", () => {
+    const changed = new FormData();
+    changed.set("playerContactId", "contact-1");
+    changed.set("slack", "https://app.slack.com/client/T1/C1");
+    changed.set("slackConfirmed", "https://app.slack.com/client/T1/OLD");
+    expect(changedPlayerSlackFromFormData(changed)).toEqual({
+      playerContactId: "contact-1",
+      slack: "https://app.slack.com/client/T1/C1",
+    });
+
+    changed.set("slack", "");
+    expect(changedPlayerSlackFromFormData(changed)).toEqual({
+      playerContactId: "contact-1",
+      slack: "",
+    });
+  });
+
+  it("skips People updates when Slack is unchanged or no Player is linked", () => {
+    const unchanged = new FormData();
+    unchanged.set("playerContactId", "contact-1");
+    unchanged.set("slack", " https://app.slack.com/client/T1/C1 ");
+    unchanged.set("slackConfirmed", "https://app.slack.com/client/T1/C1");
+    expect(changedPlayerSlackFromFormData(unchanged)).toBeNull();
+    unchanged.set("playerContactId", "");
+    unchanged.set("slack", "https://app.slack.com/client/T1/NEW");
+    expect(changedPlayerSlackFromFormData(unchanged)).toBeNull();
   });
 });

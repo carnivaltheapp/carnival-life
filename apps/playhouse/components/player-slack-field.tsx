@@ -1,17 +1,15 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState } from "react";
 
-import { loadPlayerSlack, savePlayerSlack } from "../app/players/actions";
-import { openInAuxAndWait } from "../lib/desktop/open-in-aux";
-import { PLAYER_SLACK_UPDATED_EVENT, usableSlackUrl } from "../lib/google/contact-slack";
+import { loadPlayerSlack } from "../app/players/actions";
+import { PLAYER_SLACK_UPDATED_EVENT } from "../lib/google/contact-slack";
 
 export function PlayerSlackField({ playerContactId }: { playerContactId: string | null }) {
   const [confirmed, setConfirmed] = useState("");
   const [value, setValue] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(Boolean(playerContactId));
-  const [pending, startTransition] = useTransition();
 
   useEffect(() => {
     let current = true;
@@ -28,58 +26,30 @@ export function PlayerSlackField({ playerContactId }: { playerContactId: string 
     return () => { current = false; };
   }, [playerContactId]);
 
-  function save() {
-    if (!playerContactId || pending || loading || value === confirmed) return;
-    const destination = value.trim() ? usableSlackUrl(value) : null;
-    if (value.trim() && !destination) {
-      setMessage("Enter a valid Slack URL.");
-      return;
-    }
-    setMessage(null);
-    startTransition(async () => {
-      const response = await savePlayerSlack(playerContactId, value);
-      if (response.status === "error") {
-        setValue(confirmed);
-        setMessage(response.message);
-        return;
-      }
-      setConfirmed(response.slack);
-      setValue(response.slack);
-      window.dispatchEvent(new CustomEvent(PLAYER_SLACK_UPDATED_EVENT, {
-        detail: { playerContactId, slack: response.slack },
-      }));
-      const url = usableSlackUrl(response.slack);
-      if (url && !await openInAuxAndWait(url)) {
-        setMessage("Slack was saved, but could not be opened in Aux.");
-      }
-    });
-  }
+  useEffect(() => {
+    const update = (event: Event) => {
+      const detail = (event as CustomEvent<{ playerContactId: string; slack: string }>).detail;
+      if (detail?.playerContactId !== playerContactId) return;
+      setConfirmed(detail.slack);
+      setValue(detail.slack);
+      setMessage(null);
+    };
+    window.addEventListener(PLAYER_SLACK_UPDATED_EVENT, update);
+    return () => window.removeEventListener(PLAYER_SLACK_UPDATED_EVENT, update);
+  }, [playerContactId]);
 
   return (
     <label className="field compactField playerSlackField">
       <span className="srOnly">Slack</span>
       <input
         aria-label="Slack"
-        disabled={!playerContactId || loading || pending}
+        disabled={!playerContactId || loading}
+        name="slack"
         onChange={(event) => setValue(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            save();
-          }
-        }}
         placeholder={loading ? "Loading Slack…" : "Slack URL"}
         value={value}
       />
-      <button
-        aria-label="Save Slack"
-        className="playerSlackSaveButton"
-        disabled={!playerContactId || loading || pending || value === confirmed}
-        onClick={save}
-        type="button"
-      >
-        {pending ? "…" : "Save"}
-      </button>
+      <input name="slackConfirmed" type="hidden" value={confirmed} />
       {message ? <small className="playerSlackError" role="alert">{message}</small> : null}
     </label>
   );

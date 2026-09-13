@@ -82,6 +82,7 @@ describe("Play grid responsive squeeze contract", () => {
     expect(rule(".playerSlackRow")).toContain("grid-template-columns: repeat(2, minmax(0, 1fr))");
     expect(playForm).toContain("<PlayerContactInfo playerContactId={selectedPlayerId} />");
     expect(playForm).toContain("<PlayerSlackField");
+    expect(playForm).not.toContain("Save Slack");
     expect(playStatusActions).toContain('aria-label="Open Player Slack"');
     expect(playStatusActions).not.toContain('aria-label="Open Gmail thread"');
     expect(playStatusActions).not.toContain('aria-label="Open Play URL"');

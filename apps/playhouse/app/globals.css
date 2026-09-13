@@ -1622,31 +1622,6 @@ h1 {
   position: relative;
 }
 
-.playerSlackField input {
-  padding-right: 50px;
-}
-
-.playerSlackSaveButton {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  height: 26px;
-  padding: 0 7px;
-  border: 0;
-  border-radius: 6px;
-  background: rgba(109, 63, 242, 0.1);
-  color: var(--accent-deep);
-  font: inherit;
-  font-size: 0.68rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.playerSlackSaveButton:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
 .playerSlackError {
   color: #81243b;
   font-size: 0.68rem;

@@ -12,6 +12,8 @@ const PLAY_FORM_VALUE_FIELDS = [
   "playerDisplayName",
   "pushRule",
   "scheduledDate",
+  "slack",
+  "slackConfirmed",
   "title",
   "url",
 ] as const;
@@ -25,6 +27,7 @@ export type PlayMutationState = {
   message: string;
   redirectTo?: string;
   status: "idle" | "error" | "success";
+  slackUpdated?: { playerContactId: string; slack: string };
   values?: PlayMutationValues;
 };
 
