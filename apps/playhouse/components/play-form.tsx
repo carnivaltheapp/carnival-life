@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 
-import { savePlay } from "../app/plays/actions";
+import { savePlay, trashPlay } from "../app/plays/actions";
 import type {
   BasketSummary,
   NextPlayOption,
@@ -30,6 +30,7 @@ import {
 } from "./play-description-tooltip";
 import { applySuccessfulPlaySave } from "./play-form-success";
 import { BranchPicker } from "./branch-picker";
+import { requestGmailThreadUnstar } from "./gmail-thread-sync";
 import { PlayerCombobox } from "./player-combobox";
 import { PlayerContactInfo } from "./player-contact-info";
 import { PlayerSlackField } from "./player-slack-field";
@@ -130,7 +131,12 @@ export function PlayForm({
     savePlay,
     INITIAL_PLAY_MUTATION_STATE,
   );
+  const [trashState, trashAction, trashPending] = useActionState(
+    trashPlay,
+    INITIAL_PLAY_MUTATION_STATE,
+  );
   const completedStateRef = useRef<typeof state | null>(null);
+  const completedTrashStateRef = useRef<typeof trashState | null>(null);
   const isEditing = Boolean(play);
   const isAppointment = play ? playVisualForPlay(play).visualType === "appointment" : false;
   const hasNonstandardPlace = Boolean(
@@ -151,6 +157,10 @@ export function PlayForm({
       : null;
   const [selectedPlayerId, setSelectedPlayerId] = useState(initialPlayer?.id ?? null);
   const [descriptionClick] = useState(createDescriptionClickController);
+  const formId = `play-form-${play?.id ?? "new"}`;
+  const backlogBasketId = baskets.find((basket) =>
+    basket.slug.toLowerCase() === "backlog" || basket.name.toLowerCase() === "backlog"
+  )?.id ?? baskets[0]?.id;
 
   useEffect(() => () => descriptionClick.dispose(), [descriptionClick]);
 
@@ -182,6 +192,17 @@ export function PlayForm({
       }
     });
   }, [router, state]);
+
+  useEffect(() => {
+    if (
+      !play || trashState.status !== "success" ||
+      completedTrashStateRef.current === trashState
+    ) return;
+    completedTrashStateRef.current = trashState;
+    requestGmailThreadUnstar(play, "trash");
+    detailsRef.current?.removeAttribute("open");
+    router.refresh();
+  }, [play, router, trashState]);
 
   function requestPlayType(nextPlayType: PlayType) {
     if (nextPlayType !== "reminder" || playType === "reminder") {
@@ -277,77 +298,109 @@ export function PlayForm({
           )
         : null}
       {play ? <PlayInfo play={play} /> : null}
-      <form action={formAction} className="playForm" key={formResetVersion} noValidate>
+      <form
+        action={formAction}
+        className={isEditing ? "playForm playDetailForm" : "playForm"}
+        id={formId}
+        key={formResetVersion}
+        noValidate
+      >
         {play ? <input name="playId" type="hidden" value={play.id} /> : null}
         <input name="reminderContextDate" type="hidden" value={reminderContextDate} />
 
-        <label className="field compactField field--wide">
-          <span className="srOnly">Title</span>
-          <input
-            aria-invalid={Boolean(state.fieldErrors?.title)}
-            defaultValue={submittedValues?.title ?? play?.title}
-            maxLength={500}
-            name="title"
-            placeholder="Title"
-            required
-          />
-          <FieldError errors={state.fieldErrors} field="title" />
-        </label>
-
-        <div className="formRow field--wide">
-          <label className="field compactField">
-            <span className="srOnly">Type</span>
-            {isAppointment ? <input name="playType" type="hidden" value="normal" /> : null}
-            <select
-              aria-label="Type"
-              disabled={isAppointment}
-              name={isAppointment ? undefined : "playType"}
-              onChange={(event) => requestPlayType(event.target.value as PlayType)}
-              value={playType}
-            >
-              <option value="normal">Type: {isAppointment ? "Appointment" : "Normal"}</option>
-              <option value="reminder">Type: Reminder</option>
-            </select>
-            <FieldError errors={state.fieldErrors} field="playType" />
-          </label>
-          <label className="field compactField">
-            <span className="srOnly">Placement</span>
-            <select
-              aria-label="Placement"
-              disabled={playType === "reminder"}
-              name={playType === "reminder" ? undefined : "placementKind"}
-              onChange={(event) =>
-                setPlacementKind(event.target.value as "calendar" | "basket")
-              }
-              value={placementKind}
-            >
-              <option value="calendar">Placement: Calendar date</option>
-              <option value="basket">Placement: Basket</option>
-            </select>
-            {playType === "reminder" ? (
-              <input name="placementKind" type="hidden" value="calendar" />
-            ) : null}
-            <FieldError errors={state.fieldErrors} field="placement" />
-          </label>
-        </div>
-
-        <div className="playerSlackRow field--wide">
-          <div className="playerInfoRow">
-            <PlayerCombobox
-              error={state.fieldErrors?.playerContactId}
-              initialSelection={initialPlayer}
-              key={`${submittedPlayerId ?? play?.playerContactId ?? "none"}:${submittedPlayerName ?? play?.playerDisplayName ?? ""}`}
-              onSelectionChange={(selection) => setSelectedPlayerId(selection?.id ?? null)}
-            />
-            <PlayerContactInfo playerContactId={selectedPlayerId} />
+        <section className="playDetailSection playDetailBranchSection">
+          <h2 className="playDetailSectionTitle">Branch</h2>
+          <div className="field compactField">
+            <BranchPicker initialBranch={submittedValues?.branch ?? play?.branch ?? ""} />
+            <FieldError errors={state.fieldErrors} field="branch" />
           </div>
-          <PlayerSlackField key={selectedPlayerId ?? "none"} playerContactId={selectedPlayerId} />
-        </div>
+        </section>
 
-        <div className="formRow dateUrlRow field--wide">
-          {placementKind === "calendar" ? (
+        <section className="playDetailSection playDetailWhatSection">
+          <h2 className="playDetailSectionTitle">What</h2>
+          <label className="field compactField">
+            <span className={isEditing ? "detailFieldLabel" : "srOnly"}>Title</span>
+            <input
+              aria-invalid={Boolean(state.fieldErrors?.title)}
+              defaultValue={submittedValues?.title ?? play?.title}
+              maxLength={500}
+              name="title"
+              placeholder="Title"
+              required
+            />
+            <FieldError errors={state.fieldErrors} field="title" />
+          </label>
+          <label className="field compactField">
+            <span className={isEditing ? "detailFieldLabel" : "srOnly"}>Notes</span>
+            <textarea
+              aria-label="Note"
+              defaultValue={submittedValues?.note ?? play?.note ?? ""}
+              maxLength={10000}
+              name="note"
+              placeholder="Notes"
+              rows={isEditing ? 4 : 1}
+            />
+            <FieldError errors={state.fieldErrors} field="note" />
+          </label>
+        </section>
+
+        <section className="playDetailSection playDetailWhenSection">
+          <h2 className="playDetailSectionTitle">When &amp; Where</h2>
+          <div className="playDetailThreeColumnRow">
             <label className="field compactField">
-              <span className="srOnly">Date</span>
+              <span className={isEditing ? "detailFieldLabel" : "srOnly"}>Placement</span>
+              <select
+                aria-label="Placement"
+                disabled={playType === "reminder"}
+                name={playType === "reminder" ? undefined : "placementKind"}
+                onChange={(event) =>
+                  setPlacementKind(event.target.value as "calendar" | "basket")
+                }
+                value={placementKind}
+              >
+                <option value="calendar">Calendar</option>
+                <option value="basket">Baskets</option>
+              </select>
+              {playType === "reminder" ? (
+                <input name="placementKind" type="hidden" value="calendar" />
+              ) : null}
+              <FieldError errors={state.fieldErrors} field="placement" />
+            </label>
+            <label className="field compactField">
+              <span className={isEditing ? "detailFieldLabel" : "srOnly"}>Rank</span>
+              {isAppointment ? <input name="playType" type="hidden" value="normal" /> : null}
+              <select
+                aria-label="Type"
+                disabled={isAppointment}
+                name={isAppointment ? undefined : "playType"}
+                onChange={(event) => requestPlayType(event.target.value as PlayType)}
+                value={playType}
+              >
+                <option value="normal">{isAppointment ? "Appointment" : "Headline"}</option>
+                <option value="reminder">Reminder</option>
+              </select>
+              <FieldError errors={state.fieldErrors} field="playType" />
+            </label>
+            <label className="field compactField">
+              <span className={isEditing ? "detailFieldLabel" : "srOnly"}>Push</span>
+              <select
+                aria-label="Push"
+                defaultValue={submittedValues?.pushRule ?? play?.pushRule ?? "everyday"}
+                key={submittedValues?.pushRule ?? "initial"}
+                name="pushRule"
+              >
+                <option value="everyday">Everyday</option>
+                <option value="weekdays">Weekdays</option>
+                <option value="weekends">Weekends</option>
+              </select>
+              <FieldError errors={state.fieldErrors} field="pushRule" />
+            </label>
+          </div>
+
+          {placementKind === "calendar" ? (
+            <div className="playDetailCalendarRow">
+            <label className="field compactField">
+              <span className={isEditing ? "detailFieldLabel" : "srOnly"}>Date</span>
               <input
                 aria-label="Date"
                 aria-invalid={Boolean(state.fieldErrors?.scheduledDate)}
@@ -360,9 +413,29 @@ export function PlayForm({
               />
               <FieldError errors={state.fieldErrors} field="scheduledDate" />
             </label>
+              <label className="field compactField">
+                <span className={isEditing ? "detailFieldLabel" : "srOnly"}>Duration</span>
+                <input
+                  aria-label="Duration (minutes)"
+                  defaultValue={
+                    submittedValues?.durationMinutes ??
+                    (play ? (play.durationMinutes ?? "") : 30)
+                  }
+                  disabled={playType === "reminder"}
+                  max={1440}
+                  min={1}
+                  name="durationMinutes"
+                  placeholder="Minutes"
+                  step={1}
+                  type="number"
+                />
+                <FieldError errors={state.fieldErrors} field="durationMinutes" />
+              </label>
+            </div>
           ) : (
+            <div className="playDetailBasketRow">
             <label className="field compactField">
-              <span className="srOnly">Basket</span>
+              <span className={isEditing ? "detailFieldLabel" : "srOnly"}>Basket</span>
               <select
                 aria-label="Basket"
                 aria-invalid={Boolean(state.fieldErrors?.basketId)}
@@ -370,7 +443,7 @@ export function PlayForm({
                   submittedValues?.basketId ??
                   (initialPlacement.kind === "basket"
                     ? initialPlacement.basketId
-                    : baskets[0]?.id)
+                    : backlogBasketId)
                 }
                 name="basketId"
                 required
@@ -383,110 +456,84 @@ export function PlayForm({
               </select>
               <FieldError errors={state.fieldErrors} field="basketId" />
             </label>
+            </div>
           )}
-          <label className="field compactField">
-            <span className="srOnly">URL</span>
-            <input
-              aria-label="URL"
-              defaultValue={submittedValues?.url ?? play?.url ?? ""}
-              maxLength={2048}
-              name="url"
-              placeholder="URL"
-              type="url"
-            />
-            <FieldError errors={state.fieldErrors} field="url" />
-          </label>
-        </div>
 
-        <div className="formRow field--wide">
-          <div className="field compactField">
-            <BranchPicker initialBranch={submittedValues?.branch ?? play?.branch ?? ""} />
-            <FieldError errors={state.fieldErrors} field="branch" />
+          <div className="playDetailTwoColumnRow">
+            <label className="field compactField">
+              <span className={isEditing ? "detailFieldLabel" : "srOnly"}>Place</span>
+              <select
+                aria-label="Place"
+                defaultValue={
+                  submittedValues?.place ?? (play ? (play.place ?? "") : "office")
+                }
+                key={submittedValues?.place ?? "initial"}
+                name="place"
+              >
+                <option value="">Unspecified</option>
+                {hasNonstandardPlace ? (
+                  <option value={play?.place ?? ""}>{play?.place}</option>
+                ) : null}
+                <option value="office">Office</option>
+                <option value="outside">Outside</option>
+                <option value="any">Any</option>
+              </select>
+              <FieldError errors={state.fieldErrors} field="place" />
+            </label>
+            <label className="field compactField">
+              <span className={isEditing ? "detailFieldLabel" : "srOnly"}>URL</span>
+              <input
+                aria-label="URL"
+                defaultValue={submittedValues?.url ?? play?.url ?? ""}
+                maxLength={2048}
+                name="url"
+                placeholder="URL"
+                type="url"
+              />
+              <FieldError errors={state.fieldErrors} field="url" />
+            </label>
           </div>
-          <label className="field compactField">
-            <span className="srOnly">Place</span>
-            <select
-              aria-label="Place"
-              defaultValue={
-                submittedValues?.place ?? (play ? (play.place ?? "") : "office")
-              }
-              key={submittedValues?.place ?? "initial"}
-              name="place"
-            >
-              <option value="">Place: Unspecified</option>
-              {hasNonstandardPlace ? (
-                <option value={play?.place ?? ""}>{play?.place}</option>
-              ) : null}
-              <option value="office">Place: Office</option>
-              <option value="outside">Place: Outside</option>
-              <option value="any">Place: Any</option>
-            </select>
-            <FieldError errors={state.fieldErrors} field="place" />
-          </label>
-        </div>
+        </section>
 
-        <div className="formRow field--wide">
-          <label className="field compactField">
-            <span className="srOnly">Duration (minutes)</span>
-            <input
-              aria-label="Duration (minutes)"
-              defaultValue={
-                submittedValues?.durationMinutes ??
-                (play ? (play.durationMinutes ?? "") : 30)
-              }
-              disabled={playType === "reminder"}
-              max={1440}
-              min={1}
-              name="durationMinutes"
-              placeholder="Duration (minutes)"
-              step={1}
-              type="number"
-            />
-            <FieldError errors={state.fieldErrors} field="durationMinutes" />
-          </label>
-          <label className="field compactField">
-            <span className="srOnly">Push</span>
-            <select
-              aria-label="Push"
-              defaultValue={submittedValues?.pushRule ?? play?.pushRule ?? "everyday"}
-              key={submittedValues?.pushRule ?? "initial"}
-              name="pushRule"
-            >
-              <option value="everyday">Push: Everyday</option>
-              <option value="weekdays">Push: Weekdays</option>
-              <option value="weekends">Push: Weekends</option>
-            </select>
-            <FieldError errors={state.fieldErrors} field="pushRule" />
-          </label>
-        </div>
+        <section className="playDetailSection playDetailPeopleSection">
+          <h2 className="playDetailSectionTitle">People &amp; Integrations</h2>
+          <div className="playDetailPeopleRow">
+            <div className="field compactField">
+              <span className={isEditing ? "detailFieldLabel" : "srOnly"}>Player / Contact</span>
+              <div className="playerInfoRow">
+                <PlayerCombobox
+                  error={state.fieldErrors?.playerContactId}
+                  initialSelection={initialPlayer}
+                  key={`${submittedPlayerId ?? play?.playerContactId ?? "none"}:${submittedPlayerName ?? play?.playerDisplayName ?? ""}`}
+                  onSelectionChange={(selection) => setSelectedPlayerId(selection?.id ?? null)}
+                />
+                <PlayerContactInfo playerContactId={selectedPlayerId} />
+              </div>
+            </div>
+            <div className="field compactField">
+              <span className={isEditing ? "detailFieldLabel" : "srOnly"}>Slack</span>
+              <PlayerSlackField key={selectedPlayerId ?? "none"} playerContactId={selectedPlayerId} />
+            </div>
+            {isEditing ? (
+              <div className="field compactField">
+                <span className="detailFieldLabel">Jira</span>
+                <div aria-disabled="true" className="jiraPlaceholder">
+                  <span aria-hidden="true">J</span>
+                  <span>Jira</span>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </section>
 
-        <label className="field compactField field--wide">
-          <span className="srOnly">Note</span>
-          <textarea
-            aria-label="Note"
-            defaultValue={submittedValues?.note ?? play?.note ?? ""}
-            maxLength={10000}
-            name="note"
-            placeholder="Note"
-            rows={1}
-          />
-          <FieldError errors={state.fieldErrors} field="note" />
-        </label>
-
-        <div className="formFooter field--wide">
-          <button className="primaryButton" disabled={isPending} type="submit">
-            {isPending ? "Saving…" : isEditing ? "Save changes" : "Create Play"}
-          </button>
-          {isEditing ? (
-            <button
-              className="secondaryButton"
-              onClick={cancelEdit}
-              onPointerDown={(event) => event.stopPropagation()}
-              type="button"
-            >
-              Cancel
+        {!isEditing ? (
+          <div className="formFooter field--wide">
+            <button className="primaryButton" disabled={isPending} type="submit">
+              {isPending ? "Saving…" : "Create Play"}
             </button>
-          ) : null}
+          </div>
+        ) : null}
+        <div className="playDetailFormMessages">
           {state.status === "error" && state.message ? (
             <p className="formError" role="alert">
               {state.message}
@@ -494,6 +541,9 @@ export function PlayForm({
           ) : null}
           {saveFollowupError ? (
             <p className="formError" role="alert">{saveFollowupError}</p>
+          ) : null}
+          {trashState.status === "error" && trashState.message ? (
+            <p className="formError" role="alert">{trashState.message}</p>
           ) : null}
         </div>
       </form>
@@ -524,6 +574,40 @@ export function PlayForm({
             nextPlay={nextPlayOptions.find((option) => option.id === play.nextPlayId)}
             play={play}
           />
+        </div>
+      ) : null}
+      {play ? (
+        <div className="playDetailActions">
+          <div className="playDetailDestructiveActions">
+            <button
+              aria-disabled="true"
+              className="detailDeleteButton"
+              disabled
+              title="Permanent deletion is not currently supported"
+              type="button"
+            >
+              Delete Play
+            </button>
+            <form action={trashAction}>
+              <input name="playId" type="hidden" value={play.id} />
+              <button className="detailTrashButton" disabled={trashPending} type="submit">
+                {trashPending ? "Trashing…" : "Trash Play"}
+              </button>
+            </form>
+          </div>
+          <div className="playDetailSaveActions">
+            <button
+              className="secondaryButton"
+              onClick={cancelEdit}
+              onPointerDown={(event) => event.stopPropagation()}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button className="primaryButton" disabled={isPending} form={formId} type="submit">
+              {isPending ? "Saving…" : "Save changes"}
+            </button>
+          </div>
         </div>
       ) : null}
     </details>

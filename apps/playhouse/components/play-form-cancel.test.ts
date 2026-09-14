@@ -8,7 +8,7 @@ describe("Play detail Cancel", () => {
   it("removes the open-state summary/X target and renders Cancel beside Save", () => {
     expect(stylesheet).toMatch(/\.editDisclosure\[open\] > summary\s*\{\s*display: none;/);
     expect(stylesheet).not.toContain('content: "×"');
-    expect(playForm).toMatch(/Save changes[\s\S]*className="secondaryButton"[\s\S]*type="button"[\s\S]*Cancel/);
+    expect(playForm).toMatch(/className="secondaryButton"[\s\S]*type="button"[\s\S]*Cancel[\s\S]*Save changes/);
   });
 
   it("closes locally after resetting every controlled detail draft", () => {
@@ -19,7 +19,7 @@ describe("Play detail Cancel", () => {
     expect(playForm).toContain("setSelectedPlayerId(play?.playerContactId ?? null)");
     expect(playForm).toContain("setFormResetVersion((version) => version + 1)");
     expect(playForm).toContain('detailsRef.current?.removeAttribute("open")');
-    expect(playForm).toContain('key={formResetVersion} noValidate');
+    expect(playForm).toMatch(/key=\{formResetVersion\}[\s\S]*?noValidate/);
   });
 
   it("does not route or submit from the Cancel handler", () => {

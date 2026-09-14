@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-BRANCH-MONGO-70
+          P3-DETAIL-FULL-71
         </small>
       </body>
     </html>

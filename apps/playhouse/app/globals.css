@@ -1588,6 +1588,185 @@ h1 {
   gap: 4px;
 }
 
+.editDisclosure[open] {
+  z-index: 19;
+  top: 76px;
+  right: auto;
+  bottom: 0;
+  left: 50%;
+  display: block;
+  width: min(1440px, 100vw);
+  max-width: none;
+  max-height: none;
+  padding: clamp(14px, 2.5vw, 32px) clamp(16px, 4vw, 54px) 0;
+  transform: translateX(-50%);
+  border: 0;
+  border-radius: 0;
+  background: #f8f5fb;
+  box-shadow: none;
+}
+
+.editDisclosure[open] > .editPlayInfo,
+.editDisclosure[open] > .playDetailForm,
+.editDisclosure[open] > .editWorkflowArea,
+.editDisclosure[open] > .playDetailActions {
+  width: 100%;
+  max-width: 1120px;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.editDisclosure[open] > .editPlayInfo {
+  margin-top: 0;
+  margin-bottom: 7px;
+}
+
+.editDisclosure[open] .playDetailForm {
+  display: grid;
+  padding: 0 0 18px;
+  gap: 12px;
+  background: transparent;
+}
+
+.playDetailSection {
+  display: grid;
+  min-width: 0;
+  padding: 14px;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fffdfa;
+  box-shadow: 0 8px 24px rgba(48, 29, 83, 0.05);
+}
+
+.playDetailSectionTitle {
+  display: none;
+  margin: 0;
+}
+
+.editDisclosure[open] .playDetailSectionTitle {
+  display: block;
+  color: var(--accent-deep);
+  font-size: 0.77rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.detailFieldLabel {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.playDetailThreeColumnRow,
+.playDetailCalendarRow,
+.playDetailTwoColumnRow,
+.playDetailPeopleRow {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.playDetailThreeColumnRow,
+.playDetailPeopleRow {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.playDetailCalendarRow {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.playDetailTwoColumnRow {
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+}
+
+.playDetailBasketRow {
+  width: min(100%, 360px);
+}
+
+.editDisclosure[open] .playDetailWhatSection textarea {
+  min-height: 112px;
+  resize: vertical;
+}
+
+.editDisclosure[open] .playDetailBranchSection .branchPickerMenu {
+  width: min(620px, calc(100vw - 64px));
+  max-height: min(430px, 55vh);
+}
+
+.jiraPlaceholder {
+  display: flex;
+  min-height: 31px;
+  align-items: center;
+  padding: 4px 7px;
+  gap: 7px;
+  color: var(--muted);
+  border: 1px dashed rgba(53, 38, 72, 0.18);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.jiraPlaceholder > span:first-child {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  color: white;
+  border-radius: 5px;
+  background: #2684ff;
+  font-size: 0.68rem;
+  font-weight: 850;
+}
+
+.playDetailFormMessages:empty {
+  display: none;
+}
+
+.playDetailActions,
+.playDetailDestructiveActions,
+.playDetailSaveActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.playDetailActions {
+  position: sticky;
+  z-index: 4;
+  bottom: 0;
+  min-height: 64px;
+  justify-content: space-between;
+  padding: 10px 0 14px;
+  border-top: 1px solid var(--line);
+  background: rgba(248, 245, 251, 0.96);
+  backdrop-filter: blur(12px);
+}
+
+.playDetailDestructiveActions form {
+  margin: 0;
+}
+
+.detailDeleteButton,
+.detailTrashButton {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid rgba(129, 36, 59, 0.2);
+  border-radius: 9px;
+  background: rgba(129, 36, 59, 0.06);
+  color: #81243b;
+  font: inherit;
+  font-weight: 750;
+}
+
+.detailDeleteButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.detailTrashButton {
+  cursor: pointer;
+}
+
 .playForm {
   display: grid;
   margin-top: 10px;
@@ -2612,14 +2791,14 @@ h1 {
   }
 
   .editDisclosure[open] {
-    top: 12px;
-    right: 12px;
-    bottom: auto;
-    left: 12px;
-    width: auto;
+    top: 96px;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100vw;
     max-width: none;
-    max-height: calc(100vh - 24px);
-    max-height: calc(100dvh - 24px);
+    max-height: none;
+    padding: 12px 12px 0;
     transform: none;
   }
 
@@ -2633,11 +2812,36 @@ h1 {
   }
 
   .editDisclosure[open] .playForm {
-    padding: 8px;
+    padding: 0 0 12px;
   }
 
   .formRow {
     grid-template-columns: 1fr;
+  }
+
+  .playDetailThreeColumnRow,
+  .playDetailCalendarRow,
+  .playDetailTwoColumnRow,
+  .playDetailPeopleRow {
+    grid-template-columns: 1fr;
+  }
+
+  .playDetailBasketRow {
+    width: 100%;
+  }
+
+  .playDetailSection {
+    padding: 11px;
+  }
+
+  .playDetailActions {
+    align-items: stretch;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .playDetailDestructiveActions,
+  .playDetailSaveActions {
+    flex-wrap: wrap;
   }
 
 
