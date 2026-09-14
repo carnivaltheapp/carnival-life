@@ -55,8 +55,13 @@ export class MongoSlackConnectionRepository {
       connection_status: "connected",
       owner_user_id: ownerUserId,
     };
-    if (teamId) filter.slack_team_id = teamId;
-    return (await this.collection()).findOne(filter, { sort: { updated_at: -1 } });
+    const collection = await this.collection();
+    if (teamId) {
+      filter.slack_team_id = teamId;
+      return collection.findOne(filter, { sort: { updated_at: -1 } });
+    }
+    const matches = await collection.find(filter).sort({ updated_at: -1 }).limit(2).toArray();
+    return matches.length === 1 ? matches[0] : null;
   }
 
   async upsert({

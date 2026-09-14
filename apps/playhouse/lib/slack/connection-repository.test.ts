@@ -74,6 +74,23 @@ describe("Mongo Slack connection repository", () => {
     );
   });
 
+  it("uses an owner connection without a team ID only when it is unambiguous", async () => {
+    const one = { owner_user_id: "owner-a", slack_team_id: "T1" };
+    const toArray = vi.fn()
+      .mockResolvedValueOnce([one])
+      .mockResolvedValueOnce([one, { owner_user_id: "owner-a", slack_team_id: "T2" }]);
+    const limit = vi.fn(() => ({ toArray }));
+    const sort = vi.fn(() => ({ limit }));
+    const { collection, repository } = repositoryWith({ find: vi.fn(() => ({ sort })) });
+
+    await expect(repository.findConnected("owner-a", null)).resolves.toEqual(one);
+    await expect(repository.findConnected("owner-a", null)).resolves.toBeNull();
+    expect(collection.find).toHaveBeenCalledWith({
+      connection_status: "connected",
+      owner_user_id: "owner-a",
+    });
+  });
+
   it("never returns credential fields in Settings listings", async () => {
     const toArray = vi.fn().mockResolvedValue([]);
     const sort = vi.fn(() => ({ toArray }));

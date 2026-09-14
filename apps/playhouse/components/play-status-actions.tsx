@@ -11,7 +11,7 @@ import type {
   PlayPlacement,
 } from "../domain/play";
 import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
-import { openInAux } from "../lib/desktop/open-in-aux";
+import { openSlackInAux } from "../lib/desktop/open-slack-in-aux";
 import { requestGmailThreadUnstar } from "./gmail-thread-sync";
 
 export function DoneIcon() {
@@ -187,7 +187,7 @@ export function PlayStatusActions({
             className="rowIconButton slackButton"
             onClick={(event) => {
               event.stopPropagation();
-              openInAux(slackUrl);
+              void openSlackInAux(slackUrl);
             }}
             title={slackName ? `Open ${slackName} in Slack` : "Open Slack"}
             type="button"
