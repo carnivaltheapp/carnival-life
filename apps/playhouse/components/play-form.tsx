@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 
-import { savePlay, trashPlay } from "../app/plays/actions";
+import { markPlayDone, savePlay, trashPlay } from "../app/plays/actions";
 import type {
   BasketSummary,
   NextPlayOption,
@@ -135,8 +135,14 @@ export function PlayForm({
     trashPlay,
     INITIAL_PLAY_MUTATION_STATE,
   );
+  const [doneState, doneAction, donePending] = useActionState(
+    markPlayDone,
+    INITIAL_PLAY_MUTATION_STATE,
+  );
+  const lifecyclePending = donePending || trashPending;
   const completedStateRef = useRef<typeof state | null>(null);
   const completedTrashStateRef = useRef<typeof trashState | null>(null);
+  const completedDoneStateRef = useRef<typeof doneState | null>(null);
   const isEditing = Boolean(play);
   const isAppointment = play ? playVisualForPlay(play).visualType === "appointment" : false;
   const hasNonstandardPlace = Boolean(
@@ -203,6 +209,17 @@ export function PlayForm({
     detailsRef.current?.removeAttribute("open");
     router.refresh();
   }, [play, router, trashState]);
+
+  useEffect(() => {
+    if (
+      !play || doneState.status !== "success" ||
+      completedDoneStateRef.current === doneState
+    ) return;
+    completedDoneStateRef.current = doneState;
+    requestGmailThreadUnstar(play, "done");
+    detailsRef.current?.removeAttribute("open");
+    router.refresh();
+  }, [doneState, play, router]);
 
   function requestPlayType(nextPlayType: PlayType) {
     if (nextPlayType !== "reminder" || playType === "reminder") {
@@ -545,6 +562,9 @@ export function PlayForm({
           {trashState.status === "error" && trashState.message ? (
             <p className="formError" role="alert">{trashState.message}</p>
           ) : null}
+          {doneState.status === "error" && doneState.message ? (
+            <p className="formError" role="alert">{doneState.message}</p>
+          ) : null}
         </div>
       </form>
       {showReminderDate ? (
@@ -579,19 +599,16 @@ export function PlayForm({
       {play ? (
         <div className="playDetailActions">
           <div className="playDetailDestructiveActions">
-            <button
-              aria-disabled="true"
-              className="detailDeleteButton"
-              disabled
-              title="Permanent deletion is not currently supported"
-              type="button"
-            >
-              Delete Play
-            </button>
+            <form action={doneAction}>
+              <input name="playId" type="hidden" value={play.id} />
+              <button className="detailDoneButton" disabled={lifecyclePending} type="submit">
+                {donePending ? "Finishing…" : "✓ Done"}
+              </button>
+            </form>
             <form action={trashAction}>
               <input name="playId" type="hidden" value={play.id} />
-              <button className="detailTrashButton" disabled={trashPending} type="submit">
-                {trashPending ? "Trashing…" : "Trash Play"}
+              <button className="detailTrashButton" disabled={lifecyclePending} type="submit">
+                {trashPending ? "Trashing…" : "Trash"}
               </button>
             </form>
           </div>

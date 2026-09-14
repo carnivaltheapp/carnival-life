@@ -1611,6 +1611,7 @@ h1 {
   border-radius: 0;
   background: #f8f5fb;
   box-shadow: none;
+  font-size: calc(1rem + 2pt);
 }
 
 .editDisclosure[open] > .editPlayInfo,
@@ -1654,7 +1655,7 @@ h1 {
 .editDisclosure[open] .playDetailSectionTitle {
   display: block;
   color: var(--accent-deep);
-  font-size: 0.77rem;
+  font-size: calc(0.77rem + 2pt);
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -1663,6 +1664,10 @@ h1 {
   color: var(--muted);
   font-size: 0.7rem;
   font-weight: 750;
+}
+
+.editDisclosure[open] .detailFieldLabel {
+  font-size: calc(0.7rem + 2pt);
 }
 
 .playDetailThreeColumnRow,
@@ -1754,7 +1759,7 @@ h1 {
   margin: 0;
 }
 
-.detailDeleteButton,
+.detailDoneButton,
 .detailTrashButton {
   min-height: 34px;
   padding: 6px 10px;
@@ -1766,13 +1771,69 @@ h1 {
   font-weight: 750;
 }
 
-.detailDeleteButton:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
+.detailDoneButton {
+  border-color: rgba(55, 126, 76, 0.24);
+  background: rgba(55, 126, 76, 0.1);
+  color: #28683c;
+  cursor: pointer;
 }
 
-.detailTrashButton {
+.detailDoneButton:disabled,
+.detailTrashButton:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.detailTrashButton:not(:disabled) {
   cursor: pointer;
+}
+
+.editDisclosure[open] .jiraPlaceholder > span:first-child {
+  font-size: calc(0.68rem + 2pt);
+}
+
+.editDisclosure[open] .playerSlackError,
+.editDisclosure[open] .playerContactInfoError,
+.editDisclosure[open] .fieldHint,
+.editDisclosure[open] .fieldError {
+  font-size: calc(0.68rem + 2pt);
+}
+
+.editDisclosure[open] .playerDeferred,
+.editDisclosure[open] .playerSearchOption small {
+  font-size: calc(0.66rem + 2pt);
+}
+
+.editDisclosure[open] .playerSearchMenu > p {
+  font-size: calc(0.72rem + 2pt);
+}
+
+.editDisclosure[open] .formError {
+  font-size: calc(0.8rem + 2pt);
+}
+
+.editDisclosure[open] .formSuccess {
+  font-size: calc(0.75rem + 2pt);
+}
+
+.editDisclosure[open] .nextPlayHint {
+  font-size: calc(0.67rem + 2pt);
+}
+
+.editDisclosure[open] .doneCreateDisclosure > summary {
+  font-size: calc(0.7rem + 2pt);
+}
+
+.editDisclosure[open] .doneCreateForm > p {
+  font-size: calc(0.76rem + 2pt);
+}
+
+.editDisclosure[open] .playInfoTextButton {
+  font-size: calc(0.68rem + 2pt);
+}
+
+.editDisclosure[open] .playInfoDialog pre {
+  font-size: calc(0.7rem + 2pt);
 }
 
 .playForm {

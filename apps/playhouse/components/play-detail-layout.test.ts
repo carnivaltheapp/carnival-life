@@ -46,9 +46,24 @@ describe("full-area Play detail", () => {
     expect(stylesheet).toMatch(/\.editDisclosure\[open\] \.playDetailBranchSection \.branchPickerMenu,[\s\S]*?\.branchSearchMenu[\s\S]*?width: 100%;/);
   });
 
-  it("keeps unsupported permanent deletion non-destructive while using real Trash", () => {
-    expect(playForm).toMatch(/Delete Play[\s\S]*?disabled/);
+  it("uses the existing Done and Trash actions without exposing permanent deletion", () => {
+    expect(playForm).not.toContain("Delete Play");
+    expect(playForm).not.toContain("Trash Play");
+    expect(playForm).toContain("<form action={doneAction}>");
     expect(playForm).toContain("<form action={trashAction}>");
+    expect(playForm).toContain('requestGmailThreadUnstar(play, "done")');
     expect(playForm).toContain('requestGmailThreadUnstar(play, "trash")');
+  });
+
+  it("adds exactly two points to Detail-owned typography without changing global type", () => {
+    const bodyRule = stylesheet.match(/body\s*\{[^}]*\}/)?.[0] ?? "";
+    const playRowRule = stylesheet.match(/\.playRow\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(stylesheet).toMatch(/\.editDisclosure\[open\]\s*\{[\s\S]*?font-size: calc\(1rem \+ 2pt\);/);
+    expect(stylesheet).toContain("font-size: calc(0.77rem + 2pt)");
+    expect(stylesheet).toContain("font-size: calc(0.7rem + 2pt)");
+    expect(stylesheet).toMatch(/\.editDisclosure\[open\] \.playerSearchMenu > p[\s\S]*?calc\(0.72rem \+ 2pt\)/);
+    expect(stylesheet).toMatch(/\.editDisclosure\[open\] \.fieldError[\s\S]*?calc\(0.68rem \+ 2pt\)/);
+    expect(bodyRule).not.toContain("+ 2pt");
+    expect(playRowRule).not.toContain("+ 2pt");
   });
 });
