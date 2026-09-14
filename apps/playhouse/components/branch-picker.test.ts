@@ -20,7 +20,8 @@ describe("BranchPicker", () => {
     expect(picker).toContain('aria-label="Search Branches"');
     expect(picker).toContain("searchBranchTree(roots, searchQuery)");
     expect(picker).toContain("displayBranchPath(node.relativePath)");
-    expect(picker).toContain("setSelectedBranch(canonicalBranchValue(relativePath))");
+    expect(picker).toContain("const value = canonicalBranchValue(relativePath)");
+    expect(picker).toContain("onSelectionChange(value)");
     expect(picker).toContain('setSearchQuery("")');
     expect(stylesheet).toMatch(/\.branchPicker\s*\{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
     expect(stylesheet).toMatch(/@media \(max-width: 540px\)[\s\S]*?\.branchPicker\s*\{\s*grid-template-columns: 1fr;/);
@@ -36,7 +37,8 @@ describe("BranchPicker", () => {
   it("preserves current Branch and participates in the existing Save/Cancel form lifecycle", () => {
     expect(picker).toContain('<input name="branch" readOnly type="hidden" value={selectedBranch} />');
     expect(picker).toContain("Branches unavailable");
-    expect(form).toContain("<BranchPicker initialBranch={submittedValues?.branch ?? play?.branch ?? \"\"} />");
+    expect(form).toContain("initialBranch={branchValue}");
+    expect(form).toContain("onSelectionChange={setBranchValue}");
     expect(form).toContain("key={formResetVersion}");
   });
 

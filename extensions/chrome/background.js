@@ -8,7 +8,7 @@ import {
 } from "./gmail-tab-metadata.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
-const NATIVE_HOST_VERSION = "DRAWER-HOST-12";
+const NATIVE_HOST_VERSION = "DRAWER-HOST-13";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";

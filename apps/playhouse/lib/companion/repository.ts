@@ -48,7 +48,7 @@ type CommandDocument = {
   parent_relative_path: string;
   relative_path: string | null;
   status: "completed" | "failed" | "pending";
-  type: "create_folder";
+  type: "create_folder" | "set_branch_state";
   updated_at: Date;
 };
 
@@ -214,17 +214,45 @@ export class MongoCompanionRepository {
     return commandId;
   }
 
+  async createBranchStateCommand(
+    ownerUserId: string,
+    deviceId: string,
+    relativePath: string,
+    isBranch: boolean,
+  ) {
+    const commandId = createDeviceId();
+    const now = new Date();
+    await (await this.collections()).commands.insertOne({
+      command_id: commandId,
+      completed_at: null,
+      created_at: now,
+      device_id: deviceId,
+      error: null,
+      is_branch: isBranch,
+      name: "",
+      owner_user_id: ownerUserId,
+      parent_relative_path: "",
+      relative_path: relativePath,
+      status: "pending",
+      type: "set_branch_state",
+      updated_at: now,
+    });
+    return commandId;
+  }
+
   async pendingFolderCommands(deviceId: string, ownerUserId: string) {
     return (await (await this.collections()).commands.find({
       device_id: deviceId,
       owner_user_id: ownerUserId,
       status: "pending",
-      type: "create_folder",
+      type: { $in: ["create_folder", "set_branch_state"] },
     }).sort({ created_at: 1 }).limit(10).toArray()).map((command) => ({
       commandId: command.command_id,
       isBranch: command.is_branch,
       name: command.name,
       parentRelativePath: command.parent_relative_path,
+      relativePath: command.relative_path,
+      type: command.type,
     }));
   }
 

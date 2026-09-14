@@ -18,3 +18,10 @@ test("native validation constrains parents beneath Google Drive and rejects unsa
   assert.match(host, /Path\.GetInvalidFileNameChars\(\)/);
   assert.match(host, /con\|prn\|aux\|nul/);
 });
+
+test("existing-folder Branch commands write the local marker before acknowledgement", () => {
+  assert.match(host, /set_branch_state/);
+  assert.match(host, /ExecuteBranchStateCommand/);
+  assert.match(host, /WriteFolderInfoTip\(target, command\.IsBranch \? "branch=1" : ""\)/);
+  assert.match(host, /CompleteFolderCommand\(command\.CommandId, credential, true, command\.RelativePath/);
+});

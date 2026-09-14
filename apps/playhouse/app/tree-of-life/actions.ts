@@ -1,6 +1,6 @@
 "use server";
 
-import type { BranchTreeNode } from "../../domain/tree-of-life";
+import type { BranchTreeNode, FolderTreeNode } from "../../domain/tree-of-life";
 import { createClient } from "../../lib/supabase/server";
 import { MongoTreeOfLifeRepository } from "../../lib/tree-of-life/repository";
 
@@ -29,6 +29,26 @@ export async function loadTreeOfLifeBranches(): Promise<BranchTreeResult> {
       message: error instanceof Error ? error.message : "Unknown error",
     });
     return { branches: [], initialized: false, message: "Branches unavailable.", ok: false };
+  }
+}
+
+export async function loadTreeOfLifeFolders(): Promise<{
+  folders: FolderTreeNode[];
+  message?: string;
+  ok: boolean;
+}> {
+  const ownerUserId = await authenticatedOwnerId();
+  if (!ownerUserId) return { folders: [], message: "Session unavailable.", ok: false };
+  try {
+    return {
+      folders: await new MongoTreeOfLifeRepository().getFolderTreeForOwner(ownerUserId),
+      ok: true,
+    };
+  } catch (error) {
+    console.error("[Tree of Life] all-folder Mongo read failed", {
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+    return { folders: [], message: "Folders unavailable.", ok: false };
   }
 }
 

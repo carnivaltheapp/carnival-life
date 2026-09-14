@@ -200,3 +200,22 @@ export function searchBranchTree(
   visit(roots);
   return matches;
 }
+
+export function searchFolderTree(roots: FolderTreeNode[], query: string, limit = 75) {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (!normalizedQuery) return [];
+  const matches: FolderTreeNode[] = [];
+  function visit(nodes: FolderTreeNode[]) {
+    for (const node of nodes) {
+      if (
+        node.name.toLocaleLowerCase().includes(normalizedQuery) ||
+        node.relativePath.toLocaleLowerCase().includes(normalizedQuery)
+      ) matches.push(node);
+      if (matches.length >= limit) return;
+      visit(node.children);
+      if (matches.length >= limit) return;
+    }
+  }
+  visit(roots);
+  return matches;
+}

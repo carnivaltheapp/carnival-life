@@ -29,6 +29,7 @@ import {
   type DescriptionTooltipPosition,
 } from "./play-description-tooltip";
 import { applySuccessfulPlaySave } from "./play-form-success";
+import { AllFolderNavigator } from "./all-folder-navigator";
 import { BranchPicker } from "./branch-picker";
 import { requestGmailThreadUnstar } from "./gmail-thread-sync";
 import { PlayerCombobox } from "./player-combobox";
@@ -162,6 +163,10 @@ export function PlayForm({
         }
       : null;
   const [selectedPlayerId, setSelectedPlayerId] = useState(initialPlayer?.id ?? null);
+  const initialBranch = submittedValues?.branch ?? play?.branch ?? "";
+  const [branchValue, setBranchValue] = useState(initialBranch);
+  const [branchTreeVersion, setBranchTreeVersion] = useState(0);
+  const [showAllFolders, setShowAllFolders] = useState(false);
   const [descriptionClick] = useState(createDescriptionClickController);
   const formId = `play-form-${play?.id ?? "new"}`;
   const backlogBasketId = baskets.find((basket) =>
@@ -259,6 +264,8 @@ export function PlayForm({
     setShowReminderDate(false);
     setSaveFollowupError(null);
     setSelectedPlayerId(play?.playerContactId ?? null);
+    setBranchValue(play?.branch ?? "");
+    setShowAllFolders(false);
     setFormResetVersion((version) => version + 1);
     detailsRef.current?.removeAttribute("open");
   }
@@ -326,11 +333,27 @@ export function PlayForm({
         <input name="reminderContextDate" type="hidden" value={reminderContextDate} />
 
         <section className="playDetailSection playDetailBranchSection">
-          <h2 className="playDetailSectionTitle">Branch</h2>
+          <div className="playDetailSectionHeading">
+            <h2 className="playDetailSectionTitle">Branch</h2>
+            {isEditing ? <button className="addBranchButton" onClick={() => setShowAllFolders(true)} type="button">+ Branch</button> : null}
+          </div>
           <div className="field compactField">
-            <BranchPicker initialBranch={submittedValues?.branch ?? play?.branch ?? ""} />
+            <BranchPicker
+              initialBranch={branchValue}
+              key={branchTreeVersion}
+              onSelectionChange={setBranchValue}
+            />
             <FieldError errors={state.fieldErrors} field="branch" />
           </div>
+          {showAllFolders ? (
+            <AllFolderNavigator
+              onClose={() => setShowAllFolders(false)}
+              onSelectBranch={(relativePath) => {
+                setBranchValue(relativePath);
+                setBranchTreeVersion((version) => version + 1);
+              }}
+            />
+          ) : null}
         </section>
 
         <section className="playDetailSection playDetailWhatSection">

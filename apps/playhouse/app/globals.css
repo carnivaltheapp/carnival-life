@@ -625,11 +625,12 @@ a {
   top: calc(100% + 7px);
   right: 0;
   display: grid;
+  overflow-x: hidden;
   overflow-y: auto;
-  width: min(430px, calc(100vw - 32px));
+  width: min(560px, calc(100vw - 32px));
   max-height: calc(100vh - 110px);
   padding: 8px;
-  grid-template-columns: 105px minmax(0, 1fr);
+  grid-template-columns: 125px minmax(0, 1fr);
   gap: 10px;
   color: var(--ink);
   border: 1px solid var(--line);
@@ -640,7 +641,7 @@ a {
 }
 
 .settingsPopover--calendars {
-  width: min(780px, calc(100vw - 32px));
+  width: min(560px, calc(100vw - 32px));
 }
 
 .slackConnectionSettings p {
@@ -1451,27 +1452,6 @@ h1 {
   color: var(--muted);
 }
 
-.companionFolderForm {
-  display: grid;
-  gap: 0.55rem;
-  margin-top: 0.75rem;
-}
-
-.companionFolderForm h3 {
-  margin: 0;
-}
-
-.companionFolderForm label:not(.companionBranchChoice) {
-  display: grid;
-  gap: 0.2rem;
-}
-
-.companionBranchChoice {
-  align-items: center;
-  display: flex;
-  gap: 0.4rem;
-}
-
 .companionDevice {
   display: grid;
   padding: 7px 0;
@@ -1702,6 +1682,171 @@ h1 {
 .playDetailSectionTitle {
   display: none;
   margin: 0;
+}
+
+.playDetailSectionHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.addBranchButton {
+  display: none;
+}
+
+.editDisclosure[open] .addBranchButton {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  padding: 4px 9px;
+  color: var(--accent-deep);
+  border: 1px solid rgba(109, 63, 242, 0.3);
+  border-radius: 8px;
+  background: rgba(109, 63, 242, 0.08);
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.allFolderOverlay {
+  position: fixed;
+  z-index: var(--z-modal);
+  inset: 0;
+  display: grid;
+  padding: 18px;
+  background: rgba(30, 20, 43, 0.18);
+  place-items: center;
+}
+
+.allFolderNavigator {
+  display: grid;
+  overflow: hidden;
+  width: min(520px, calc(100vw - 36px));
+  max-height: min(680px, calc(100dvh - 36px));
+  padding: 12px;
+  gap: 8px;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fffdfa;
+  box-shadow: 0 18px 48px rgba(48, 29, 83, 0.28);
+}
+
+.allFolderNavigator > header,
+.allFolderCandidate,
+.allFolderNewForm > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.allFolderNavigator button {
+  min-height: 30px;
+  padding: 4px 8px;
+  color: var(--accent-deep);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  font: inherit;
+  cursor: pointer;
+}
+
+.allFolderNavigator button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.allFolderNavigator > header button {
+  width: 30px;
+  padding: 0;
+  font-size: 1.15rem;
+}
+
+.allFolderBreadcrumb,
+.allFolderMessage {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
+.allFolderNavigator > input,
+.allFolderNewForm input {
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font: inherit;
+}
+
+.allFolderList {
+  display: grid;
+  min-height: 120px;
+  max-height: min(330px, 45dvh);
+  padding: 2px;
+  overflow-y: auto;
+  gap: 2px;
+  align-content: start;
+}
+
+.allFolderRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 3px;
+}
+
+.allFolderRow > button:first-child,
+.allFolderSearchResult,
+.allFolderBack {
+  overflow: hidden;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.allFolderRow > button:first-child,
+.allFolderSearchResult {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+}
+
+.allFolderSearchResult {
+  width: 100%;
+}
+
+.allFolderCandidate {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.allFolderCandidate > span {
+  overflow-wrap: anywhere;
+}
+
+.allFolderNewForm {
+  display: grid;
+  padding-top: 8px;
+  gap: 7px;
+  border-top: 1px solid var(--line);
+}
+
+.allFolderNewForm label:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.allFolderNewForm label:nth-child(2) {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.allFolderNewButton {
+  justify-self: start;
 }
 
 .editDisclosure[open] .playDetailSectionTitle {
@@ -2862,11 +3007,24 @@ h1 {
   }
 
   .settingsNav {
-    grid-template-columns: auto 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     padding: 0 0 8px;
     border-right: 0;
     border-bottom: 1px solid var(--line);
     align-items: center;
+  }
+
+  .settingsNav > span {
+    grid-column: 1 / -1;
+  }
+
+  .allFolderOverlay {
+    padding: 10px;
+  }
+
+  .allFolderNavigator {
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
   }
 
   .calendarAccountHeader {

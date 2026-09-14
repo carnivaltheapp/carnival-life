@@ -10,8 +10,14 @@ import {
   loadLocalBranches,
 } from "../lib/desktop/local-branches";
 
-export function BranchPicker({ initialBranch }: { initialBranch: string }) {
-  const [selectedBranch, setSelectedBranch] = useState(initialBranch);
+export function BranchPicker({
+  initialBranch,
+  onSelectionChange,
+}: {
+  initialBranch: string;
+  onSelectionChange: (relativePath: string) => void;
+}) {
+  const selectedBranch = initialBranch;
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "empty" | "unavailable">("idle");
   const [message, setMessage] = useState("");
@@ -63,7 +69,8 @@ export function BranchPicker({ initialBranch }: { initialBranch: string }) {
   }
 
   function selectBranch(relativePath: string) {
-    setSelectedBranch(canonicalBranchValue(relativePath));
+    const value = canonicalBranchValue(relativePath);
+    onSelectionChange(value);
     setOpen(false);
     setSearchFocused(false);
     setSearchQuery("");

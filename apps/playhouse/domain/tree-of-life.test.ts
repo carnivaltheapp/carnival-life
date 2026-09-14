@@ -7,6 +7,7 @@ import {
   flattenBranchTree,
   parseFolderImage,
   searchBranchTree,
+  searchFolderTree,
 } from "./tree-of-life";
 
 const nativeTree = [{
@@ -68,6 +69,9 @@ describe("Tree of Life hierarchy", () => {
     const folders = buildFolderTree(records);
     expect(folders).toHaveLength(2);
     expect(folders.find((folder) => folder.name === "Downloads")).toBeTruthy();
+    expect(searchFolderTree(folders, "PERSONAL/me")).toEqual([
+      expect.objectContaining({ isBranch: true, relativePath: "Personal/Me" }),
+    ]);
     expect(branchTreeFromFolders(folders)).toEqual([{
       children: [{ children: [], name: "Me", relativePath: "Personal/Me", selectable: true }],
       name: "Personal",

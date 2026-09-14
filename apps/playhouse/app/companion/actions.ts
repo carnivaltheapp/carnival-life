@@ -55,13 +55,35 @@ export async function requestCompanionFolderCreation(input: {
   }
   const repository = new MongoCompanionRepository();
   const device = await repository.findOnlineDevice(ownerUserId, new Date(Date.now() - 30_000));
-  if (!device) return { commandId: null, error: "Windows companion is offline." };
+  if (!device) return { commandId: null, error: "Desktop companion unavailable" };
   const commandId = await repository.createFolderCommand(ownerUserId, device.device_id, {
     isBranch: input.isBranch,
     name: validated.name,
     parentRelativePath: validated.parentRelativePath,
   });
   return { commandId, error: null };
+}
+
+export async function requestCompanionBranchState(relativePath: string, isBranch: boolean) {
+  const ownerUserId = await ownerId();
+  if (!ownerUserId) return { commandId: null, error: "Session unavailable.", unchanged: false };
+  const folders = await new MongoTreeOfLifeRepository().listAllFoldersForOwner(ownerUserId);
+  const folder = folders.find((candidate) => candidate.relativePath === relativePath);
+  if (!folder) return { commandId: null, error: "Choose an existing synced folder.", unchanged: false };
+  if (folder.isBranch === isBranch) return { commandId: null, error: null, unchanged: true };
+  const repository = new MongoCompanionRepository();
+  const device = await repository.findOnlineDevice(ownerUserId, new Date(Date.now() - 30_000));
+  if (!device) return { commandId: null, error: "Desktop companion unavailable", unchanged: false };
+  return {
+    commandId: await repository.createBranchStateCommand(
+      ownerUserId,
+      device.device_id,
+      relativePath,
+      isBranch,
+    ),
+    error: null,
+    unchanged: false,
+  };
 }
 
 export async function getCompanionFolderCreationStatus(commandId: string) {

@@ -14,7 +14,7 @@ using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
-    private const string HostMarker = "DRAWER-HOST-12";
+    private const string HostMarker = "DRAWER-HOST-13";
     private const string BranchRoot = @"C:\Google Drive";
     private const int FcsmInfoTip = 0x4;
     private const uint FcsRead = 0x1;
@@ -112,6 +112,8 @@ internal static class CarnivalWorkspaceHost
         public bool IsBranch;
         public string Name;
         public string ParentRelativePath;
+        public string RelativePath;
+        public string Type;
     }
 
     private delegate bool EnumWindowsCallback(IntPtr window, IntPtr parameter);
@@ -895,6 +897,8 @@ internal static class CarnivalWorkspaceHost
                 IsBranch = Regex.IsMatch(item, "\\\"isBranch\\\"\\s*:\\s*true"),
                 Name = ReadJsonString(item, "name"),
                 ParentRelativePath = ReadJsonString(item, "parentRelativePath") ?? "",
+                RelativePath = ReadJsonString(item, "relativePath"),
+                Type = ReadJsonString(item, "type") ?? "create_folder",
             });
         }
         return commands;
@@ -902,6 +906,11 @@ internal static class CarnivalWorkspaceHost
 
     private static void ExecuteFolderCommand(FolderCommand command, string credential)
     {
+        if (string.Equals(command.Type, "set_branch_state", StringComparison.Ordinal))
+        {
+            ExecuteBranchStateCommand(command, credential);
+            return;
+        }
         string relativePath = null;
         var receiptPath = Path.Combine(CompletedCommandDirectory(), command.CommandId + ".txt");
         try
@@ -932,6 +941,23 @@ internal static class CarnivalWorkspaceHost
         {
             if (File.Exists(receiptPath)) return;
             CompleteFolderCommand(command.CommandId, credential, false, relativePath,
+                error.Message.Length > 120 ? error.GetType().Name : error.Message);
+        }
+    }
+
+    private static void ExecuteBranchStateCommand(FolderCommand command, string credential)
+    {
+        try
+        {
+            var target = FullPathForRelativeFolder(command.RelativePath);
+            if (!Directory.Exists(target)) throw new DirectoryNotFoundException("folder_not_found");
+            if (!WriteFolderInfoTip(target, command.IsBranch ? "branch=1" : ""))
+                throw new InvalidOperationException("branch_marker_failed");
+            CompleteFolderCommand(command.CommandId, credential, true, command.RelativePath, null);
+        }
+        catch (Exception error)
+        {
+            CompleteFolderCommand(command.CommandId, credential, false, command.RelativePath,
                 error.Message.Length > 120 ? error.GetType().Name : error.Message);
         }
     }

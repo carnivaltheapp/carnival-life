@@ -19,7 +19,7 @@ export async function POST(
     commandId,
   );
   if (!command) return NextResponse.json({ ok: true });
-  if (payload.ok && payload.relativePath) {
+  if (payload.ok && payload.relativePath && command.type === "create_folder") {
     await new MongoTreeOfLifeRepository().applyFolderEvent(device.ownerUserId, {
       kind: "folder_created",
       name: command.name,
@@ -28,6 +28,13 @@ export async function POST(
     if (command.is_branch) {
       await new MongoTreeOfLifeRepository().setBranchState(device.ownerUserId, payload.relativePath, true);
     }
+  }
+  if (payload.ok && command.type === "set_branch_state" && command.relative_path) {
+    await new MongoTreeOfLifeRepository().setBranchState(
+      device.ownerUserId,
+      command.relative_path,
+      command.is_branch,
+    );
   }
   await repository.completeFolderCommand(
     device.deviceId,
