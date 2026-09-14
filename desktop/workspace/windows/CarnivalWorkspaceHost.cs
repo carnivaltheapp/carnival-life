@@ -52,6 +52,8 @@ internal static class CarnivalWorkspaceHost
     private static DateTime pendingSummonSentAt;
     private static int pendingSummonRetries;
     private static string branchHierarchyPayload;
+    private static int branchHierarchyCount;
+    private static int branchTopLevelCount;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Point { public int X; public int Y; }
@@ -702,6 +704,8 @@ internal static class CarnivalWorkspaceHost
     {
         int requestId;
         if (!TryReadInteger(json, "requestId", out requestId)) return;
+        var startedAt = DateTime.UtcNow;
+        WriteDiagnostic("BRANCH_TREE_NATIVE_REQUESTED");
         try
         {
             string payload;
@@ -711,17 +715,23 @@ internal static class CarnivalWorkspaceHost
                 {
                     var branches = DiscoverBranchHierarchy(BranchRoot);
                     branchHierarchyPayload = SerializeBranches(branches);
-                    WriteDiagnostic("Branch hierarchy discovered count=" + CountSelectableBranches(branches));
+                    branchHierarchyCount = CountSelectableBranches(branches);
+                    branchTopLevelCount = branches.Count;
+                    WriteDiagnostic("Branch hierarchy discovered count=" + branchHierarchyCount);
                 }
                 payload = branchHierarchyPayload;
             }
+            var durationMs = (int)(DateTime.UtcNow - startedAt).TotalMilliseconds;
+            WriteDiagnostic(string.Format(CultureInfo.InvariantCulture,
+                "BRANCH_TREE_NATIVE_RESPONSE branchCount={0} topLevelCount={1} durationMs={2}",
+                branchHierarchyCount, branchTopLevelCount, durationMs));
             SendToChrome(string.Format(CultureInfo.InvariantCulture,
                 "{{\"type\":\"branchesResult\",\"requestId\":{0},\"ok\":true,\"branches\":{1}}}",
                 requestId, payload));
         }
         catch (Exception error)
         {
-            WriteDiagnostic("Branch hierarchy unavailable type=" + error.GetType().Name);
+            WriteDiagnostic("BRANCH_TREE_FAILED reason=" + error.GetType().Name);
             SendToChrome(string.Format(CultureInfo.InvariantCulture,
                 "{{\"type\":\"branchesResult\",\"requestId\":{0},\"ok\":false,\"branches\":[]}}",
                 requestId));

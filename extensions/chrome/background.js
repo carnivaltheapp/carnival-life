@@ -33,6 +33,14 @@ const tabSaveTimers = new Map();
 const tabSaveReasons = new Map();
 let diagnosticWriteQueue = Promise.resolve();
 
+function branchSummary(branches, durationMs) {
+  const count = (nodes) => nodes.reduce(
+    (total, branch) => total + (branch.selectable ? 1 : 0) + count(branch.children ?? []),
+    0,
+  );
+  return { branchCount: count(branches), durationMs, topLevelCount: branches.length };
+}
+
 function recordDiagnostic(level, event, details = null) {
   console[level]?.(event, details ?? "");
   const entry = {
@@ -207,13 +215,17 @@ function connectNativeHost() {
         return;
       }
       if (message?.type === "branchesResult") {
-        const complete = nativeBranchRequests.get(message.requestId);
+        const request = nativeBranchRequests.get(message.requestId);
         nativeBranchRequests.delete(message.requestId);
+        if (!request) return;
         if (message.ok === true && Array.isArray(message.branches)) {
           branchHierarchyCache = message.branches;
-          complete?.({ ok: true, branches: branchHierarchyCache });
+          const summary = branchSummary(branchHierarchyCache, Date.now() - request.startedAt);
+          recordDiagnostic("info", "BRANCH_TREE_NATIVE_RESPONSE", summary);
+          request.complete({ ok: true, branches: branchHierarchyCache, summary });
         } else {
-          complete?.({ ok: false, branches: [] });
+          recordDiagnostic("warn", "BRANCH_TREE_FAILED", { reason: "native_response_failed" });
+          request.complete({ ok: false, branches: [] });
         }
         return;
       }
@@ -226,7 +238,7 @@ function connectNativeHost() {
       nativeAnimationAvailable = false;
       for (const complete of nativeAnimationRequests.values()) complete(false);
       nativeAnimationRequests.clear();
-      for (const complete of nativeBranchRequests.values()) complete({ ok: false, branches: [] });
+      for (const request of nativeBranchRequests.values()) request.complete({ ok: false, branches: [] });
       nativeBranchRequests.clear();
       nativePort = null;
       chrome.alarms.create(RECONNECT_ALARM, { delayInMinutes: 1 });
@@ -296,28 +308,40 @@ chrome.tabs.onActivated.addListener(({ windowId }) => scheduleTabSave(windowId, 
 chrome.tabs.onMoved.addListener((_tabId, moveInfo) => scheduleTabSave(moveInfo.windowId, "tab-moved"));
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === GET_LOCAL_BRANCHES) {
+    recordDiagnostic("info", "BRANCH_TREE_EXTENSION_RECEIVED");
     if (branchHierarchyCache) {
-      sendResponse({ ok: true, branches: branchHierarchyCache });
+      sendResponse({
+        ok: true,
+        branches: branchHierarchyCache,
+        summary: branchSummary(branchHierarchyCache, 0),
+      });
       return false;
     }
     if (!nativePort) {
+      recordDiagnostic("warn", "BRANCH_TREE_FAILED", { reason: "native_host_unavailable" });
       sendResponse({ ok: false, branches: [] });
       return false;
     }
     const requestId = ++nativeBranchRequestId;
     const timeout = setTimeout(() => {
       nativeBranchRequests.delete(requestId);
+      recordDiagnostic("warn", "BRANCH_TREE_FAILED", { reason: "native_response_timeout" });
       sendResponse({ ok: false, branches: [] });
     }, 15000);
-    nativeBranchRequests.set(requestId, (response) => {
-      clearTimeout(timeout);
-      sendResponse(response);
+    nativeBranchRequests.set(requestId, {
+      complete(response) {
+        clearTimeout(timeout);
+        sendResponse(response);
+      },
+      startedAt: Date.now(),
     });
     try {
+      recordDiagnostic("info", "BRANCH_TREE_NATIVE_REQUESTED");
       nativePort.postMessage({ requestId, type: "getBranches" });
     } catch {
       clearTimeout(timeout);
       nativeBranchRequests.delete(requestId);
+      recordDiagnostic("warn", "BRANCH_TREE_FAILED", { reason: "native_request_failed" });
       sendResponse({ ok: false, branches: [] });
       return false;
     }

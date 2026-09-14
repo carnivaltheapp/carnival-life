@@ -39,13 +39,22 @@ const hierarchy = [{
 }];
 
 describe("local Branch bridge", () => {
-  beforeEach(resetLocalBranchCacheForTests);
+  beforeEach(() => {
+    resetLocalBranchCacheForTests();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
 
   it("loads and caches the compact hierarchy for instant subsequent drilling", async () => {
     const target = branchTarget(hierarchy);
     await expect(loadLocalBranches(target as never)).resolves.toEqual({ branches: hierarchy, ok: true });
     await expect(loadLocalBranches(target as never)).resolves.toEqual({ branches: hierarchy, ok: true });
     expect(target.postMessage).toHaveBeenCalledOnce();
+    expect(console.info).toHaveBeenCalledWith("BRANCH_TREE_REQUESTED");
+    expect(console.info).toHaveBeenCalledWith("BRANCH_TREE_DELIVERED", expect.objectContaining({
+      branchCount: 1,
+      topLevelCount: 1,
+    }));
   });
 
   it("fails closed when the bridge returns malformed filesystem data", async () => {

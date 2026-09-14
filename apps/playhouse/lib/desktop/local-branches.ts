@@ -18,7 +18,12 @@ let cachedBranches: LocalBranchNode[] | null = null;
 export async function loadLocalBranches(
   target: LocalBranchTarget = window,
 ): Promise<{ branches: LocalBranchNode[]; ok: boolean }> {
-  if (cachedBranches) return { branches: cachedBranches, ok: true };
+  const startedAt = Date.now();
+  console.info("BRANCH_TREE_REQUESTED");
+  if (cachedBranches) {
+    console.info("BRANCH_TREE_DELIVERED", branchSummary(cachedBranches, Date.now() - startedAt));
+    return { branches: cachedBranches, ok: true };
+  }
   const requestId = `branches-${Date.now()}-${++requestSequence}`;
   return new Promise((resolve) => {
     const timeout = globalThis.setTimeout(() => finish(false, []), 15000);
@@ -26,6 +31,10 @@ export async function loadLocalBranches(
       globalThis.clearTimeout(timeout);
       target.removeEventListener("message", onMessage);
       if (ok) cachedBranches = branches;
+      console[ok ? "info" : "warn"](
+        ok ? "BRANCH_TREE_DELIVERED" : "BRANCH_TREE_FAILED",
+        ok ? branchSummary(branches, Date.now() - startedAt) : { durationMs: Date.now() - startedAt },
+      );
       resolve({ branches, ok });
     }
     function onMessage(event: MessageEvent) {
@@ -45,6 +54,21 @@ export async function loadLocalBranches(
       type: LOCAL_BRANCHES_MESSAGE_TYPE,
     }, target.location.origin);
   });
+}
+
+function branchSummary(branches: LocalBranchNode[], durationMs: number) {
+  return {
+    branchCount: countSelectableBranches(branches),
+    durationMs,
+    topLevelCount: branches.length,
+  };
+}
+
+function countSelectableBranches(branches: LocalBranchNode[]): number {
+  return branches.reduce(
+    (count, branch) => count + (branch.selectable ? 1 : 0) + countSelectableBranches(branch.children),
+    0,
+  );
 }
 
 function validBranchNodes(value: unknown, depth = 0): LocalBranchNode[] | null {
