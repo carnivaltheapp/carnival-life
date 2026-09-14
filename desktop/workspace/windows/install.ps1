@@ -25,7 +25,7 @@ $compiler = @(
 if (-not $compiler) {
   throw 'The Windows .NET Framework C# compiler is required.'
 }
-& $compiler /nologo /target:exe "/out:$temporaryExecutable" $source
+& $compiler /nologo /target:exe /reference:System.Security.dll "/out:$temporaryExecutable" $source
 if ($LASTEXITCODE -ne 0) {
   throw 'Carnival native host compilation failed.'
 }

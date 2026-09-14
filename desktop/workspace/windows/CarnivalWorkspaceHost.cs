@@ -5,6 +5,8 @@ using System.Globalization;
 using System.IO;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
+using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -26,6 +28,7 @@ internal static class CarnivalWorkspaceHost
     private const int AuxInteractionTolerancePixels = 12;
     private const int VirtualKeyLeftButton = 0x01;
     private const string PlayHouseUrl = "https://carnival-playhouse.vercel.app/";
+    private const string CompanionApiBase = "https://carnival-playhouse.vercel.app/api/companion";
     private const int MonitorDefaultToNearest = 2;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpNoMove = 0x0002;
@@ -163,8 +166,83 @@ internal static class CarnivalWorkspaceHost
     private static void Main(string[] args)
     {
         if (HasArgument(args, "--self-test")) RunSelfTest();
+        else if (HasArgument(args, "--pair")) PairDevice(ArgumentAfter(args, "--pair"));
         else if (HasArgument(args, "--resident")) RunResident();
         else RunNativeMessagingBridge();
+    }
+
+    private static string ArgumentAfter(string[] args, string expected)
+    {
+        for (var index = 0; index < args.Length - 1; index += 1)
+            if (string.Equals(args[index], expected, StringComparison.OrdinalIgnoreCase))
+                return args[index + 1];
+        return null;
+    }
+
+    private static string CompanionDataDirectory()
+    {
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Carnival", "DesktopWorkspace");
+    }
+
+    private static string CredentialPath()
+    {
+        return Path.Combine(CompanionDataDirectory(), "device.credential");
+    }
+
+    private static void PairDevice(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) throw new ArgumentException("Pairing code is required.");
+        ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+        var deviceName = Environment.MachineName + " (" + Environment.UserName + ")";
+        var body = "{\"code\":\"" + EscapeJson(code.Trim()) + "\",\"deviceName\":\"" +
+            EscapeJson(deviceName) + "\"}";
+        var response = CompanionRequest("/pair", "POST", null, body);
+        var credential = ReadJsonString(response, "credential");
+        if (string.IsNullOrWhiteSpace(credential)) throw new InvalidOperationException("Pairing was rejected.");
+        Directory.CreateDirectory(CompanionDataDirectory());
+        var protectedCredential = ProtectedData.Protect(
+            Encoding.UTF8.GetBytes(credential), null, DataProtectionScope.CurrentUser);
+        File.WriteAllText(CredentialPath(), Convert.ToBase64String(protectedCredential), Encoding.ASCII);
+        Console.WriteLine("Carnival companion paired for this Windows user.");
+    }
+
+    private static string LoadDeviceCredential()
+    {
+        try
+        {
+            var encrypted = Convert.FromBase64String(File.ReadAllText(CredentialPath(), Encoding.ASCII));
+            return Encoding.UTF8.GetString(ProtectedData.Unprotect(
+                encrypted, null, DataProtectionScope.CurrentUser));
+        }
+        catch { return null; }
+    }
+
+    private static string CompanionRequest(string path, string method, string credential, string body)
+    {
+        var request = (HttpWebRequest)WebRequest.Create(CompanionApiBase + path);
+        request.Method = method;
+        request.ContentType = "application/json";
+        request.Accept = "application/json";
+        request.Timeout = 10000;
+        request.ReadWriteTimeout = 10000;
+        if (!string.IsNullOrWhiteSpace(credential))
+            request.Headers[HttpRequestHeader.Authorization] = "Bearer " + credential;
+        if (body != null)
+        {
+            var bytes = Encoding.UTF8.GetBytes(body);
+            request.ContentLength = bytes.Length;
+            using (var stream = request.GetRequestStream()) stream.Write(bytes, 0, bytes.Length);
+        }
+        using (var response = (HttpWebResponse)request.GetResponse())
+        using (var reader = new StreamReader(response.GetResponseStream())) return reader.ReadToEnd();
+    }
+
+    private static string ReadJsonString(string json, string property)
+    {
+        var match = Regex.Match(json ?? "", "\\\"" + Regex.Escape(property) +
+            "\\\"\\s*:\\s*\\\"(?<value>(?:\\\\.|[^\\\"])*)\\\"");
+        return match.Success ? Regex.Unescape(match.Groups["value"].Value) : null;
     }
 
     private static bool HasArgument(string[] args, string expected)

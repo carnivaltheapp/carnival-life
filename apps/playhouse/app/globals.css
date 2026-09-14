@@ -1439,6 +1439,37 @@ h1 {
   text-decoration-color: currentColor;
 }
 
+.desktopCompanionSettings,
+.desktopCompanionSettings > span {
+  display: grid;
+  gap: 7px;
+}
+
+.desktopCompanionSettings p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
+.companionDevice {
+  display: grid;
+  padding: 7px 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border-top: 1px solid var(--line);
+}
+
+.companionDevice span,
+.companionDevice small {
+  display: block;
+  min-width: 0;
+}
+
+.companionDevice small {
+  color: var(--muted);
+}
+
 .descriptionHoverBubble {
   position: fixed;
   z-index: var(--z-popover);
