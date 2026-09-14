@@ -15,6 +15,7 @@ export function PlayerSlackField({ playerContactId }: { playerContactId: string 
   const [resolvedName, setResolvedName] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(Boolean(playerContactId));
+  const displayedValue = slackFieldDisplayValue({ editing, resolvedName, url: value });
 
   useEffect(() => {
     let current = true;
@@ -31,6 +32,14 @@ export function PlayerSlackField({ playerContactId }: { playerContactId: string 
     });
     return () => { current = false; };
   }, [playerContactId]);
+
+  useEffect(() => {
+    console.info("SLACK_NAME_FIELD_RENDER", {
+      displayedValue,
+      resolvedName,
+      slackUrl: value,
+    });
+  }, [displayedValue, resolvedName, value]);
 
   useEffect(() => {
     const update = (event: Event) => {
@@ -65,7 +74,7 @@ export function PlayerSlackField({ playerContactId }: { playerContactId: string 
         }}
         onFocus={() => setEditing(true)}
         placeholder={loading ? "Loading Slack…" : "Slack URL"}
-        value={slackFieldDisplayValue({ editing, resolvedName, url: value })}
+        value={displayedValue}
       />
       <input name="slack" type="hidden" value={value} />
       <input name="slackConfirmed" type="hidden" value={confirmed} />

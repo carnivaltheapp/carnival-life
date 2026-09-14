@@ -18,21 +18,54 @@ export async function fetchSlackResourceName(
   const parameter = resource.type === "channel" ? "channel" : "user";
   const url = new URL(`https://slack.com/api/${endpoint}`);
   url.searchParams.set(parameter, resource.id);
-  const response = await request(url, { headers: { Authorization: `Bearer ${token}` } });
-  const body = await response.json() as SlackResponse;
-  if (!body.ok) {
-    if (["invalid_auth", "token_revoked", "account_inactive", "not_authed"].includes(body.error ?? "")) {
-      throw new SlackReconnectRequiredError("Reconnect Slack to resolve names.");
+  console.info("SLACK_NAME_API_REQUEST", {
+    method: endpoint,
+    resourceId: resource.id,
+    resourceType: resource.type,
+  });
+  try {
+    const response = await request(url, { headers: { Authorization: `Bearer ${token}` } });
+    const body = await response.json() as SlackResponse;
+    if (!body.ok) {
+      console.info("SLACK_NAME_API_RESPONSE", {
+        error: body.error ?? "unknown_error",
+        ok: false,
+        resourceId: resource.id,
+        resourceType: resource.type,
+        resolvedName: null,
+      });
+      if (["invalid_auth", "token_revoked", "account_inactive", "not_authed"].includes(body.error ?? "")) {
+        throw new SlackReconnectRequiredError("Reconnect Slack to resolve names.");
+      }
+      return null;
     }
-    return null;
+    const resolvedName = resource.type === "channel"
+      ? body.channel?.is_channel && !body.channel.is_private && body.channel.name
+        ? `#${body.channel.name}`
+        : null
+      : body.user?.profile?.display_name?.trim() ||
+        body.user?.profile?.real_name?.trim() || body.user?.real_name?.trim() ||
+        body.user?.name?.trim() || null;
+    console.info("SLACK_NAME_API_RESPONSE", {
+      error: null,
+      ok: true,
+      resourceId: resource.id,
+      resourceType: resource.type,
+      resolvedName,
+    });
+    return resolvedName;
+  } catch (error) {
+    if (!(error instanceof SlackReconnectRequiredError)) {
+      console.info("SLACK_NAME_API_RESPONSE", {
+        error: "request_failed",
+        ok: false,
+        resourceId: resource.id,
+        resourceType: resource.type,
+        resolvedName: null,
+      });
+    }
+    throw error;
   }
-  if (resource.type === "channel") {
-    if (!body.channel?.is_channel || body.channel.is_private || !body.channel.name) return null;
-    return `#${body.channel.name}`;
-  }
-  return body.user?.profile?.display_name?.trim() ||
-    body.user?.profile?.real_name?.trim() || body.user?.real_name?.trim() ||
-    body.user?.name?.trim() || null;
 }
 
 export class SlackNameCache {
