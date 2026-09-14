@@ -87,7 +87,6 @@ export function PlayForm({
   play,
   supportsWorkflows,
   reminderContextDate,
-  slackUrl = null,
 }: {
   baskets: BasketSummary[];
   defaultPlacement: PlayPlacement;
@@ -95,7 +94,6 @@ export function PlayForm({
   play?: PlayListItem;
   supportsWorkflows: boolean;
   reminderContextDate: string;
-  slackUrl?: string | null;
 }) {
   const router = useRouter();
   const detailsRef = useRef<HTMLDetailsElement>(null);
@@ -212,8 +210,6 @@ export function PlayForm({
             void openPlayDetailsAndRouteAux(
               play,
               () => { if (detailsRef.current) detailsRef.current.open = true; },
-              undefined,
-              slackUrl,
             );
           }
         } : undefined}

@@ -25,7 +25,7 @@ function play(overrides: Partial<PlayListItem> = {}): PlayListItem {
 }
 
 describe("Play Description Aux routing", () => {
-  it("opens detail, routes URL then Slack through its shared helper, and routes Gmail last", async () => {
+  it("opens detail, routes URL, and routes Gmail last", async () => {
     const events: string[] = [];
     await openPlayDetailsAndRouteAux(
       play({
@@ -35,32 +35,44 @@ describe("Play Description Aux routing", () => {
       }),
       () => events.push("detail"),
       async (url) => { events.push(url); },
-      "https://app.slack.com/client/T1/C1",
-      async (url) => { events.push(`slack:${url}`); },
     );
 
     expect(events).toEqual([
       "detail",
       "https://example.com/context",
-      "slack:https://app.slack.com/client/T1/C1",
       "https://mail.google.com/mail/u/2/#all/FMexact",
     ]);
   });
 
-  it("leaves Slack final when Gmail is absent", async () => {
+  it.each([
+    {
+      expected: ["detail"],
+      value: play({ playerContactId: "slack-player", playerDisplayName: "Ada" }),
+    },
+    {
+      expected: ["detail", "https://example.com/context"],
+      value: play({
+        playerContactId: "slack-player",
+        playerDisplayName: "Ada",
+        url: "https://example.com/context",
+      }),
+    },
+    {
+      expected: ["detail", "https://mail.google.com/mail/u/0/#all/FMexact"],
+      value: play({
+        gmailThreadId: "FMexact",
+        playerContactId: "slack-player",
+        playerDisplayName: "Ada",
+      }),
+    },
+  ])("never routes Slack from Description", async ({ expected, value }) => {
     const events: string[] = [];
     await openPlayDetailsAndRouteAux(
-      play({ url: "https://example.com/context" }),
+      value,
       () => events.push("detail"),
       async (url) => { events.push(url); },
-      "https://acme.slack.com/archives/C1",
-      async (url) => { events.push(`slack:${url}`); },
     );
-    expect(events).toEqual([
-      "detail",
-      "https://example.com/context",
-      "slack:https://acme.slack.com/archives/C1",
-    ]);
+    expect(events).toEqual(expected);
   });
 
   it.each([
