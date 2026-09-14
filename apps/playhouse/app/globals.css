@@ -1440,18 +1440,6 @@ h1 {
 }
 
 .editDisclosure[open] > summary {
-  position: absolute;
-  z-index: 1;
-  top: 0;
-  right: 0;
-  width: 40px;
-  height: 40px;
-  margin: 0;
-  padding: 0;
-  text-decoration: none;
-}
-
-.editDisclosure[open] > summary .playTitleText {
   display: none;
 }
 
@@ -1468,15 +1456,6 @@ h1 {
 .editDisclosure[open] > .playForm,
 .editDisclosure[open] > .editWorkflowArea {
   grid-column: 1 / -1;
-}
-
-.editDisclosure[open] > summary::after {
-  position: absolute;
-  top: 8px;
-  right: 13px;
-  content: "×";
-  color: var(--muted);
-  font-size: 1rem;
 }
 
 .editDisclosure .playForm {

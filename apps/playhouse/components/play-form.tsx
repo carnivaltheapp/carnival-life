@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 
 import { savePlay } from "../app/plays/actions";
@@ -102,6 +102,7 @@ export function PlayForm({
 }) {
   const router = useRouter();
   const detailsRef = useRef<HTMLDetailsElement>(null);
+  const [formResetVersion, setFormResetVersion] = useState(0);
   const initialPlacement: PlayPlacement = play
     ? play.basketId
       ? { basketId: play.basketId, kind: "basket" }
@@ -126,7 +127,7 @@ export function PlayForm({
   const hasNonstandardPlace = Boolean(
     play?.place && !PLACE_OPTIONS.some((place) => place === play.place),
   );
-  const submittedValues = state.values;
+  const submittedValues = formResetVersion === 0 ? state.values : undefined;
   const submittedPlayerId = submittedValues?.playerContactId ?? null;
   const submittedPlayerName = submittedValues?.playerDisplayName ?? null;
   const initialPlayer = submittedValues
@@ -198,6 +199,23 @@ export function PlayForm({
     setShowReminderDate(false);
   }
 
+  function cancelEdit(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setPlacementKind(initialPlacement.kind);
+    setPlayType(play?.playType ?? "normal");
+    setScheduledDate(
+      initialPlacement.kind === "calendar" ? initialPlacement.scheduledDate : "",
+    );
+    setReminderDate("");
+    setReminderDateMessage(null);
+    setShowReminderDate(false);
+    setSaveFollowupError(null);
+    setSelectedPlayerId(play?.playerContactId ?? null);
+    setFormResetVersion((version) => version + 1);
+    detailsRef.current?.removeAttribute("open");
+  }
+
   return (
     <details
       className={isEditing ? "editDisclosure" : "createDisclosure"}
@@ -228,7 +246,7 @@ export function PlayForm({
           : <span aria-hidden="true">+</span>}
       </summary>
       {play ? <PlayInfo play={play} /> : null}
-      <form action={formAction} className="playForm" noValidate>
+      <form action={formAction} className="playForm" key={formResetVersion} noValidate>
         {play ? <input name="playId" type="hidden" value={play.id} /> : null}
         <input name="reminderContextDate" type="hidden" value={reminderContextDate} />
 
@@ -435,6 +453,16 @@ export function PlayForm({
           <button className="primaryButton" disabled={isPending} type="submit">
             {isPending ? "Saving…" : isEditing ? "Save changes" : "Create Play"}
           </button>
+          {isEditing ? (
+            <button
+              className="secondaryButton"
+              onClick={cancelEdit}
+              onPointerDown={(event) => event.stopPropagation()}
+              type="button"
+            >
+              Cancel
+            </button>
+          ) : null}
           {state.status === "error" && state.message ? (
             <p className="formError" role="alert">
               {state.message}
