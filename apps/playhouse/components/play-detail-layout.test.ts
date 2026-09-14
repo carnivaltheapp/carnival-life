@@ -6,8 +6,8 @@ const stylesheet = readFileSync(new URL("../app/globals.css", import.meta.url), 
 
 describe("full-area Play detail", () => {
   it("covers the PlayHouse body below the retained header", () => {
-    expect(stylesheet).toMatch(/\.appHeader\s*\{[\s\S]*?z-index: 20;/);
-    expect(stylesheet).toMatch(/\.editDisclosure\[open\]\s*\{[\s\S]*?z-index: 19;[\s\S]*?top: 76px;[\s\S]*?bottom: 0;/);
+    expect(stylesheet).toMatch(/\.appHeader\s*\{[\s\S]*?z-index: var\(--z-sticky\);/);
+    expect(stylesheet).toMatch(/\.editDisclosure\[open\]\s*\{[\s\S]*?z-index: var\(--z-detail\);[\s\S]*?top: 76px;[\s\S]*?bottom: 0;/);
     expect(stylesheet).toMatch(/width: min\(1440px, 100vw\);/);
     expect(stylesheet).toMatch(/@media[\s\S]*?\.editDisclosure\[open\]\s*\{[\s\S]*?top: 96px;[\s\S]*?width: 100vw;/);
   });

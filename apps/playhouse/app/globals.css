@@ -8,6 +8,11 @@
   --sun: #ffbd3e;
   --success: #249a63;
   --shadow: 0 24px 70px rgba(48, 29, 83, 0.12);
+  --z-detail: 20;
+  --z-sticky: 30;
+  --z-actions: 40;
+  --z-popover: 60;
+  --z-modal: 80;
 }
 
 * {
@@ -57,7 +62,7 @@ a {
 
 .appHeader {
   position: relative;
-  z-index: 20;
+  z-index: var(--z-sticky);
   display: grid;
   min-height: 76px;
   padding: 0 clamp(20px, 4vw, 54px);
@@ -163,7 +168,7 @@ a {
 
 .accountMenuPopover {
   position: absolute;
-  z-index: 30;
+  z-index: var(--z-popover);
   top: calc(100% + 8px);
   right: 0;
   display: grid;
@@ -292,7 +297,7 @@ a {
 
 .bullseyeCategories {
   position: absolute;
-  z-index: 20;
+  z-index: var(--z-popover);
   top: 0;
   left: 43px;
   display: flex;
@@ -616,7 +621,7 @@ a {
 
 .settingsPopover {
   position: absolute;
-  z-index: 12;
+  z-index: var(--z-popover);
   top: calc(100% + 7px);
   right: 0;
   display: grid;
@@ -1436,7 +1441,7 @@ h1 {
 
 .descriptionHoverBubble {
   position: fixed;
-  z-index: 20;
+  z-index: var(--z-popover);
   max-width: min(420px, calc(100vw - 24px));
   padding: 7px 9px;
   color: #2b2440;
@@ -1478,7 +1483,7 @@ h1 {
 
 .createDisclosure .playForm {
   position: absolute;
-  z-index: 5;
+  z-index: var(--z-popover);
   top: calc(100% + 8px);
   right: 0;
   width: min(620px, calc(100vw - 40px));
@@ -1489,7 +1494,7 @@ h1 {
 
 .editDisclosure[open] {
   position: fixed;
-  z-index: 7;
+  z-index: var(--z-detail);
   top: 50%;
   left: 50%;
   display: grid;
@@ -1589,7 +1594,7 @@ h1 {
 }
 
 .editDisclosure[open] {
-  z-index: 19;
+  z-index: var(--z-detail);
   top: 76px;
   right: auto;
   bottom: 0;
@@ -1732,7 +1737,7 @@ h1 {
 
 .playDetailActions {
   position: sticky;
-  z-index: 4;
+  z-index: var(--z-actions);
   bottom: 0;
   min-height: 64px;
   justify-content: space-between;
@@ -1832,7 +1837,7 @@ h1 {
 
 .branchPickerMenu {
   position: absolute;
-  z-index: 30;
+  z-index: var(--z-popover);
   top: calc(100% + 4px);
   left: 0;
   display: grid;
@@ -1919,7 +1924,7 @@ h1 {
 
 .reminderDateOverlay {
   position: fixed;
-  z-index: 20;
+  z-index: var(--z-modal);
   inset: 0;
   display: grid;
   place-items: center;
@@ -1961,7 +1966,7 @@ h1 {
 }
 
 .playerField {
-  z-index: 3;
+  z-index: auto;
 }
 
 .playerInfoRow {
@@ -2027,7 +2032,7 @@ h1 {
 
 .playerContactInfoError {
   position: absolute;
-  z-index: 4;
+  z-index: var(--z-popover);
   top: calc(100% + 4px);
   right: 0;
   width: 190px;
@@ -2071,7 +2076,7 @@ h1 {
 
 .playerSearchMenu {
   position: absolute;
-  z-index: 10;
+  z-index: var(--z-popover);
   top: calc(100% + 4px);
   right: 0;
   left: 0;
@@ -2392,7 +2397,7 @@ h1 {
 
 .rowError {
   position: absolute;
-  z-index: 12;
+  z-index: var(--z-popover);
   top: calc(100% + 4px);
   right: 0;
   width: max-content;
@@ -2483,7 +2488,7 @@ h1 {
 
 .doneCreateForm {
   position: absolute;
-  z-index: 6;
+  z-index: var(--z-popover);
   top: calc(100% + 8px);
   right: 0;
   display: grid;
@@ -2844,6 +2849,12 @@ h1 {
     flex-wrap: wrap;
   }
 
+  .editDisclosure[open] .playerSearchMenu {
+    top: auto;
+    bottom: calc(100% + 4px);
+    max-height: min(220px, 38dvh);
+  }
+
 
   .relationshipForm,
   .doneCreateForm {
@@ -2912,7 +2923,7 @@ h1 {
 
 .gmailContextMenu {
   position: fixed;
-  z-index: 80;
+  z-index: var(--z-popover);
   width: 160px;
   padding: 4px;
   border: 1px solid rgba(92, 72, 111, 0.22);
