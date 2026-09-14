@@ -2,19 +2,21 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { bootstrapTreeOfLife, loadTreeOfLifeBranches } from "../app/tree-of-life/actions";
+import type { BranchTreeNode } from "../domain/tree-of-life";
 import {
   canonicalBranchValue,
   conciseBranchName,
   loadLocalBranches,
-  type LocalBranchNode,
 } from "../lib/desktop/local-branches";
 
 export function BranchPicker({ initialBranch }: { initialBranch: string }) {
   const [selectedBranch, setSelectedBranch] = useState(initialBranch);
   const [open, setOpen] = useState(false);
-  const [status, setStatus] = useState<"idle" | "loading" | "ready" | "unavailable">("idle");
-  const [roots, setRoots] = useState<LocalBranchNode[]>([]);
-  const [trail, setTrail] = useState<LocalBranchNode[]>([]);
+  const [status, setStatus] = useState<"idle" | "loading" | "ready" | "empty" | "unavailable">("idle");
+  const [message, setMessage] = useState("");
+  const [roots, setRoots] = useState<BranchTreeNode[]>([]);
+  const [trail, setTrail] = useState<BranchTreeNode[]>([]);
   const pickerRef = useRef<HTMLDivElement>(null);
   const currentNodes = trail.at(-1)?.children ?? roots;
 
@@ -39,9 +41,24 @@ export function BranchPicker({ initialBranch }: { initialBranch: string }) {
     setOpen(nextOpen);
     if (!nextOpen || status !== "idle") return;
     setStatus("loading");
-    const result = await loadLocalBranches();
+    const result = await loadTreeOfLifeBranches();
     setRoots(result.branches);
-    setStatus(result.ok ? "ready" : "unavailable");
+    setStatus(result.ok ? (result.initialized ? "ready" : "empty") : "unavailable");
+  }
+
+  async function importTreeOfLife() {
+    setStatus("loading");
+    setMessage("");
+    const local = await loadLocalBranches();
+    if (!local.ok) {
+      setStatus("empty");
+      setMessage("Desktop Branch scan unavailable.");
+      return;
+    }
+    const result = await bootstrapTreeOfLife(local.branches);
+    setRoots(result.branches);
+    setStatus(result.ok && result.initialized ? "ready" : "empty");
+    setMessage(result.message ?? "");
   }
 
   return (
@@ -70,6 +87,14 @@ export function BranchPicker({ initialBranch }: { initialBranch: string }) {
           ) : null}
           {status === "loading" ? <p>Loading Branches…</p> : null}
           {status === "unavailable" ? <p>Branches unavailable</p> : null}
+          {status === "empty" ? (
+            <div>
+              <p>{message || "Tree of Life has not been imported."}</p>
+              <button className="branchPickerImport" onClick={importTreeOfLife} type="button">
+                Import Tree of Life
+              </button>
+            </div>
+          ) : null}
           {status === "ready" ? currentNodes.map((node) => (
             <div className="branchPickerRow" key={node.relativePath}>
               <button

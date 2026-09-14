@@ -150,6 +150,19 @@ When nothing is selected, the second surface is Calendar. Selecting contextual c
 
 Eventually Carnival will render its own native calendar as this second surface.
 
+## Tree of Life Branch authority (current Mongo phase)
+
+After a deliberate one-time desktop bootstrap, the owner-scoped Mongo `tree_of_life`
+collection is the authoritative Branch catalog. PlayHouse desktop, web, and mobile read
+that catalog through authenticated server access; opening the Branch picker never scans
+the local filesystem or requires the Chrome extension/native host.
+
+The native Tree of Life scan is bootstrap-only. Future Branch management follows a
+strict one-way contract: PlayHouse writes Mongo first, then requests any corresponding
+local filesystem change through the native host. Local filesystem changes must never
+silently overwrite Mongo. Existing Play Branch storage and canonical values remain
+unchanged.
+
 ## Settings
 
 Settings include at least:

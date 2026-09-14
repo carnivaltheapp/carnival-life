@@ -62,6 +62,11 @@ describe("local Branch bridge", () => {
     await expect(loadLocalBranches(target as never)).resolves.toEqual({ branches: [], ok: false });
   });
 
+  it("fails safely when the native bootstrap bridge is unavailable", async () => {
+    const target = branchTarget([], false);
+    await expect(loadLocalBranches(target as never)).resolves.toEqual({ branches: [], ok: false });
+  });
+
   it("normalizes the already-loaded extension response during rollout", async () => {
     const target = branchTarget([{ children: [], name: "Carnival", path: "Carnival", selectable: true }]);
     await expect(loadLocalBranches(target as never)).resolves.toEqual({

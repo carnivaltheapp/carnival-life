@@ -1674,6 +1674,17 @@ h1 {
   color: var(--muted);
 }
 
+.branchPickerImport {
+  min-height: 32px;
+  margin: 0 8px 8px;
+  padding: 5px 9px;
+  border: 1px solid rgba(109, 63, 242, 0.35);
+  border-radius: 7px;
+  background: rgba(109, 63, 242, 0.1);
+  color: var(--accent);
+  font: inherit;
+}
+
 .branchPickerRow {
   display: grid;
   min-width: 0;
