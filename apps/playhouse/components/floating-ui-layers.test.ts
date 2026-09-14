@@ -21,6 +21,7 @@ describe("PlayHouse floating UI layers", () => {
   it("places Branch and contextual choice surfaces above ordinary and sticky UI", () => {
     for (const selector of [
       ".branchPickerMenu",
+      ".branchSearchMenu",
       ".accountMenuPopover",
       ".settingsPopover",
       ".gmailContextMenu",
@@ -31,12 +32,13 @@ describe("PlayHouse floating UI layers", () => {
       ));
     }
     expect(branch).toContain('className="branchPickerMenu"');
+    expect(branch).toContain('className="branchSearchMenu"');
   });
 
   it("does not clip menus at detail section boundaries and constrains menu height", () => {
     expect(stylesheet).not.toMatch(/\.playDetailSection\s*\{[^}]*overflow:\s*(?:hidden|auto)/);
     expect(stylesheet).toMatch(/\.playerSearchMenu\s*\{[\s\S]*?overflow-y: auto;[\s\S]*?max-height: 220px;/);
-    expect(stylesheet).toMatch(/\.branchPickerMenu\s*\{[\s\S]*?max-height: min\(330px, 55vh\);[\s\S]*?overflow-y: auto;/);
+    expect(stylesheet).toMatch(/\.branchPickerMenu,[\s\S]*?\.branchSearchMenu\s*\{[\s\S]*?max-height: min\(330px, 55vh\);[\s\S]*?overflow-y: auto;/);
     expect(stylesheet).toMatch(/\.editDisclosure\[open\] \.playerSearchMenu\s*\{[\s\S]*?bottom: calc\(100% \+ 4px\);[\s\S]*?max-height: min\(220px, 38dvh\);/);
   });
 

@@ -1474,6 +1474,8 @@ h1 {
 }
 
 .branchPickerTrigger:focus-visible,
+.branchSearchInput:focus-visible,
+.branchSearchResult:focus-visible,
 .branchPickerName:focus-visible,
 .branchPickerDrill:focus-visible,
 .branchPickerBack:focus-visible {
@@ -1694,9 +1696,10 @@ h1 {
   resize: vertical;
 }
 
-.editDisclosure[open] .playDetailBranchSection .branchPickerMenu {
-  width: min(620px, calc(100vw - 64px));
-  max-height: min(430px, 55vh);
+.editDisclosure[open] .playDetailBranchSection .branchPickerMenu,
+.editDisclosure[open] .playDetailBranchSection .branchSearchMenu {
+  width: 100%;
+  max-height: min(430px, 60vh);
 }
 
 .jiraPlaceholder {
@@ -1809,11 +1812,20 @@ h1 {
 }
 
 .branchPicker {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.branchSearch,
+.branchHierarchyPicker {
   position: relative;
   min-width: 0;
 }
 
-.branchPickerTrigger {
+.branchPickerTrigger,
+.branchSearchInput {
   display: flex;
   width: 100%;
   min-height: 37px;
@@ -1829,18 +1841,24 @@ h1 {
   text-align: left;
 }
 
+.branchSearchInput {
+  display: block;
+}
+
 .branchPickerTrigger > span:first-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.branchPickerMenu {
+.branchPickerMenu,
+.branchSearchMenu {
   position: absolute;
   z-index: var(--z-popover);
   top: calc(100% + 4px);
   left: 0;
   display: grid;
+  height: max-content;
   width: min(300px, calc(100vw - 48px));
   max-height: min(330px, 55vh);
   padding: 5px;
@@ -1850,12 +1868,29 @@ h1 {
   border-radius: 10px;
   background: #fffdfa;
   box-shadow: 0 14px 36px rgba(48, 29, 83, 0.2);
+  align-content: start;
 }
 
-.branchPickerMenu p {
+.branchPickerMenu p,
+.branchSearchMenu p {
   margin: 0;
   padding: 8px;
   color: var(--muted);
+}
+
+.branchSearchResult {
+  min-height: 32px;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+.branchSearchResult:hover {
+  background: rgba(109, 63, 242, 0.1);
 }
 
 .branchPickerImport {
@@ -1895,7 +1930,8 @@ h1 {
 }
 
 .branchPickerName:disabled {
-  color: var(--muted);
+  color: var(--ink);
+  opacity: 1;
   cursor: default;
 }
 
@@ -2833,6 +2869,15 @@ h1 {
 
   .playDetailBasketRow {
     width: 100%;
+  }
+
+  .branchPicker {
+    grid-template-columns: 1fr;
+  }
+
+  .editDisclosure[open] .playDetailBranchSection .branchPickerMenu,
+  .editDisclosure[open] .playDetailBranchSection .branchSearchMenu {
+    max-height: min(300px, 45dvh);
   }
 
   .playDetailSection {

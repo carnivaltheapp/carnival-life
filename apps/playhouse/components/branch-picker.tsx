@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { bootstrapTreeOfLife, loadTreeOfLifeBranches } from "../app/tree-of-life/actions";
-import type { BranchTreeNode } from "../domain/tree-of-life";
+import { searchBranchTree, type BranchTreeNode } from "../domain/tree-of-life";
 import {
   canonicalBranchValue,
   displayBranchPath,
@@ -17,16 +17,26 @@ export function BranchPicker({ initialBranch }: { initialBranch: string }) {
   const [message, setMessage] = useState("");
   const [roots, setRoots] = useState<BranchTreeNode[]>([]);
   const [trail, setTrail] = useState<BranchTreeNode[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const branchLoadStartedRef = useRef(false);
   const currentNodes = trail.at(-1)?.children ?? roots;
+  const searchResults = searchBranchTree(roots, searchQuery);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open && !searchFocused) return;
     function closeOnOutsidePointer(event: PointerEvent) {
-      if (!pickerRef.current?.contains(event.target as Node)) setOpen(false);
+      if (!pickerRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+        setSearchFocused(false);
+      }
     }
     function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        setOpen(false);
+        setSearchFocused(false);
+      }
     }
     document.addEventListener("pointerdown", closeOnOutsidePointer);
     document.addEventListener("keydown", closeOnEscape);
@@ -34,16 +44,30 @@ export function BranchPicker({ initialBranch }: { initialBranch: string }) {
       document.removeEventListener("pointerdown", closeOnOutsidePointer);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [open]);
+  }, [open, searchFocused]);
 
-  async function togglePicker() {
-    const nextOpen = !open;
-    setOpen(nextOpen);
-    if (!nextOpen || status !== "idle") return;
+  async function ensureBranchesLoaded() {
+    if (status !== "idle" || branchLoadStartedRef.current) return;
+    branchLoadStartedRef.current = true;
     setStatus("loading");
     const result = await loadTreeOfLifeBranches();
     setRoots(result.branches);
     setStatus(result.ok ? (result.initialized ? "ready" : "empty") : "unavailable");
+  }
+
+  async function togglePicker() {
+    const nextOpen = !open;
+    setOpen(nextOpen);
+    setSearchFocused(false);
+    if (nextOpen) await ensureBranchesLoaded();
+  }
+
+  function selectBranch(relativePath: string) {
+    setSelectedBranch(canonicalBranchValue(relativePath));
+    setOpen(false);
+    setSearchFocused(false);
+    setSearchQuery("");
+    setTrail([]);
   }
 
   async function importTreeOfLife() {
@@ -64,18 +88,54 @@ export function BranchPicker({ initialBranch }: { initialBranch: string }) {
   return (
     <div className="branchPicker" ref={pickerRef}>
       <input name="branch" readOnly type="hidden" value={selectedBranch} />
-      <button
-        aria-expanded={open}
-        aria-label="Branch"
-        className="branchPickerTrigger"
-        onClick={togglePicker}
-        type="button"
-      >
-        <span>{selectedBranch ? displayBranchPath(selectedBranch) : "Branch"}</span>
-        <span aria-hidden="true">⌄</span>
-      </button>
-      {open ? (
-        <div aria-label="Branch hierarchy" className="branchPickerMenu" role="dialog">
+      <div className="branchSearch">
+        <input
+          aria-label="Search Branches"
+          className="branchSearchInput"
+          onChange={(event) => {
+            setSearchQuery(event.target.value);
+            void ensureBranchesLoaded();
+          }}
+          onFocus={() => {
+            setSearchFocused(true);
+            void ensureBranchesLoaded();
+          }}
+          placeholder="Search Branches"
+          type="search"
+          value={searchQuery}
+        />
+        {searchFocused && searchQuery.trim() ? (
+          <div aria-label="Branch search results" className="branchSearchMenu" role="listbox">
+            {status === "loading" ? <p>Loading Branches…</p> : null}
+            {status === "ready" && !searchResults.length ? <p>No matching Branches</p> : null}
+            {status === "ready" ? searchResults.map((node) => (
+              <button
+                aria-selected="false"
+                className="branchSearchResult"
+                key={node.relativePath}
+                onClick={() => selectBranch(node.relativePath)}
+                role="option"
+                type="button"
+              >
+                {displayBranchPath(node.relativePath)}
+              </button>
+            )) : null}
+          </div>
+        ) : null}
+      </div>
+      <div className="branchHierarchyPicker">
+        <button
+          aria-expanded={open}
+          aria-label="Branch"
+          className="branchPickerTrigger"
+          onClick={togglePicker}
+          type="button"
+        >
+          <span>{selectedBranch ? displayBranchPath(selectedBranch) : "Branch"}</span>
+          <span aria-hidden="true">⌄</span>
+        </button>
+        {open ? (
+          <div aria-label="Branch hierarchy" className="branchPickerMenu" role="dialog">
           {trail.length ? (
             <button
               className="branchPickerBack"
@@ -100,11 +160,7 @@ export function BranchPicker({ initialBranch }: { initialBranch: string }) {
               <button
                 className="branchPickerName"
                 disabled={!node.selectable}
-                onClick={() => {
-                  setSelectedBranch(canonicalBranchValue(node.relativePath));
-                  setOpen(false);
-                  setTrail([]);
-                }}
+                onClick={() => selectBranch(node.relativePath)}
                 type="button"
               >
                 {node.name}
@@ -121,8 +177,9 @@ export function BranchPicker({ initialBranch }: { initialBranch: string }) {
               ) : <span />}
             </div>
           )) : null}
-        </div>
-      ) : null}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

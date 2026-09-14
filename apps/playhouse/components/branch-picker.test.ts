@@ -5,13 +5,31 @@ import { describe, expect, it } from "vitest";
 const picker = await readFile(new URL("./branch-picker.tsx", import.meta.url), "utf8");
 const form = await readFile(new URL("./play-form.tsx", import.meta.url), "utf8");
 const actions = await readFile(new URL("../app/tree-of-life/actions.ts", import.meta.url), "utf8");
+const stylesheet = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 
 describe("BranchPicker", () => {
   it("keeps selection and drill-down as separate controls with back navigation", () => {
-    expect(picker).toContain("setSelectedBranch(canonicalBranchValue(node.relativePath))");
+    expect(picker).toContain("selectBranch(node.relativePath)");
     expect(picker).toContain("aria-label={`Open ${node.name}`}");
     expect(picker).toContain("setTrail((current) => [...current, node])");
     expect(picker).toContain("setTrail((current) => current.slice(0, -1))");
+    expect(picker).toContain("disabled={!node.selectable}");
+  });
+
+  it("adds client-side full-path Branch search beside the hierarchy", () => {
+    expect(picker).toContain('aria-label="Search Branches"');
+    expect(picker).toContain("searchBranchTree(roots, searchQuery)");
+    expect(picker).toContain("displayBranchPath(node.relativePath)");
+    expect(picker).toContain("setSelectedBranch(canonicalBranchValue(relativePath))");
+    expect(picker).toContain('setSearchQuery("")');
+    expect(stylesheet).toMatch(/\.branchPicker\s*\{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+    expect(stylesheet).toMatch(/@media \(max-width: 540px\)[\s\S]*?\.branchPicker\s*\{\s*grid-template-columns: 1fr;/);
+  });
+
+  it("keeps both menus compact, scrollable, readable, and above the action bar", () => {
+    expect(stylesheet).toMatch(/\.branchPickerMenu,[\s\S]*?\.branchSearchMenu\s*\{[\s\S]*?z-index: var\(--z-popover\);[\s\S]*?height: max-content;[\s\S]*?max-height: min\(330px, 55vh\);[\s\S]*?overflow-y: auto;[\s\S]*?align-content: start;/);
+    expect(stylesheet).toMatch(/\.branchPickerName:disabled\s*\{[\s\S]*?color: var\(--ink\);[\s\S]*?opacity: 1;/);
+    expect(picker).toContain("node.children.length ? (");
     expect(picker).toContain("disabled={!node.selectable}");
   });
 
@@ -33,6 +51,7 @@ describe("BranchPicker", () => {
     expect(picker).toContain("const local = await loadLocalBranches()");
     expect(picker.indexOf("loadTreeOfLifeBranches()")).toBeLessThan(picker.indexOf("loadLocalBranches()"));
     expect(picker).toContain("Import Tree of Life");
+    expect(picker).toContain('if (status !== "idle" || branchLoadStartedRef.current) return');
   });
 
   it("uses a mobile-compatible server read and derives owner scope from the session", () => {

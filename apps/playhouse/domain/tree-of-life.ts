@@ -89,3 +89,29 @@ export function branchTreeSummary(records: TreeOfLifeBranchRecord[]) {
     topLevelCount: records.filter((record) => record.active && record.depth === 0).length,
   };
 }
+
+export function searchBranchTree(
+  roots: BranchTreeNode[],
+  query: string,
+  limit = 50,
+) {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (!normalizedQuery) return [];
+  const matches: BranchTreeNode[] = [];
+
+  function visit(nodes: BranchTreeNode[]) {
+    for (const node of nodes) {
+      if (
+        node.selectable &&
+        (node.name.toLocaleLowerCase().includes(normalizedQuery) ||
+          node.relativePath.toLocaleLowerCase().includes(normalizedQuery))
+      ) matches.push(node);
+      if (matches.length >= limit) return;
+      visit(node.children);
+      if (matches.length >= limit) return;
+    }
+  }
+
+  visit(roots);
+  return matches;
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildBranchTree, flattenBranchTree } from "./tree-of-life";
+import { buildBranchTree, flattenBranchTree, searchBranchTree } from "./tree-of-life";
 
 const nativeTree = [{
   children: [{
@@ -37,5 +37,18 @@ describe("Tree of Life hierarchy", () => {
   it("rejects malformed and duplicate paths rather than importing partial data", () => {
     expect(() => flattenBranchTree([{ ...nativeTree[0], relativePath: "C:\\Google Drive\\Blue Field Law" }])).toThrow();
     expect(() => flattenBranchTree([nativeTree[0], nativeTree[0]])).toThrow();
+  });
+
+  it("searches selectable Branch names and complete paths case-insensitively", () => {
+    const tree = buildBranchTree(flattenBranchTree(nativeTree));
+    expect(searchBranchTree(tree, "MARKETING").map((branch) => branch.relativePath)).toEqual([
+      "Blue Field Law/Marketing/Paid Marketing",
+      "Blue Field Law/Marketing/Paid Marketing/Agencies",
+    ]);
+    expect(searchBranchTree(tree, "paid marketing/agencies").map((branch) => branch.name))
+      .toEqual(["Agencies"]);
+    expect(searchBranchTree(tree, "Blue Field Law/Marketing")).not.toContainEqual(
+      expect.objectContaining({ relativePath: "Blue Field Law/Marketing" }),
+    );
   });
 });

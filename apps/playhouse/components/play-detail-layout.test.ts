@@ -43,7 +43,7 @@ describe("full-area Play detail", () => {
     expect(stylesheet).toMatch(/\.playDetailThreeColumnRow,[\s\S]*?\.playDetailPeopleRow\s*\{\s*grid-template-columns: 1fr;/);
     expect(stylesheet).toContain("overflow-x: hidden");
     expect(stylesheet).toMatch(/\.playDetailActions\s*\{[\s\S]*?position: sticky;/);
-    expect(stylesheet).toMatch(/\.editDisclosure\[open\] \.playDetailBranchSection \.branchPickerMenu[\s\S]*?width: min\(620px/);
+    expect(stylesheet).toMatch(/\.editDisclosure\[open\] \.playDetailBranchSection \.branchPickerMenu,[\s\S]*?\.branchSearchMenu[\s\S]*?width: 100%;/);
   });
 
   it("keeps unsupported permanent deletion non-destructive while using real Trash", () => {
