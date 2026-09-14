@@ -61,7 +61,7 @@ a {
   display: grid;
   min-height: 76px;
   padding: 0 clamp(20px, 4vw, 54px);
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 18px;
   align-items: center;
   border-bottom: 1px solid var(--line);
@@ -83,15 +83,6 @@ a {
 .headerActions {
   gap: 8px;
   justify-self: end;
-}
-
-.headerViewTitle {
-  overflow: hidden;
-  max-width: min(42vw, 520px);
-  font-size: clamp(1.1rem, 2vw, 1.5rem);
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .brand {
@@ -426,10 +417,33 @@ a {
   box-shadow: var(--shadow);
 }
 
-.playPanel::before {
-  display: block;
+.playPanelCrown {
+  display: flex;
   height: 46px;
-  content: "";
+  min-width: 0;
+  padding: 0 14px;
+  align-items: center;
+  justify-content: center;
+}
+
+.playPanelCrownTitle,
+.playPanelCrownError {
+  overflow: hidden;
+  margin: 0;
+  font-size: 1rem;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playPanelCrownTitle {
+  color: var(--ink);
+}
+
+.playPanelCrownError {
+  color: #81243b;
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .workspaceBody[data-region-selecting="true"] {
@@ -525,6 +539,41 @@ a {
 
 .playSearch button:hover {
   background: rgba(109, 63, 242, 0.09);
+}
+
+.branchFilter {
+  display: flex;
+  height: 34px;
+  min-width: 0;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.branchFilter > span {
+  padding-left: 9px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.branchFilter select {
+  width: clamp(105px, 10vw, 145px);
+  min-width: 0;
+  height: 32px;
+  padding: 0 7px;
+  color: var(--ink);
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 0.72rem;
+}
+
+.branchFilter select:focus {
+  outline: 2px solid rgba(109, 63, 242, 0.22);
+  outline-offset: 1px;
 }
 
 .gridSettings {
@@ -1319,15 +1368,6 @@ h1 {
   outline: 2px dashed rgba(109, 63, 242, 0.55);
   outline-offset: -2px;
   background: rgba(109, 63, 242, 0.12);
-}
-
-.moveError {
-  margin: 0;
-  padding: 7px 14px;
-  color: #81243b;
-  border-bottom: 1px solid rgba(129, 36, 59, 0.14);
-  background: #fff7f8;
-  font-size: 0.72rem;
 }
 
 .createDisclosure,
@@ -2301,10 +2341,6 @@ h1 {
     min-height: 500px;
   }
 
-  .playPanel::before {
-    display: none;
-  }
-
   .emptyState {
     min-height: 390px;
   }
@@ -2338,22 +2374,24 @@ h1 {
     grid-row: 1;
   }
 
-  .headerViewTitle {
-    grid-row: 2;
-    max-width: 100%;
-    justify-self: center;
-    font-size: 1rem;
-  }
-
   .headerActions {
     width: 100%;
-    grid-row: 3;
+    grid-row: 2;
     justify-self: stretch;
   }
 
   .headerActions .playSearch {
     width: auto;
+    min-width: 70px;
     flex: 1 1 auto;
+  }
+
+  .branchFilter > span {
+    display: none;
+  }
+
+  .branchFilter select {
+    width: 104px;
   }
 
   .settingsPopover,

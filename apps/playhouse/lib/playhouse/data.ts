@@ -5,6 +5,7 @@ import type {
   NextPlayOption,
   PlayListItem,
 } from "../../domain/play";
+import { playBranchOptions } from "../../domain/play-branch-filter";
 import { isIsoCalendarDate } from "../../domain/play-input";
 import { comparePlayRankAndPriority, sortChronologicalPlays } from "../../domain/play-sort";
 import { searchPlays } from "../../domain/play-search";
@@ -37,6 +38,7 @@ export type SelectedView =
 
 export type PlayhouseData = {
   baskets: BasketSummary[];
+  branchOptions: string[];
   error: boolean;
   nextPlayOptions: NextPlayOption[];
   plays: PlayListItem[];
@@ -198,6 +200,7 @@ export async function loadPlayhouseData({
   if (basketError) {
     return {
       baskets: [],
+      branchOptions: [],
       error: true,
       nextPlayOptions: [],
       plays: [],
@@ -221,6 +224,7 @@ export async function loadPlayhouseData({
     const result = await repository.list(searchQuery ? undefined : selectedView);
     return {
       baskets,
+      branchOptions: playBranchOptions(result.plays),
       error: result.error,
       nextPlayOptions: result.nextPlayOptions,
       plays: searchQuery
@@ -234,6 +238,7 @@ export async function loadPlayhouseData({
   } catch {
     return {
       baskets,
+      branchOptions: [],
       error: true,
       nextPlayOptions: [],
       plays: [],

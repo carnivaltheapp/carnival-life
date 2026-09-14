@@ -43,6 +43,7 @@ export default async function Home({
     | {
         kind: "signed-in";
         baskets: Awaited<ReturnType<typeof loadPlayhouseData>>["baskets"];
+        branchOptions: Awaited<ReturnType<typeof loadPlayhouseData>>["branchOptions"];
         calendarAccounts: Awaited<ReturnType<typeof loadGoogleCalendarSettings>>["accounts"];
         calendarSettingsError: boolean;
         dataError: boolean;
@@ -95,6 +96,7 @@ export default async function Home({
 
       pageState = {
         baskets: playhouseData.baskets,
+        branchOptions: playhouseData.branchOptions,
         calendarAccounts: calendarSettings.accounts,
         calendarSettingsError: calendarSettings.error,
         dataError: Boolean(profileError) || playhouseData.error,
@@ -125,6 +127,7 @@ export default async function Home({
   return (
     <PlayhouseShell
       baskets={pageState.baskets}
+      branchOptions={pageState.branchOptions}
       calendarAccounts={pageState.calendarAccounts}
       calendarSettingsError={pageState.calendarSettingsError}
       dataError={pageState.dataError}

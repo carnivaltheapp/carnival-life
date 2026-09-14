@@ -67,7 +67,7 @@ describe("Play grid responsive squeeze contract", () => {
     expect(rule(".bullseyeSwitcher")).toContain("margin: 0 auto 8px");
     expect(rule(".bullseyeCategories")).toContain("top: 0");
     expect(rule(".bullseyeCategories")).toContain("left: 43px");
-    expect(rule(".playPanel::before")).toContain("height: 46px");
+    expect(rule(".playPanelCrown")).toContain("height: 46px");
   });
 
   it("preserves the complete five-icon action width without horizontal scrolling", () => {

@@ -29,6 +29,11 @@ import type {
   PlayListItem,
   PlayPlacement,
 } from "../domain/play";
+import {
+  ALL_BRANCHES,
+  filterPlaysByBranch,
+  validSelectedBranch,
+} from "../domain/play-branch-filter";
 import type { CalendarSettingsAccount } from "../domain/calendar-settings";
 import {
   CARNIVAL_GMAIL_DRAG_TYPE,
@@ -102,6 +107,7 @@ export type UserIdentity = {
 
 type PlayhouseShellProps = {
   baskets: BasketSummary[];
+  branchOptions: string[];
   calendarAccounts: CalendarSettingsAccount[];
   calendarSettingsError: boolean;
   dataError: boolean;
@@ -115,6 +121,7 @@ type PlayhouseShellProps = {
 };
 
 type BullseyeCategory = "calendar" | "baskets" | "rank" | "push";
+type BranchFilterState = { optionsKey: string; selected: string };
 
 function inspectGmailDropDataTransfer(
   event: DragEvent<HTMLElement>,
@@ -216,6 +223,7 @@ export function PlayhouseShell(props: PlayhouseShellProps) {
 
 function PlayhouseShellView({
   baskets,
+  branchOptions,
   calendarAccounts,
   calendarSettingsError,
   dataError,
@@ -262,6 +270,20 @@ function PlayhouseShellView({
     y: number;
   } | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const branchOptionsKey = branchOptions.join("\u0000");
+  const [branchFilter, setBranchFilter] = useState<BranchFilterState>({
+    optionsKey: branchOptionsKey,
+    selected: ALL_BRANCHES,
+  });
+  if (branchFilter.optionsKey !== branchOptionsKey) {
+    setBranchFilter({
+      optionsKey: branchOptionsKey,
+      selected: validSelectedBranch(branchFilter.selected, branchOptions),
+    });
+  }
+  const selectedBranch = branchFilter.optionsKey === branchOptionsKey
+    ? branchFilter.selected
+    : validSelectedBranch(branchFilter.selected, branchOptions);
   const [gridSort, setGridSort] = useState<PlayGridSort | null>(null);
   const [flippingPlayId, setFlippingPlayId] = useState<string | null>(null);
   const [optimisticPlays, setOptimisticPlays] = useState<{
@@ -351,9 +373,14 @@ function PlayhouseShellView({
     : searchQuery
       ? "Search Results"
       : selectedView.label;
+  const crownError = moveError ?? (dataError ? "PlayHouse could not load." : null);
+  const branchFilteredPlays = useMemo(
+    () => filterPlaysByBranch(localPlays, selectedBranch),
+    [localPlays, selectedBranch],
+  );
   const visiblePlays = useMemo(
-    () => sortPlaysForGrid(localPlays, gridSort),
-    [gridSort, localPlays],
+    () => sortPlaysForGrid(branchFilteredPlays, gridSort),
+    [branchFilteredPlays, gridSort],
   );
   const visibleIds = visiblePlays.map((play) => play.id);
   const eligiblePlayIds = useMemo(() => new Set(
@@ -1047,9 +1074,24 @@ function PlayhouseShellView({
             {playCountLabel}
           </span>
         </div>
-        <h1 className="headerViewTitle" id="view-title">{viewTitle}</h1>
         <div className="headerActions">
           <PlaySearch initialQuery={searchQuery} />
+          <label className="branchFilter">
+            <span>Show Branch</span>
+            <select
+              aria-label="Show Branch"
+              onChange={(event) => setBranchFilter({
+                optionsKey: branchOptionsKey,
+                selected: event.target.value,
+              })}
+              value={selectedBranch}
+            >
+              <option value={ALL_BRANCHES}>All Branches</option>
+              {branchOptions.map((branch) => (
+                <option key={branch} value={branch}>{branch}</option>
+              ))}
+            </select>
+          </label>
           {!dataError ? (
             <PlayForm
               baskets={baskets}
@@ -1379,18 +1421,26 @@ function PlayhouseShellView({
           aria-labelledby="view-title"
           style={{ "--play-grid-font-size": `${gridFontSize}px` } as CSSProperties}
         >
+          <div className="playPanelCrown">
+            {crownError ? (
+              <p className="playPanelCrownError" id="view-title" role="alert">
+                {crownError}
+              </p>
+            ) : (
+              <h1 className="playPanelCrownTitle" id="view-title">{viewTitle}</h1>
+            )}
+          </div>
           {dataError ? (
-            <div className="emptyState" role="alert">
+            <div className="emptyState">
               <span className="spark errorSpark" aria-hidden="true">
                 !
               </span>
-              <h2>PlayHouse could not load.</h2>
               <p>
                 Your session is still secure. Refresh the page in a moment, or sign out and
                 try again.
               </p>
             </div>
-          ) : localPlays.length === 0 ? (
+          ) : visiblePlays.length === 0 ? (
             <div className="emptyState">
               <span className="spark" aria-hidden="true">
                 ✦
@@ -1404,7 +1454,6 @@ function PlayhouseShellView({
             </div>
           ) : (
             <>
-              {moveError ? <p className="moveError" role="alert">{moveError}</p> : null}
               <div className="playGridHeader" role="row">
                 <div className="playIdentityCell">
                   <GridSortHeader
