@@ -8,7 +8,7 @@ import {
 } from "./gmail-tab-metadata.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
-const NATIVE_HOST_VERSION = "DRAWER-HOST-7";
+const NATIVE_HOST_VERSION = "DRAWER-HOST-8";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
@@ -19,11 +19,15 @@ const UNSTAR_VISIBLE_GMAIL_THREAD = "unstarVisibleGmailThread";
 const TAB_SAVE_DELAY_MS = 300;
 const DIAGNOSTIC_STORAGE_KEY = "carnivalWorkspaceDiagnostics";
 const DIAGNOSTIC_LIMIT = 500;
+const GET_LOCAL_BRANCHES = "getLocalBranches";
 let nativePort = null;
 let nativeAnimationAvailable = false;
 let nativeAnimationRequestId = 0;
 let immediateNativeReconnectUsed = false;
 const nativeAnimationRequests = new Map();
+const nativeBranchRequests = new Map();
+let nativeBranchRequestId = 0;
+let branchHierarchyCache = null;
 let geometrySaveTimer = null;
 const tabSaveTimers = new Map();
 const tabSaveReasons = new Map();
@@ -202,6 +206,17 @@ function connectNativeHost() {
         complete?.(message.ok === true);
         return;
       }
+      if (message?.type === "branchesResult") {
+        const complete = nativeBranchRequests.get(message.requestId);
+        nativeBranchRequests.delete(message.requestId);
+        if (message.ok === true && Array.isArray(message.branches)) {
+          branchHierarchyCache = message.branches;
+          complete?.({ ok: true, branches: branchHierarchyCache });
+        } else {
+          complete?.({ ok: false, branches: [] });
+        }
+        return;
+      }
       workspaceActions.handleNativeMessage(message, port)
         .catch((error) => console.error("Carnival summon failed", error));
     });
@@ -211,6 +226,8 @@ function connectNativeHost() {
       nativeAnimationAvailable = false;
       for (const complete of nativeAnimationRequests.values()) complete(false);
       nativeAnimationRequests.clear();
+      for (const complete of nativeBranchRequests.values()) complete({ ok: false, branches: [] });
+      nativeBranchRequests.clear();
       nativePort = null;
       chrome.alarms.create(RECONNECT_ALARM, { delayInMinutes: 1 });
       if (reconnectImmediately) connectNativeHost();
@@ -278,6 +295,34 @@ chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
 chrome.tabs.onActivated.addListener(({ windowId }) => scheduleTabSave(windowId, "tab-activated"));
 chrome.tabs.onMoved.addListener((_tabId, moveInfo) => scheduleTabSave(moveInfo.windowId, "tab-moved"));
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === GET_LOCAL_BRANCHES) {
+    if (branchHierarchyCache) {
+      sendResponse({ ok: true, branches: branchHierarchyCache });
+      return false;
+    }
+    if (!nativePort) {
+      sendResponse({ ok: false, branches: [] });
+      return false;
+    }
+    const requestId = ++nativeBranchRequestId;
+    const timeout = setTimeout(() => {
+      nativeBranchRequests.delete(requestId);
+      sendResponse({ ok: false, branches: [] });
+    }, 15000);
+    nativeBranchRequests.set(requestId, (response) => {
+      clearTimeout(timeout);
+      sendResponse(response);
+    });
+    try {
+      nativePort.postMessage({ requestId, type: "getBranches" });
+    } catch {
+      clearTimeout(timeout);
+      nativeBranchRequests.delete(requestId);
+      sendResponse({ ok: false, branches: [] });
+      return false;
+    }
+    return true;
+  }
   if (message?.type === UNSTAR_GMAIL_THREAD) {
     const diagnostic = {
       action: message.action,

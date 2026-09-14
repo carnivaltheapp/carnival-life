@@ -29,6 +29,7 @@ import {
   type DescriptionTooltipPosition,
 } from "./play-description-tooltip";
 import { applySuccessfulPlaySave } from "./play-form-success";
+import { BranchPicker } from "./branch-picker";
 import { PlayerCombobox } from "./player-combobox";
 import { PlayerContactInfo } from "./player-contact-info";
 import { PlayerSlackField } from "./player-slack-field";
@@ -398,17 +399,10 @@ export function PlayForm({
         </div>
 
         <div className="formRow field--wide">
-          <label className="field compactField">
-            <span className="srOnly">Branch</span>
-            <input
-              aria-label="Branch"
-              defaultValue={submittedValues?.branch ?? play?.branch ?? ""}
-              maxLength={200}
-              name="branch"
-              placeholder="Branch"
-            />
+          <div className="field compactField">
+            <BranchPicker initialBranch={submittedValues?.branch ?? play?.branch ?? ""} />
             <FieldError errors={state.fieldErrors} field="branch" />
-          </label>
+          </div>
           <label className="field compactField">
             <span className="srOnly">Place</span>
             <select

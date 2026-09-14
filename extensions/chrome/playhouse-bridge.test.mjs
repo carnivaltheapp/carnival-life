@@ -81,3 +81,35 @@ test("content script receives the page request and forwards canonical openInAux"
     origin: pageWindow.location.origin,
   }]);
 });
+
+test("content script forwards one compact local Branch hierarchy response", async () => {
+  let messageListener;
+  const runtimeMessages = [];
+  const pageMessages = [];
+  const pageWindow = {
+    addEventListener(type, listener) { if (type === "message") messageListener = listener; },
+    location: { origin: "https://carnival-playhouse.vercel.app" },
+    postMessage(message, origin) { pageMessages.push({ message, origin }); },
+  };
+  const branches = [{ children: [], name: "Carnival", path: "Carnival", selectable: true }];
+  vm.runInNewContext(bridgeSource, {
+    chrome: { runtime: { async sendMessage(message) { runtimeMessages.push(message); return { branches, ok: true }; } } },
+    console,
+    window: pageWindow,
+  });
+
+  messageListener({
+    data: { requestId: "branch-1", source: "carnival-playhouse", type: "getLocalBranches" },
+    origin: pageWindow.location.origin,
+  });
+  await Promise.resolve();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(runtimeMessages)), [{ type: "getLocalBranches" }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(pageMessages[0].message)), {
+    branches,
+    ok: true,
+    requestId: "branch-1",
+    source: "carnival-playhouse-bridge",
+    type: "localBranchesResult",
+  });
+});

@@ -1468,6 +1468,14 @@ h1 {
   outline-offset: 2px;
 }
 
+.branchPickerTrigger:focus-visible,
+.branchPickerName:focus-visible,
+.branchPickerDrill:focus-visible,
+.branchPickerBack:focus-visible {
+  outline: 3px solid rgba(109, 63, 242, 0.3);
+  outline-offset: 1px;
+}
+
 .createDisclosure .playForm {
   position: absolute;
   z-index: 5;
@@ -1556,6 +1564,12 @@ h1 {
   min-height: 34px;
 }
 
+.editDisclosure[open] .branchPickerTrigger {
+  min-height: 31px;
+  padding: 4px 7px;
+  border-radius: 8px;
+}
+
 .editDisclosure[open] .formFooter {
   min-height: 30px;
   gap: 5px;
@@ -1608,6 +1622,104 @@ h1 {
 
 .compactField {
   position: relative;
+}
+
+.branchPicker {
+  position: relative;
+  min-width: 0;
+}
+
+.branchPickerTrigger {
+  display: flex;
+  width: 100%;
+  min-height: 37px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+.branchPickerTrigger > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branchPickerMenu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  display: grid;
+  width: min(300px, calc(100vw - 48px));
+  max-height: min(330px, 55vh);
+  padding: 5px;
+  overflow-y: auto;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fffdfa;
+  box-shadow: 0 14px 36px rgba(48, 29, 83, 0.2);
+}
+
+.branchPickerMenu p {
+  margin: 0;
+  padding: 8px;
+  color: var(--muted);
+}
+
+.branchPickerRow {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) 34px;
+}
+
+.branchPickerName,
+.branchPickerDrill,
+.branchPickerBack {
+  min-height: 32px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+
+.branchPickerName {
+  padding: 5px 7px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branchPickerName:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.branchPickerName:not(:disabled):hover,
+.branchPickerDrill:hover,
+.branchPickerBack:hover {
+  background: rgba(109, 63, 242, 0.1);
+}
+
+.branchPickerDrill {
+  font-size: 22px;
+}
+
+.branchPickerBack {
+  padding: 5px 7px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .playerInputLabel {

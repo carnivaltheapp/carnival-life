@@ -12,7 +12,11 @@ using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
-    private const string HostMarker = "DRAWER-HOST-7";
+    private const string HostMarker = "DRAWER-HOST-8";
+    private const string BranchRoot = @"C:\Google Drive";
+    private const int FcsmInfoTip = 0x4;
+    private const uint FcsRead = 0x1;
+    private const int MaximumNativeMessageBytes = 1024 * 1024;
     private const int AnimationFramesPerSecond = 60;
     private const int HotCornerMaximumOffsetPixels = 4;
     private const int DwellMilliseconds = 200;
@@ -33,6 +37,7 @@ internal static class CarnivalWorkspaceHost
     private static readonly object PipeLock = new object();
     private static readonly object StateLock = new object();
     private static readonly object SummonLock = new object();
+    private static readonly object BranchLock = new object();
     private static readonly string PipeName = "CarnivalDesktopWorkspace-" + SafePipeSuffix();
     private static NamedPipeServerStream chromePipe;
     private static bool drawerOpen;
@@ -46,6 +51,7 @@ internal static class CarnivalWorkspaceHost
     private static DateTime pendingSummonQueuedAt;
     private static DateTime pendingSummonSentAt;
     private static int pendingSummonRetries;
+    private static string branchHierarchyPayload;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Point { public int X; public int Y; }
@@ -74,6 +80,14 @@ internal static class CarnivalWorkspaceHost
     {
         public IntPtr Handle;
         public Rect Rect;
+    }
+
+    private sealed class BranchNode
+    {
+        public readonly List<BranchNode> Children = new List<BranchNode>();
+        public string Name;
+        public string Path;
+        public bool Selectable;
     }
 
     private delegate bool EnumWindowsCallback(IntPtr window, IntPtr parameter);
@@ -139,6 +153,9 @@ internal static class CarnivalWorkspaceHost
 
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
     private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SHGetSetFolderCustomSettings(IntPtr settings, string path, uint mode);
 
     private static void Main(string[] args)
     {
@@ -328,7 +345,7 @@ internal static class CarnivalWorkspaceHost
             var lengthBytes = new byte[4];
             if (!ReadExactly(stream, lengthBytes, 4)) return null;
             var length = BitConverter.ToInt32(lengthBytes, 0);
-            if (length < 0 || length > 16384)
+            if (length < 0 || length > MaximumNativeMessageBytes)
             {
                 failure = "invalid frame length";
                 return null;
@@ -675,6 +692,192 @@ internal static class CarnivalWorkspaceHost
             }
             WriteDiagnostic("pending summon complete; Chrome accepted native summon");
         }
+        else if (Regex.IsMatch(json, "\\\"type\\\"\\s*:\\s*\\\"getBranches\\\""))
+        {
+            ApplyBranchesRequest(json);
+        }
+    }
+
+    private static void ApplyBranchesRequest(string json)
+    {
+        int requestId;
+        if (!TryReadInteger(json, "requestId", out requestId)) return;
+        try
+        {
+            string payload;
+            lock (BranchLock)
+            {
+                if (branchHierarchyPayload == null)
+                {
+                    var branches = DiscoverBranchHierarchy(BranchRoot);
+                    branchHierarchyPayload = SerializeBranches(branches);
+                    WriteDiagnostic("Branch hierarchy discovered count=" + CountSelectableBranches(branches));
+                }
+                payload = branchHierarchyPayload;
+            }
+            SendToChrome(string.Format(CultureInfo.InvariantCulture,
+                "{{\"type\":\"branchesResult\",\"requestId\":{0},\"ok\":true,\"branches\":{1}}}",
+                requestId, payload));
+        }
+        catch (Exception error)
+        {
+            WriteDiagnostic("Branch hierarchy unavailable type=" + error.GetType().Name);
+            SendToChrome(string.Format(CultureInfo.InvariantCulture,
+                "{{\"type\":\"branchesResult\",\"requestId\":{0},\"ok\":false,\"branches\":[]}}",
+                requestId));
+        }
+    }
+
+    private static List<BranchNode> DiscoverBranchHierarchy(string root)
+    {
+        if (!Directory.Exists(root)) throw new DirectoryNotFoundException("Branch root is unavailable.");
+        return BuildBranchHierarchy(root, delegate(string directory)
+        {
+            return File.Exists(Path.Combine(directory, "desktop.ini")) &&
+                IsBranchInfoTip(ReadFolderInfoTip(directory));
+        });
+    }
+
+    private static bool IsBranchInfoTip(string infoTip)
+    {
+        return string.Equals(infoTip, "branch=1", StringComparison.Ordinal);
+    }
+
+    private static List<BranchNode> BuildBranchHierarchy(string root, Func<string, bool> isBranch)
+    {
+        var branches = new List<BranchNode>();
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var directory in SafeDirectories(root))
+        {
+            var node = BuildBranchNode(root, directory, isBranch, visited);
+            if (node != null) branches.Add(node);
+        }
+        branches.Sort(CompareBranchNodes);
+        return branches;
+    }
+
+    private static BranchNode BuildBranchNode(string root, string directory, Func<string, bool> isBranch,
+        HashSet<string> visited)
+    {
+        var fullPath = Path.GetFullPath(directory);
+        if (!visited.Add(fullPath)) return null;
+        try
+        {
+            if ((File.GetAttributes(fullPath) & FileAttributes.ReparsePoint) != 0) return null;
+        }
+        catch { return null; }
+
+        var children = new List<BranchNode>();
+        foreach (var childDirectory in SafeDirectories(fullPath))
+        {
+            var child = BuildBranchNode(root, childDirectory, isBranch, visited);
+            if (child != null) children.Add(child);
+        }
+        var selectable = false;
+        try { selectable = isBranch(fullPath); } catch { }
+        if (!selectable && children.Count == 0) return null;
+        children.Sort(CompareBranchNodes);
+        var relativePath = fullPath.Substring(Path.GetFullPath(root).TrimEnd('\\').Length)
+            .TrimStart('\\', '/').Replace('\\', '/');
+        var node = new BranchNode
+        {
+            Name = new DirectoryInfo(fullPath).Name,
+            Path = relativePath,
+            Selectable = selectable,
+        };
+        node.Children.AddRange(children);
+        return node;
+    }
+
+    private static string[] SafeDirectories(string directory)
+    {
+        try { return Directory.GetDirectories(directory); }
+        catch { return new string[0]; }
+    }
+
+    private static int CompareBranchNodes(BranchNode left, BranchNode right)
+    {
+        return StringComparer.CurrentCultureIgnoreCase.Compare(left.Name, right.Name);
+    }
+
+    private static string ReadFolderInfoTip(string directory)
+    {
+        const int characterCapacity = 1024;
+        var settingsSize = 4 * 5 + IntPtr.Size * 10;
+        var settings = Marshal.AllocHGlobal(settingsSize);
+        var infoTip = Marshal.AllocHGlobal(characterCapacity * 2);
+        try
+        {
+            Marshal.Copy(new byte[settingsSize], 0, settings, settingsSize);
+            Marshal.WriteInt32(settings, 0, settingsSize);
+            Marshal.WriteInt32(settings, 4, FcsmInfoTip);
+            Marshal.WriteIntPtr(settings, 8 + IntPtr.Size * 4, infoTip);
+            Marshal.WriteInt32(settings, 8 + IntPtr.Size * 5, characterCapacity);
+            Marshal.WriteInt16(infoTip, 0, 0);
+            return SHGetSetFolderCustomSettings(settings, directory, FcsRead) == 0
+                ? Marshal.PtrToStringUni(infoTip) ?? ""
+                : "";
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(infoTip);
+            Marshal.FreeHGlobal(settings);
+        }
+    }
+
+    private static int CountSelectableBranches(IEnumerable<BranchNode> branches)
+    {
+        var count = 0;
+        foreach (var branch in branches)
+        {
+            if (branch.Selectable) count += 1;
+            count += CountSelectableBranches(branch.Children);
+        }
+        return count;
+    }
+
+    private static string SerializeBranches(IEnumerable<BranchNode> branches)
+    {
+        var json = new StringBuilder("[");
+        var first = true;
+        foreach (var branch in branches)
+        {
+            if (!first) json.Append(',');
+            first = false;
+            SerializeBranch(json, branch);
+        }
+        return json.Append(']').ToString();
+    }
+
+    private static void SerializeBranch(StringBuilder json, BranchNode branch)
+    {
+        json.Append("{\"name\":\"").Append(EscapeJson(branch.Name))
+            .Append("\",\"path\":\"").Append(EscapeJson(branch.Path))
+            .Append("\",\"selectable\":").Append(branch.Selectable ? "true" : "false")
+            .Append(",\"children\":").Append(SerializeBranches(branch.Children)).Append('}');
+    }
+
+    private static string EscapeJson(string value)
+    {
+        var json = new StringBuilder();
+        foreach (var character in value ?? "")
+        {
+            switch (character)
+            {
+                case '\\': json.Append("\\\\"); break;
+                case '"': json.Append("\\\""); break;
+                case '\b': json.Append("\\b"); break;
+                case '\f': json.Append("\\f"); break;
+                case '\n': json.Append("\\n"); break;
+                case '\r': json.Append("\\r"); break;
+                case '\t': json.Append("\\t"); break;
+                default:
+                    if (character < 0x20) json.Append("\\u").Append(((int)character).ToString("x4"));
+                    else json.Append(character);
+                    break;
+            }
+        }
+        return json.ToString();
     }
 
     private static void ApplyWorkspaceState(string json)
@@ -960,6 +1163,26 @@ internal static class CarnivalWorkspaceHost
             "retract must resume after Aux manipulation settles");
         AssertSelfTest(EffectiveRetractThreshold(1950, 2000) == 1999,
             "unreachable Aux offset must clamp to the monitor edge");
+        AssertSelfTest(IsBranchInfoTip("branch=1") && !IsBranchInfoTip("Branch=1") &&
+            !IsBranchInfoTip("branch=1 "), "only the exact Tree of Life Branch marker is selectable");
+        var branchRoot = Path.Combine(Path.GetTempPath(), "CarnivalBranchSelfTest-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var parent = Directory.CreateDirectory(Path.Combine(branchRoot, "Parent")).FullName;
+            var child = Directory.CreateDirectory(Path.Combine(parent, "Marked Child")).FullName;
+            Directory.CreateDirectory(Path.Combine(branchRoot, "Unmarked"));
+            var marked = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { child };
+            var branches = BuildBranchHierarchy(branchRoot, directory => marked.Contains(directory));
+            AssertSelfTest(branches.Count == 1 && !branches[0].Selectable,
+                "unmarked branch ancestor retained only for navigation");
+            AssertSelfTest(branches[0].Children.Count == 1 && branches[0].Children[0].Selectable &&
+                branches[0].Children[0].Path == "Parent/Marked Child",
+                "marked nested branch is selectable with canonical relative path");
+        }
+        finally
+        {
+            try { if (Directory.Exists(branchRoot)) Directory.Delete(branchRoot, true); } catch { }
+        }
         Console.WriteLine("Carnival Windows independent geometry self-test passed.");
     }
 
