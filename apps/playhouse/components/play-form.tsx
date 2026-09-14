@@ -19,7 +19,10 @@ import { playVisualForPlay } from "../domain/play-visual";
 import { openInAuxAndWait } from "../lib/desktop/open-in-aux";
 import { PLAYER_SLACK_UPDATED_EVENT, usableSlackUrl } from "../lib/google/contact-slack";
 import { NextPlayRelationshipForm } from "./next-play-relationship-form";
-import { openPlayDetailsAndRouteAux } from "./play-description-aux";
+import {
+  createDescriptionClickController,
+  routePlayDescriptionAux,
+} from "./play-description-aux";
 import { applySuccessfulPlaySave } from "./play-form-success";
 import { PlayerCombobox } from "./player-combobox";
 import { PlayerContactInfo } from "./player-contact-info";
@@ -87,6 +90,7 @@ export function PlayForm({
   play,
   supportsWorkflows,
   reminderContextDate,
+  slackUrl = null,
 }: {
   baskets: BasketSummary[];
   defaultPlacement: PlayPlacement;
@@ -94,6 +98,7 @@ export function PlayForm({
   play?: PlayListItem;
   supportsWorkflows: boolean;
   reminderContextDate: string;
+  slackUrl?: string | null;
 }) {
   const router = useRouter();
   const detailsRef = useRef<HTMLDetailsElement>(null);
@@ -135,6 +140,9 @@ export function PlayForm({
         }
       : null;
   const [selectedPlayerId, setSelectedPlayerId] = useState(initialPlayer?.id ?? null);
+  const [descriptionClick] = useState(createDescriptionClickController);
+
+  useEffect(() => () => descriptionClick.dispose(), [descriptionClick]);
 
   useEffect(() => {
     if (state.status !== "success" || completedStateRef.current === state) return;
@@ -202,16 +210,16 @@ export function PlayForm({
         data-testid={isEditing ? "play-title" : undefined}
         onClick={isEditing ? (event) => {
           event.preventDefault();
-          if (detailsRef.current?.open) {
-            detailsRef.current.open = false;
-            return;
-          }
-          if (play) {
-            void openPlayDetailsAndRouteAux(
-              play,
-              () => { if (detailsRef.current) detailsRef.current.open = true; },
-            );
-          }
+          descriptionClick.singleClick(
+            event.detail,
+            () => play ? routePlayDescriptionAux(play, slackUrl) : Promise.resolve(),
+          );
+        } : undefined}
+        onDoubleClick={isEditing ? (event) => {
+          event.preventDefault();
+          descriptionClick.doubleClick(() => {
+            if (detailsRef.current) detailsRef.current.open = true;
+          });
         } : undefined}
         title={isEditing ? undefined : "New Play"}
       >

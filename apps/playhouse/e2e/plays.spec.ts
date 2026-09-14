@@ -453,7 +453,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-DESC-NO-SLACK-62", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-DESC-CLICK-63", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');
@@ -1026,7 +1026,7 @@ test("grid font setting updates immediately and persists locally", async ({ auth
   await expect(description).toHaveCSS("font-weight", "500");
   await expect(description).toHaveCSS("white-space", "nowrap");
   await expect(description).toHaveCSS("text-overflow", "ellipsis");
-  await description.click();
+  await description.dblclick();
   await expect(restoredRow.getByTestId("edit-play")).toHaveAttribute("open", "");
 });
 

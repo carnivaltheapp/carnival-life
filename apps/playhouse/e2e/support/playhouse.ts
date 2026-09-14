@@ -16,7 +16,7 @@ export async function openCreatePlay(page: Page) {
 export async function openEditPlay(page: Page, title: string) {
   const row = playRow(page, title);
   const disclosure = row.getByTestId("edit-play");
-  await disclosure.getByTestId("play-title").click();
+  await disclosure.getByTestId("play-title").dblclick();
   await expect(disclosure).toHaveAttribute("open", "");
   const form = disclosure.locator("form.playForm");
   await expect(form).toBeInViewport();

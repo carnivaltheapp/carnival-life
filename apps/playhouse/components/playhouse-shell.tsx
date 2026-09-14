@@ -1621,6 +1621,9 @@ function PlayhouseShellView({
                             scheduledDate: play.scheduledDate,
                             todayDate,
                           })}
+                          slackUrl={play.playerContactId
+                            ? usableSlackUrl(playerSlack[play.playerContactId])
+                            : null}
                         />
                       )}
                     </div>
