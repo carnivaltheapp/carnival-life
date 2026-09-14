@@ -6,7 +6,7 @@ import { bootstrapTreeOfLife, loadTreeOfLifeBranches } from "../app/tree-of-life
 import type { BranchTreeNode } from "../domain/tree-of-life";
 import {
   canonicalBranchValue,
-  conciseBranchName,
+  displayBranchPath,
   loadLocalBranches,
 } from "../lib/desktop/local-branches";
 
@@ -71,7 +71,7 @@ export function BranchPicker({ initialBranch }: { initialBranch: string }) {
         onClick={togglePicker}
         type="button"
       >
-        <span>{selectedBranch ? conciseBranchName(selectedBranch) : "Branch"}</span>
+        <span>{selectedBranch ? displayBranchPath(selectedBranch) : "Branch"}</span>
         <span aria-hidden="true">⌄</span>
       </button>
       {open ? (

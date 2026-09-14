@@ -5,6 +5,7 @@ import {
   LOCAL_BRANCHES_RESULT_TYPE,
   canonicalBranchValue,
   conciseBranchName,
+  displayBranchPath,
   loadLocalBranches,
   resetLocalBranchCacheForTests,
 } from "./local-branches";
@@ -79,5 +80,12 @@ describe("local Branch bridge", () => {
     const value = canonicalBranchValue("Blue Field Law/Marketing/Paid Marketing");
     expect(value).toBe("C:\\Google Drive\\Blue Field Law\\Marketing\\Paid Marketing");
     expect(conciseBranchName(value)).toBe("Paid Marketing");
+  });
+
+  it("displays the complete Branch hierarchy without the Google Drive prefix", () => {
+    expect(displayBranchPath("C:\\Google Drive\\Blue Field Law\\Marketing\\Paid Marketing"))
+      .toBe("Blue Field Law / Marketing / Paid Marketing");
+    expect(displayBranchPath("Blue Field Law/Marketing/Paid Marketing"))
+      .toBe("Blue Field Law / Marketing / Paid Marketing");
   });
 });

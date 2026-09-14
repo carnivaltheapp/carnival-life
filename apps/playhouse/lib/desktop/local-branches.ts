@@ -104,6 +104,14 @@ export function conciseBranchName(branch: string) {
   return branch.split(/[\\/]/).filter(Boolean).at(-1) ?? branch;
 }
 
+export function displayBranchPath(branch: string) {
+  return branch
+    .replace(/^C:[\\/]Google Drive[\\/]/i, "")
+    .split(/[\\/]/)
+    .filter(Boolean)
+    .join(" / ");
+}
+
 export function resetLocalBranchCacheForTests() {
   cachedBranches = null;
   requestSequence = 0;

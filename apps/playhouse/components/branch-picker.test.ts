@@ -22,6 +22,11 @@ describe("BranchPicker", () => {
     expect(form).toContain("key={formResetVersion}");
   });
 
+  it("shows the full Branch hierarchy without changing its stored value", () => {
+    expect(picker).toContain("displayBranchPath(selectedBranch)");
+    expect(picker).toContain('<input name="branch" readOnly type="hidden" value={selectedBranch} />');
+  });
+
   it("reads Mongo on normal open and reserves the native bridge for deliberate bootstrap", () => {
     expect(picker).toContain("const result = await loadTreeOfLifeBranches()");
     expect(picker).toContain("async function importTreeOfLife()");
