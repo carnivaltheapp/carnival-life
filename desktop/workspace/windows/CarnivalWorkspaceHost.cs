@@ -14,10 +14,11 @@ using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
-    private const string HostMarker = "DRAWER-HOST-10";
+    private const string HostMarker = "DRAWER-HOST-11";
     private const string BranchRoot = @"C:\Google Drive";
     private const int FcsmInfoTip = 0x4;
     private const uint FcsRead = 0x1;
+    private const uint FcsWrite = 0x2;
     private const int MaximumNativeMessageBytes = 1024 * 1024;
     private const int AnimationFramesPerSecond = 60;
     private const int HotCornerMaximumOffsetPixels = 4;
@@ -176,6 +177,8 @@ internal static class CarnivalWorkspaceHost
     {
         if (HasArgument(args, "--self-test")) RunSelfTest();
         else if (HasArgument(args, "--pair")) PairDevice(ArgumentAfter(args, "--pair"));
+        else if (HasArgument(args, "--add-branch")) SetLocalBranch(ArgumentAfter(args, "--add-branch"), true);
+        else if (HasArgument(args, "--remove-branch")) SetLocalBranch(ArgumentAfter(args, "--remove-branch"), false);
         else if (HasArgument(args, "--resident")) RunResident();
         else RunNativeMessagingBridge();
     }
@@ -225,6 +228,21 @@ internal static class CarnivalWorkspaceHost
                 encrypted, null, DataProtectionScope.CurrentUser));
         }
         catch { return null; }
+    }
+
+    private static void SetLocalBranch(string folderPath, bool isBranch)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+            throw new DirectoryNotFoundException("A valid folder beneath C:\\Google Drive is required.");
+        var relativePath = RelativeFolderPath(folderPath);
+        if (!WriteFolderInfoTip(folderPath, isBranch ? "branch=1" : ""))
+            throw new InvalidOperationException("Windows could not update the folder Branch marker.");
+        var operationId = Guid.NewGuid().ToString("N");
+        var json = "{\"operationId\":\"" + operationId + "\",\"kind\":\"branch_state\"," +
+            "\"relativePath\":\"" + EscapeJson(relativePath) + "\",\"isBranch\":" +
+            (isBranch ? "true" : "false") + "}";
+        SendOrQueueOperation("/branch-state", operationId, json);
+        Console.WriteLine(isBranch ? "Carnival Branch added." : "Carnival Branch removed.");
     }
 
     private static string CompanionRequest(string path, string method, string credential, string body)
@@ -937,17 +955,26 @@ internal static class CarnivalWorkspaceHost
     private static void SendOrQueueOperation(string endpoint, string operationId, string json)
     {
         var credential = LoadDeviceCredential();
-        if (string.IsNullOrWhiteSpace(credential)) return;
+        if (string.IsNullOrWhiteSpace(credential))
+        {
+            PersistPendingOperation(endpoint, operationId, json);
+            return;
+        }
         try
         {
             CompanionRequest(endpoint, "POST", credential, json);
         }
         catch
         {
-            Directory.CreateDirectory(PendingOperationDirectory());
-            File.WriteAllText(Path.Combine(PendingOperationDirectory(), operationId + ".json"),
-                endpoint + "\n" + json, Encoding.UTF8);
+            PersistPendingOperation(endpoint, operationId, json);
         }
+    }
+
+    private static void PersistPendingOperation(string endpoint, string operationId, string json)
+    {
+        Directory.CreateDirectory(PendingOperationDirectory());
+        File.WriteAllText(Path.Combine(PendingOperationDirectory(), operationId + ".json"),
+            endpoint + "\n" + json, Encoding.UTF8);
     }
 
     private static void FlushPendingOperations()
@@ -1104,6 +1131,26 @@ internal static class CarnivalWorkspaceHost
             return SHGetSetFolderCustomSettings(settings, directory, FcsRead) == 0
                 ? Marshal.PtrToStringUni(infoTip) ?? ""
                 : "";
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(infoTip);
+            Marshal.FreeHGlobal(settings);
+        }
+    }
+
+    private static bool WriteFolderInfoTip(string directory, string infoTipValue)
+    {
+        var settingsSize = 4 * 5 + IntPtr.Size * 10;
+        var settings = Marshal.AllocHGlobal(settingsSize);
+        var infoTip = Marshal.StringToHGlobalUni(infoTipValue ?? "");
+        try
+        {
+            Marshal.Copy(new byte[settingsSize], 0, settings, settingsSize);
+            Marshal.WriteInt32(settings, 0, settingsSize);
+            Marshal.WriteInt32(settings, 4, FcsmInfoTip);
+            Marshal.WriteIntPtr(settings, 8 + IntPtr.Size * 4, infoTip);
+            return SHGetSetFolderCustomSettings(settings, directory, FcsWrite) == 0;
         }
         finally
         {

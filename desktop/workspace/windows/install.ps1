@@ -1,12 +1,14 @@
 param(
   [Parameter(Mandatory = $true)]
   [ValidatePattern('^[a-p]{32}$')]
-  [string]$ExtensionId
+  [string]$ExtensionId,
+  [ValidatePattern('^[A-Z0-9]{12}$')]
+  [string]$PairingCode
 )
 
 $ErrorActionPreference = 'Stop'
 $hostName = 'com.carnival.workspace'
-$hostMarker = 'DRAWER-HOST-10'
+$hostMarker = 'DRAWER-HOST-11'
 $source = Join-Path $PSScriptRoot 'CarnivalWorkspaceHost.cs'
 $installDirectory = Join-Path $env:LOCALAPPDATA 'Carnival\DesktopWorkspace'
 $hostExecutable = Join-Path $installDirectory 'CarnivalWorkspaceHost.exe'
@@ -89,9 +91,28 @@ if ($residentProcesses.Count -ne 1) {
   throw "Expected exactly one Carnival resident process; found $($residentProcesses.Count)."
 }
 
+$explorerShell = 'HKCU:\Software\Classes\Directory\shell'
+foreach ($entry in @(
+  @{ Key = (Join-Path $explorerShell 'CarnivalAddBranch'); Label = 'Add Branch'; Argument = '--add-branch' },
+  @{ Key = (Join-Path $explorerShell 'CarnivalRemoveBranch'); Label = 'Remove Branch'; Argument = '--remove-branch' }
+)) {
+  New-Item -Force -Path $entry.Key | Out-Null
+  Set-Item -LiteralPath $entry.Key -Value $entry.Label
+  Set-ItemProperty -LiteralPath $entry.Key -Name 'AppliesTo' -Value 'System.ItemPathDisplay:~="C:\Google Drive\"'
+  $commandKey = Join-Path $entry.Key 'command'
+  New-Item -Force -Path $commandKey | Out-Null
+  Set-Item -LiteralPath $commandKey -Value ('"{0}" {1} "%V"' -f $hostExecutable, $entry.Argument)
+}
+
+if ($PairingCode) {
+  & $hostExecutable --pair $PairingCode
+  if ($LASTEXITCODE -ne 0) { throw 'Carnival companion pairing failed.' }
+}
+
 Write-Host "Installed $hostName for Chrome extension $ExtensionId."
 Write-Host "Installed binary: $hostExecutable"
 Write-Host "Native host marker: $hostMarker"
 Write-Host "Current-user auto-start: $startupCommand"
 Write-Host "Resident PID: $($residentProcesses[0].ProcessId)"
+Write-Host 'Explorer Branch actions: Add Branch / Remove Branch'
 Write-Host 'Restart Chrome to activate the companion.'

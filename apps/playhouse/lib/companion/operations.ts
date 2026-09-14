@@ -5,7 +5,8 @@ import { MongoTreeOfLifeRepository } from "../tree-of-life/repository";
 
 export type CompanionFolderOperation = {
   folders?: unknown;
-  kind: "folder_created" | "folder_deleted" | "folder_moved" | "folder_renamed" | "reconcile";
+  isBranch?: boolean;
+  kind: "branch_state" | "folder_created" | "folder_deleted" | "folder_moved" | "folder_renamed" | "reconcile";
   name?: string;
   oldRelativePath?: string;
   operationId: string;
@@ -33,6 +34,16 @@ export async function applyCompanionFolderOperation(
       return { duplicate: false, ...result };
     }
     if (!operation.relativePath) throw new Error("invalid_operation");
+    if (operation.kind === "branch_state") {
+      const matched = await tree.setBranchState(
+        device.ownerUserId,
+        operation.relativePath,
+        operation.isBranch === true,
+      );
+      if (!matched) throw new Error("folder_not_found");
+      await companion.completeOperation(device.deviceId, operation.operationId);
+      return { duplicate: false };
+    }
     await tree.applyFolderEvent(device.ownerUserId, {
       kind: operation.kind,
       name: operation.name,
