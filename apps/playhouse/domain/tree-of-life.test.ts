@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { buildBranchTree, flattenBranchTree, searchBranchTree } from "./tree-of-life";
+import {
+  branchTreeFromFolders,
+  buildBranchTree,
+  buildFolderTree,
+  flattenBranchTree,
+  parseFolderImage,
+  searchBranchTree,
+} from "./tree-of-life";
 
 const nativeTree = [{
   children: [{
@@ -50,5 +57,31 @@ describe("Tree of Life hierarchy", () => {
     expect(searchBranchTree(tree, "Blue Field Law/Marketing")).not.toContainEqual(
       expect.objectContaining({ relativePath: "Blue Field Law/Marketing" }),
     );
+  });
+
+  it("builds every folder while deriving a Branch-only hierarchy", () => {
+    const records = parseFolderImage([
+      { isBranch: false, name: "Personal", relativePath: "Personal" },
+      { isBranch: true, name: "Me", relativePath: "Personal/Me" },
+      { isBranch: false, name: "Downloads", relativePath: "Downloads" },
+    ]);
+    const folders = buildFolderTree(records);
+    expect(folders).toHaveLength(2);
+    expect(folders.find((folder) => folder.name === "Downloads")).toBeTruthy();
+    expect(branchTreeFromFolders(folders)).toEqual([{
+      children: [{ children: [], name: "Me", relativePath: "Personal/Me", selectable: true }],
+      name: "Personal",
+      relativePath: "Personal",
+      selectable: false,
+    }]);
+  });
+
+  it("rejects root-prefixed, traversing, and duplicate folder paths", () => {
+    expect(() => parseFolderImage([{ name: "Blue", relativePath: "C:/Google Drive/Blue" }])).toThrow();
+    expect(() => parseFolderImage([{ name: "Blue", relativePath: "../Blue" }])).toThrow();
+    expect(() => parseFolderImage([
+      { name: "Blue", relativePath: "Blue" },
+      { name: "Blue", relativePath: "Blue" },
+    ])).toThrow();
   });
 });

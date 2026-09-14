@@ -14,6 +14,22 @@ export type TreeOfLifeBranchRecord = {
   selectable: boolean;
 };
 
+export type TreeOfLifeFolderRecord = {
+  active: boolean;
+  depth: number;
+  isBranch: boolean;
+  name: string;
+  parentRelativePath: string | null;
+  relativePath: string;
+};
+
+export type FolderTreeNode = {
+  children: FolderTreeNode[];
+  isBranch: boolean;
+  name: string;
+  relativePath: string;
+};
+
 function canonicalRelativePath(value: string) {
   return value.trim().replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
 }
@@ -81,6 +97,75 @@ export function buildBranchTree(records: TreeOfLifeBranchRecord[]): BranchTreeNo
     else roots.push(node);
   }
   return roots;
+}
+
+export function canonicalFolderRelativePath(value: string) {
+  const path = canonicalRelativePath(value);
+  if (!path || path.includes(":") || path.split("/").some((part) => part === ".." || !part)) {
+    throw new Error("Folder path is invalid.");
+  }
+  return path;
+}
+
+export function parseFolderImage(value: unknown): TreeOfLifeFolderRecord[] {
+  if (!Array.isArray(value)) throw new Error("Folder image must be an array.");
+  const seen = new Set<string>();
+  return value.map((candidate) => {
+    if (!candidate || typeof candidate !== "object") throw new Error("Folder record is malformed.");
+    const input = candidate as Record<string, unknown>;
+    const relativePath = canonicalFolderRelativePath(String(input.relativePath ?? ""));
+    const parts = relativePath.split("/");
+    const name = String(input.name ?? "").trim();
+    const parentRelativePath = parts.length > 1 ? parts.slice(0, -1).join("/") : null;
+    if (!name || parts.at(-1) !== name || seen.has(relativePath)) {
+      throw new Error("Folder record has an invalid or duplicate path.");
+    }
+    seen.add(relativePath);
+    return {
+      active: true,
+      depth: parts.length - 1,
+      isBranch: input.isBranch === true,
+      name,
+      parentRelativePath,
+      relativePath,
+    };
+  });
+}
+
+export function buildFolderTree(records: TreeOfLifeFolderRecord[]): FolderTreeNode[] {
+  const nodes = new Map<string, FolderTreeNode>();
+  for (const record of records.filter((record) => record.active)) {
+    nodes.set(record.relativePath, {
+      children: [],
+      isBranch: record.isBranch,
+      name: record.name,
+      relativePath: record.relativePath,
+    });
+  }
+  const roots: FolderTreeNode[] = [];
+  for (const record of records.filter((record) => record.active)) {
+    const node = nodes.get(record.relativePath)!;
+    const parent = record.parentRelativePath ? nodes.get(record.parentRelativePath) : null;
+    (parent?.children ?? roots).push(node);
+  }
+  const sort = (items: FolderTreeNode[]) => {
+    items.sort((left, right) => left.name.localeCompare(right.name));
+    items.forEach((item) => sort(item.children));
+  };
+  sort(roots);
+  return roots;
+}
+
+export function branchTreeFromFolders(folders: FolderTreeNode[]): BranchTreeNode[] {
+  return folders.flatMap((folder) => {
+    const children = branchTreeFromFolders(folder.children);
+    return folder.isBranch || children.length ? [{
+      children,
+      name: folder.name,
+      relativePath: folder.relativePath,
+      selectable: folder.isBranch,
+    }] : [];
+  });
 }
 
 export function branchTreeSummary(records: TreeOfLifeBranchRecord[]) {

@@ -92,4 +92,29 @@ describe("Mongo Tree of Life repository", () => {
     });
     expect(collection.bulkWrite).not.toHaveBeenCalled();
   });
+
+  it("reconciles filesystem structure without overwriting existing Branch state", async () => {
+    const { collection, repository } = repositoryWith({
+      bulkWrite: vi.fn().mockResolvedValue({ acknowledged: true }),
+      updateMany: vi.fn().mockResolvedValue({ modifiedCount: 0 }),
+    });
+    await repository.reconcileFolders("owner-a", [
+      { isBranch: false, name: "Marketing", relativePath: "Work/Marketing" },
+    ]);
+    const write = vi.mocked(collection.bulkWrite).mock.calls[0][0][0];
+    expect(write).toMatchObject({ updateOne: {
+      filter: { owner_user_id: "owner-a", relative_path: "Work/Marketing" },
+      update: {
+        $set: {
+          active: true,
+          depth: 1,
+          name: "Marketing",
+          parent_relative_path: "Work",
+        },
+        $setOnInsert: { is_branch: false, selectable: false },
+      },
+    } });
+    expect((write as unknown as { updateOne: { update: { $set: object } } }).updateOne.update.$set)
+      .not.toHaveProperty("is_branch");
+  });
 });

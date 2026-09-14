@@ -14,7 +14,7 @@ using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
-    private const string HostMarker = "DRAWER-HOST-9";
+    private const string HostMarker = "DRAWER-HOST-10";
     private const string BranchRoot = @"C:\Google Drive";
     private const int FcsmInfoTip = 0x4;
     private const uint FcsRead = 0x1;
@@ -27,6 +27,7 @@ internal static class CarnivalWorkspaceHost
     private const int RetractDwellMilliseconds = 150;
     private const int AuxInteractionTolerancePixels = 12;
     private const int VirtualKeyLeftButton = 0x01;
+    private const int FolderReconcileIntervalMilliseconds = 15 * 60 * 1000;
     private const string PlayHouseUrl = "https://carnival-playhouse.vercel.app/";
     private const string CompanionApiBase = "https://carnival-playhouse.vercel.app/api/companion";
     private const int MonitorDefaultToNearest = 2;
@@ -94,6 +95,14 @@ internal static class CarnivalWorkspaceHost
         public string Name;
         public string Path;
         public bool Selectable;
+    }
+
+    private sealed class FolderRecord
+    {
+        public bool IsBranch;
+        public string Name;
+        public string ParentPath;
+        public string Path;
     }
 
     private delegate bool EnumWindowsCallback(IntPtr window, IntPtr parameter);
@@ -271,6 +280,7 @@ internal static class CarnivalWorkspaceHost
             }
             WriteDiagnostic("resident started");
             new Thread(RunPipeServer) { IsBackground = true }.Start();
+            new Thread(RunFolderSynchronization) { IsBackground = true }.Start();
             MonitorGlobalPointer();
             GC.KeepAlive(mutex);
         }
@@ -776,6 +786,187 @@ internal static class CarnivalWorkspaceHost
         else if (Regex.IsMatch(json, "\\\"type\\\"\\s*:\\s*\\\"(?:GET_BRANCH_TREE|getBranches)\\\""))
         {
             ApplyBranchesRequest(json);
+        }
+    }
+
+    private static void RunFolderSynchronization()
+    {
+        while (string.IsNullOrWhiteSpace(LoadDeviceCredential()))
+        {
+            WriteDiagnostic("folder synchronization waiting for device pairing");
+            Thread.Sleep(5000);
+        }
+        try
+        {
+            ReconcileFolderImage();
+            using (var watcher = new FileSystemWatcher(BranchRoot))
+            {
+                watcher.IncludeSubdirectories = true;
+                watcher.NotifyFilter = NotifyFilters.DirectoryName;
+                watcher.Created += delegate(object sender, FileSystemEventArgs args)
+                {
+                    QueueFolderEvent("folder_created", args.FullPath, null);
+                };
+                watcher.Deleted += delegate(object sender, FileSystemEventArgs args)
+                {
+                    QueueFolderEvent("folder_deleted", args.FullPath, null);
+                };
+                watcher.Renamed += delegate(object sender, RenamedEventArgs args)
+                {
+                    var oldParent = Path.GetDirectoryName(args.OldFullPath);
+                    var newParent = Path.GetDirectoryName(args.FullPath);
+                    var kind = string.Equals(oldParent, newParent, StringComparison.OrdinalIgnoreCase)
+                        ? "folder_renamed" : "folder_moved";
+                    QueueFolderEvent(kind, args.FullPath, args.OldFullPath);
+                };
+                watcher.EnableRaisingEvents = true;
+                var nextReconcile = DateTime.UtcNow.AddMilliseconds(FolderReconcileIntervalMilliseconds);
+                while (true)
+                {
+                    FlushPendingOperations();
+                    if (DateTime.UtcNow >= nextReconcile)
+                    {
+                        ReconcileFolderImage();
+                        nextReconcile = DateTime.UtcNow.AddMilliseconds(FolderReconcileIntervalMilliseconds);
+                    }
+                    Thread.Sleep(5000);
+                }
+            }
+        }
+        catch (Exception error)
+        {
+            WriteDiagnostic("folder synchronization stopped reason=" + error.GetType().Name);
+        }
+    }
+
+    private static string PendingOperationDirectory()
+    {
+        return Path.Combine(CompanionDataDirectory(), "pending");
+    }
+
+    private static void QueueFolderEvent(string kind, string fullPath, string oldFullPath)
+    {
+        try
+        {
+            var relativePath = RelativeFolderPath(fullPath);
+            var oldRelativePath = oldFullPath == null ? null : RelativeFolderPath(oldFullPath);
+            var name = new DirectoryInfo(fullPath).Name;
+            var operationId = Guid.NewGuid().ToString("N");
+            var json = "{\"operationId\":\"" + operationId + "\",\"kind\":\"" + kind +
+                "\",\"relativePath\":\"" + EscapeJson(relativePath) + "\",\"name\":\"" +
+                EscapeJson(name) + "\"" + (oldRelativePath == null ? "" :
+                ",\"oldRelativePath\":\"" + EscapeJson(oldRelativePath) + "\"") + "}";
+            SendOrQueueOperation("/folders/event", operationId, json);
+        }
+        catch (Exception error)
+        {
+            WriteDiagnostic("folder event rejected reason=" + error.GetType().Name);
+        }
+    }
+
+    private static void ReconcileFolderImage()
+    {
+        try
+        {
+            var operationId = Guid.NewGuid().ToString("N");
+            var json = "{\"operationId\":\"" + operationId + "\",\"folders\":" +
+                SerializeFolderImage(ScanAllFolders()) + "}";
+            SendOrQueueOperation("/folders/reconcile", operationId, json);
+        }
+        catch (Exception error)
+        {
+            WriteDiagnostic("folder reconciliation failed reason=" + error.GetType().Name);
+        }
+    }
+
+    private static List<FolderRecord> ScanAllFolders()
+    {
+        var folders = new List<FolderRecord>();
+        var pending = new Stack<string>();
+        foreach (var folder in SafeDirectories(BranchRoot)) pending.Push(folder);
+        while (pending.Count > 0)
+        {
+            var fullPath = Path.GetFullPath(pending.Pop());
+            try
+            {
+                if ((File.GetAttributes(fullPath) & FileAttributes.ReparsePoint) != 0) continue;
+            }
+            catch { continue; }
+            var relativePath = RelativeFolderPath(fullPath);
+            var separator = relativePath.LastIndexOf('/');
+            folders.Add(new FolderRecord
+            {
+                IsBranch = IsBranchInfoTip(ReadFolderInfoTip(fullPath)),
+                Name = new DirectoryInfo(fullPath).Name,
+                ParentPath = separator < 0 ? null : relativePath.Substring(0, separator),
+                Path = relativePath,
+            });
+            foreach (var child in SafeDirectories(fullPath)) pending.Push(child);
+        }
+        folders.Sort(delegate(FolderRecord left, FolderRecord right)
+        {
+            return StringComparer.OrdinalIgnoreCase.Compare(left.Path, right.Path);
+        });
+        return folders;
+    }
+
+    private static string SerializeFolderImage(IEnumerable<FolderRecord> folders)
+    {
+        var json = new StringBuilder("[");
+        var first = true;
+        foreach (var folder in folders)
+        {
+            if (!first) json.Append(',');
+            first = false;
+            json.Append("{\"name\":\"").Append(EscapeJson(folder.Name))
+                .Append("\",\"relativePath\":\"").Append(EscapeJson(folder.Path))
+                .Append("\",\"isBranch\":").Append(folder.IsBranch ? "true" : "false").Append('}');
+        }
+        return json.Append(']').ToString();
+    }
+
+    private static string RelativeFolderPath(string fullPath)
+    {
+        var root = Path.GetFullPath(BranchRoot).TrimEnd('\\');
+        var candidate = Path.GetFullPath(fullPath).TrimEnd('\\');
+        if (!candidate.StartsWith(root + "\\", StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("Folder is outside the Google Drive root.");
+        return candidate.Substring(root.Length + 1).Replace('\\', '/');
+    }
+
+    private static void SendOrQueueOperation(string endpoint, string operationId, string json)
+    {
+        var credential = LoadDeviceCredential();
+        if (string.IsNullOrWhiteSpace(credential)) return;
+        try
+        {
+            CompanionRequest(endpoint, "POST", credential, json);
+        }
+        catch
+        {
+            Directory.CreateDirectory(PendingOperationDirectory());
+            File.WriteAllText(Path.Combine(PendingOperationDirectory(), operationId + ".json"),
+                endpoint + "\n" + json, Encoding.UTF8);
+        }
+    }
+
+    private static void FlushPendingOperations()
+    {
+        if (!Directory.Exists(PendingOperationDirectory())) return;
+        var credential = LoadDeviceCredential();
+        if (string.IsNullOrWhiteSpace(credential)) return;
+        foreach (var file in Directory.GetFiles(PendingOperationDirectory(), "*.json"))
+        {
+            try
+            {
+                var payload = File.ReadAllText(file, Encoding.UTF8);
+                var newline = payload.IndexOf('\n');
+                if (newline <= 0) continue;
+                CompanionRequest(payload.Substring(0, newline), "POST", credential,
+                    payload.Substring(newline + 1));
+                File.Delete(file);
+            }
+            catch { }
         }
     }
 
