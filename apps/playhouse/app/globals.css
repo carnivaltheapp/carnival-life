@@ -1394,6 +1394,27 @@ h1 {
   text-decoration-color: currentColor;
 }
 
+.descriptionHoverBubble {
+  position: fixed;
+  z-index: 20;
+  max-width: min(420px, calc(100vw - 24px));
+  padding: 7px 9px;
+  color: #2b2440;
+  border: 1px solid rgba(76, 57, 112, 0.2);
+  border-radius: 9px;
+  background: #fffdfa;
+  box-shadow: 0 8px 24px rgba(48, 29, 83, 0.2);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  white-space: normal;
+}
+
+.descriptionHoverBubble--above {
+  transform: translateY(-100%);
+}
+
 .createDisclosure summary:focus-visible,
 .editDisclosure summary:focus-visible,
 .primaryButton:focus-visible,

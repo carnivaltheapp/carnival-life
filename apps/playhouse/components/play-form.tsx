@@ -23,6 +23,11 @@ import {
   createDescriptionClickController,
   routePlayDescriptionAux,
 } from "./play-description-aux";
+import {
+  descriptionIsTruncated,
+  descriptionTooltipPosition,
+  type DescriptionTooltipPosition,
+} from "./play-description-tooltip";
 import { applySuccessfulPlaySave } from "./play-form-success";
 import { PlayerCombobox } from "./player-combobox";
 import { PlayerContactInfo } from "./player-contact-info";
@@ -102,7 +107,10 @@ export function PlayForm({
 }) {
   const router = useRouter();
   const detailsRef = useRef<HTMLDetailsElement>(null);
+  const titleRef = useRef<HTMLElement>(null);
   const [formResetVersion, setFormResetVersion] = useState(0);
+  const [descriptionTooltip, setDescriptionTooltip] =
+    useState<DescriptionTooltipPosition | null>(null);
   const initialPlacement: PlayPlacement = play
     ? play.basketId
       ? { basketId: play.basketId, kind: "basket" }
@@ -226,6 +234,14 @@ export function PlayForm({
         aria-label={isEditing ? undefined : "New Play"}
         className={isEditing ? "playTitleLink" : undefined}
         data-testid={isEditing ? "play-title" : undefined}
+        onMouseEnter={isEditing ? () => {
+          const title = titleRef.current;
+          if (!title || !descriptionIsTruncated(title)) return;
+          setDescriptionTooltip(
+            descriptionTooltipPosition(title.getBoundingClientRect(), window.innerWidth),
+          );
+        } : undefined}
+        onMouseLeave={isEditing ? () => setDescriptionTooltip(null) : undefined}
         onClick={isEditing ? (event) => {
           event.preventDefault();
           descriptionClick.singleClick(
@@ -236,15 +252,29 @@ export function PlayForm({
         onDoubleClick={isEditing ? (event) => {
           event.preventDefault();
           descriptionClick.doubleClick(() => {
+            setDescriptionTooltip(null);
             if (detailsRef.current) detailsRef.current.open = true;
           });
         } : undefined}
+        ref={titleRef}
         title={isEditing ? undefined : "New Play"}
       >
         {isEditing
           ? <span className="playTitleText">{play?.title}</span>
           : <span aria-hidden="true">+</span>}
       </summary>
+      {descriptionTooltip && play && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className={`descriptionHoverBubble descriptionHoverBubble--${descriptionTooltip.placement}`}
+              role="tooltip"
+              style={{ left: descriptionTooltip.left, top: descriptionTooltip.top }}
+            >
+              {play.title}
+            </div>,
+            document.body,
+          )
+        : null}
       {play ? <PlayInfo play={play} /> : null}
       <form action={formAction} className="playForm" key={formResetVersion} noValidate>
         {play ? <input name="playId" type="hidden" value={play.id} /> : null}

@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-DETAIL-CANCEL-64
+          P3-DESC-HOVER-65
         </small>
       </body>
     </html>
