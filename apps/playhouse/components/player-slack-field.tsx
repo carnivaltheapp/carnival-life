@@ -34,14 +34,6 @@ export function PlayerSlackField({ playerContactId }: { playerContactId: string 
   }, [playerContactId]);
 
   useEffect(() => {
-    console.info("SLACK_NAME_FIELD_RENDER", {
-      displayedValue,
-      resolvedName,
-      slackUrl: value,
-    });
-  }, [displayedValue, resolvedName, value]);
-
-  useEffect(() => {
     const update = (event: Event) => {
       const detail = (event as CustomEvent<{
         playerContactId: string;

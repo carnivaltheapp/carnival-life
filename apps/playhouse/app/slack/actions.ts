@@ -2,6 +2,7 @@
 
 import { createClient } from "../../lib/supabase/server";
 import { MongoSlackConnectionRepository } from "../../lib/slack/connection-repository";
+import { slackConnectionNeedsReconnect } from "../../lib/slack/oauth";
 
 export type SlackConnectionStatus = {
   connected: boolean;
@@ -15,9 +16,12 @@ export async function loadSlackConnectionStatus(): Promise<SlackConnectionStatus
   const ownerUserId = typeof auth?.claims?.sub === "string" ? auth.claims.sub : null;
   if (authError || !ownerUserId) return { connected: false, needsReconnect: false, teamName: null };
   const [connection] = await new MongoSlackConnectionRepository().listForOwner(ownerUserId);
+  const needsReconnect = connection
+    ? slackConnectionNeedsReconnect(connection.connection_status, connection.granted_scopes)
+    : false;
   return {
-    connected: connection?.connection_status === "connected",
-    needsReconnect: connection?.connection_status === "error",
+    connected: connection?.connection_status === "connected" && !needsReconnect,
+    needsReconnect,
     teamName: connection?.slack_team_name ?? null,
   };
 }

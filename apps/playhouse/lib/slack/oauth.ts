@@ -1,6 +1,12 @@
 import { timingSafeEqual } from "node:crypto";
 
-export const SLACK_USER_SCOPES = ["channels:read", "users:read"] as const;
+export const SLACK_USER_SCOPES = [
+  "channels:read",
+  "groups:read",
+  "im:read",
+  "mpim:read",
+  "users:read",
+] as const;
 
 type SlackOAuthResponse = {
   ok?: boolean;
@@ -30,6 +36,13 @@ export function hasRequiredSlackScopes(scopes: string | string[]) {
   const granted = new Set((Array.isArray(scopes) ? scopes : scopes.split(","))
     .map((scope) => scope.trim()));
   return SLACK_USER_SCOPES.every((scope) => granted.has(scope));
+}
+
+export function slackConnectionNeedsReconnect(
+  status: "connected" | "error",
+  scopes: string[],
+) {
+  return status === "error" || !hasRequiredSlackScopes(scopes);
 }
 
 export function validSlackOAuthState(received: string, stored: string) {

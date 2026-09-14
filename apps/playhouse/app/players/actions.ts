@@ -201,9 +201,7 @@ export async function loadPlayerSlack(
   if (!contact) return { message: "This Player is not linked to Google Contacts.", status: "error" };
   try {
     const slack = (await readSlackForAccount({ ...contact, ownerUserId: auth.userId })).slack;
-    console.info("SLACK_NAME_INPUT", { playerContactId, slackUrl: slack });
     const slackName = await resolveSlackNameForOwner(auth.userId, slack);
-    console.info("SLACK_NAME_ACTION_RESULT", { slackName, slackUrl: slack });
     return {
       slack,
       slackName,
