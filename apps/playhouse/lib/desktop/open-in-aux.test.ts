@@ -7,7 +7,6 @@ import {
   OPEN_IN_AUX_RESULT_TYPE,
   openInAux,
   openInAuxAndWait,
-  openInExistingAuxAndWait,
 } from "./open-in-aux";
 
 describe("openInAux", () => {
@@ -24,27 +23,6 @@ describe("openInAux", () => {
       type: OPEN_IN_AUX_MESSAGE_TYPE,
       url: "https://mail.google.com/mail/u/0/#all/thread%2F123",
     }, "https://carnival-playhouse.vercel.app");
-  });
-
-  it("marks Description routing as existing-Aux-only", async () => {
-    let listener: ((event: MessageEvent) => void) | undefined;
-    const target = {
-      addEventListener: vi.fn((_type: string, value: EventListenerOrEventListenerObject) => {
-        listener = value as (event: MessageEvent) => void;
-      }),
-      location: { origin: "https://carnival-playhouse.vercel.app" } as Location,
-      postMessage: vi.fn((message: { requestId: string }) => queueMicrotask(() => listener?.({
-        data: { ok: true, requestId: message.requestId, source: OPEN_IN_AUX_RESULT_SOURCE, type: OPEN_IN_AUX_RESULT_TYPE },
-        origin: "https://carnival-playhouse.vercel.app",
-        source: target,
-      } as unknown as MessageEvent))),
-      removeEventListener: vi.fn(),
-    };
-    await openInExistingAuxAndWait("https://app.slack.com/client/T1/C1", target as never);
-    expect(target.postMessage).toHaveBeenCalledWith(expect.objectContaining({
-      existingAuxOnly: true,
-      url: "https://app.slack.com/client/T1/C1",
-    }), "https://carnival-playhouse.vercel.app");
   });
 
   it("waits for the existing bridge to finish one route", async () => {

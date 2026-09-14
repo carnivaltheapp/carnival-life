@@ -292,19 +292,9 @@ function PlayhouseShellView({
   }, [localPlays]);
   useEffect(() => {
     const update = (event: Event) => {
-      const detail = (event as CustomEvent<{
-        playerContactId: string;
-        slack: string;
-        slackName?: string | null;
-      }>).detail;
+      const detail = (event as CustomEvent<{ playerContactId: string; slack: string }>).detail;
       if (!detail?.playerContactId) return;
       setPlayerSlack((values) => ({ ...values, [detail.playerContactId]: detail.slack }));
-      setPlayerSlackNames((values) => {
-        const next = { ...values };
-        if (detail.slackName) next[detail.playerContactId] = detail.slackName;
-        else delete next[detail.playerContactId];
-        return next;
-      });
     };
     window.addEventListener(PLAYER_SLACK_UPDATED_EVENT, update);
     return () => window.removeEventListener(PLAYER_SLACK_UPDATED_EVENT, update);
@@ -1621,9 +1611,6 @@ function PlayhouseShellView({
                             scheduledDate: play.scheduledDate,
                             todayDate,
                           })}
-                          slackUrl={play.playerContactId
-                            ? usableSlackUrl(playerSlack[play.playerContactId])
-                            : null}
                         />
                       )}
                     </div>

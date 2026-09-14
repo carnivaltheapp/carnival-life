@@ -425,28 +425,6 @@ test("Slack routing adopts an existing Slack-host Aux tab when no role is saved"
   assert.equal(chrome.getTab(slack.id).url, "https://app.slack.com/client/T1/NEW");
 });
 
-test("existing-Aux-only routing changes tabs without creating, focusing, or positioning windows", async () => {
-  const chrome = fakeChrome();
-  const workspace = controller(chrome);
-  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
-  const initial = await workspace.summon(workArea, "display-1");
-  chrome.calls.createWindow.length = 0;
-  chrome.calls.updateWindow.length = 0;
-
-  await workspace.openCarnivalContext(
-    "https://app.slack.com/client/T1/C1",
-    workArea,
-    "display-1",
-    "slack",
-    { existingAuxOnly: true },
-  );
-
-  assert.equal(chrome.calls.createWindow.length, 0);
-  assert.equal(chrome.calls.updateWindow.length, 0);
-  assert.equal(chrome.getTabs(initial.contextWindowId).filter((tab) =>
-    tab.url === "https://app.slack.com/client/T1/C1").length, 1);
-});
-
 test("Aux tab order, active tab, pins, roles, and user tabs restore after window close", async () => {
   const chrome = fakeChrome();
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };

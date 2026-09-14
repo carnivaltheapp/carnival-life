@@ -25,7 +25,7 @@ function play(overrides: Partial<PlayListItem> = {}): PlayListItem {
 }
 
 describe("Play Description Aux routing", () => {
-  it("opens detail, routes URL then Slack, and routes Gmail last", async () => {
+  it("opens detail, routes URL first, and routes Gmail last", async () => {
     const events: string[] = [];
     await openPlayDetailsAndRouteAux(
       play({
@@ -35,29 +35,12 @@ describe("Play Description Aux routing", () => {
       }),
       () => events.push("detail"),
       async (url) => { events.push(url); },
-      "https://app.slack.com/client/T1/C1",
     );
 
     expect(events).toEqual([
       "detail",
       "https://example.com/context",
-      "https://app.slack.com/client/T1/C1",
       "https://mail.google.com/mail/u/2/#all/FMexact",
-    ]);
-  });
-
-  it("leaves Slack final when Gmail is absent", async () => {
-    const events: string[] = [];
-    await openPlayDetailsAndRouteAux(
-      play({ url: "https://example.com/context" }),
-      () => events.push("detail"),
-      async (url) => { events.push(url); },
-      "https://app.slack.com/client/T1/C1",
-    );
-    expect(events).toEqual([
-      "detail",
-      "https://example.com/context",
-      "https://app.slack.com/client/T1/C1",
     ]);
   });
 

@@ -205,7 +205,6 @@ export async function savePlay(
         slackUpdated: {
           playerContactId: slackChange.playerContactId,
           slack: slackResult.slack,
-          slackName: slackResult.slackName,
         },
       };
     }

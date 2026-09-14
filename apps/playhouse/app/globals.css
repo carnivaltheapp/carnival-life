@@ -1646,6 +1646,11 @@ h1 {
   font-size: 0.68rem;
 }
 
+.playerSlackResolved {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
 .playerInfoRow .playerField {
   grid-column: auto;
 }

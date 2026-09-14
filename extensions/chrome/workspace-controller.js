@@ -851,7 +851,7 @@ export class CarnivalWorkspaceController {
     return retracted;
   }
 
-  async openCarnivalContext(url, workArea, monitorId = null, requestedRole = null, options = {}) {
+  async openCarnivalContext(url, workArea, monitorId = null, requestedRole = null) {
     if (!isAllowedContextUrl(url)) throw new Error("Carnival context URLs must use HTTP or HTTPS.");
     if (!validWorkArea(workArea)) throw new Error("A valid monitor work area is required.");
     const role = requestedRole ?? auxRoleForUrl(url);
@@ -863,15 +863,13 @@ export class CarnivalWorkspaceController {
     const prior = await this.state();
     const layout = restoredWorkspaceLayout(prior, workArea);
     const existingContext = await existingWindow(this.chrome, prior.auxWindowId);
-    const existingAuxOnly = options.existingAuxOnly === true;
-    const restoreContext = !existingAuxOnly && (prior.drawerState !== "open" || !existingContext ||
-      !hasVisibleIntersection(existingContext, workArea));
-    if (existingAuxOnly && (!existingContext || !hasVisibleIntersection(existingContext, workArea))) {
-      throw new Error("The existing Aux window is unavailable.");
-    }
-    const context = existingAuxOnly
-      ? await this.existingContextForTabRouting(prior, existingContext)
-      : await this.findContext(prior, layout.context, restoreContext);
+    const restoreContext = prior.drawerState !== "open" || !existingContext ||
+      !hasVisibleIntersection(existingContext, workArea);
+    const context = await this.findContext(
+      prior,
+      layout.context,
+      restoreContext,
+    );
     const contextWindow = context.window;
     if (context.restore) {
       await this.save({
@@ -947,16 +945,7 @@ export class CarnivalWorkspaceController {
       monitorId,
       workArea,
     });
-    if (!existingAuxOnly) await this.chrome.windows.update(contextWindow.id, { focused: true });
-  }
-
-  async existingContextForTabRouting(prior, window) {
-    const tabs = await this.tabsInWindow(window.id);
-    const roleTabIds = { ...(prior.auxRoleTabIds ?? {}) };
-    const tab = tabs.find((candidate) => candidate.active) ?? tabs[0] ?? null;
-    const tabState = snapshotTabs(tabs, roleTabIds);
-    if (!tab?.id || !tabState) throw new Error("Chrome could not identify the existing Aux tabs.");
-    return { restore: null, roleTabIds, tab, tabState, window };
+    await this.chrome.windows.update(contextWindow.id, { focused: true });
   }
 
   async rememberVisibleBounds(changedWindowId = null) {

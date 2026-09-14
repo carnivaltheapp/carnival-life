@@ -20,7 +20,6 @@ export async function routeOpenInAuxMessage({
     workArea,
     monitorId,
     auxRoleForUrl(message.url),
-    message.existingAuxOnly ? { existingAuxOnly: true } : undefined,
   );
   reportDrawerState(await controller.state());
 }

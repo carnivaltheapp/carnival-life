@@ -21,7 +21,6 @@ export function openInAux(url: string, target: AuxMessageTarget = window) {
 export function openInAuxAndWait(
   url: string,
   target: AwaitableAuxMessageTarget = window,
-  existingAuxOnly = false,
 ) {
   const requestId = `aux-${Date.now()}-${++auxRequestSequence}`;
   return new Promise<boolean>((resolve) => {
@@ -48,16 +47,8 @@ export function openInAuxAndWait(
       source: OPEN_IN_AUX_MESSAGE_SOURCE,
       type: OPEN_IN_AUX_MESSAGE_TYPE,
       url,
-      ...(existingAuxOnly ? { existingAuxOnly: true } : {}),
     }, target.location.origin);
   });
-}
-
-export function openInExistingAuxAndWait(
-  url: string,
-  target: AwaitableAuxMessageTarget = window,
-) {
-  return openInAuxAndWait(url, target, true);
 }
 
 function routeLogLabel(value: string) {
