@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { changedPlayerSlackFromFormData, usableSlackUrl } from "./contact-slack";
+import {
+  changedPlayerSlackFromFormData,
+  slackFieldDisplayValue,
+  usableSlackUrl,
+} from "./contact-slack";
 import { GOOGLE_CONTACTS_WRITE_SCOPE, GOOGLE_OAUTH_SCOPES } from "./scopes";
 
 describe("Google Contact Slack", () => {
@@ -46,5 +50,14 @@ describe("Google Contact Slack", () => {
     unchanged.set("playerContactId", "");
     unchanged.set("slack", "https://app.slack.com/client/T1/NEW");
     expect(changedPlayerSlackFromFormData(unchanged)).toBeNull();
+  });
+
+  it("shows the live name normally and the durable URL while editing", () => {
+    const url = "https://app.slack.com/client/T1/C1";
+    expect(slackFieldDisplayValue({ editing: false, resolvedName: "#marketing", url }))
+      .toBe("#marketing");
+    expect(slackFieldDisplayValue({ editing: true, resolvedName: "#marketing", url }))
+      .toBe(url);
+    expect(slackFieldDisplayValue({ editing: false, resolvedName: null, url })).toBe(url);
   });
 });

@@ -1,17 +1,25 @@
 import type { PlayListItem } from "../domain/play";
 import { gmailThreadUrl, usablePlayUrl } from "../domain/play-display";
-import { openInAuxAndWait } from "../lib/desktop/open-in-aux";
+import { openInExistingAuxAndWait } from "../lib/desktop/open-in-aux";
 
 export async function openPlayDetailsAndRouteAux(
   play: PlayListItem,
   openDetails: () => void,
-  route: (url: string) => Promise<unknown> = openInAuxAndWait,
+  route: (url: string) => Promise<unknown> = openInExistingAuxAndWait,
+  slackUrl: string | null = null,
 ) {
   openDetails();
   const url = usablePlayUrl(play.url);
   if (url) {
     try {
       await route(url);
+    } catch {
+      // The detail remains open and Gmail routing still gets its chance.
+    }
+  }
+  if (slackUrl) {
+    try {
+      await route(slackUrl);
     } catch {
       // The detail remains open and Gmail routing still gets its chance.
     }

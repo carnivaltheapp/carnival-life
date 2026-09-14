@@ -27,7 +27,7 @@ export type PlayMutationState = {
   message: string;
   redirectTo?: string;
   status: "idle" | "error" | "success";
-  slackUpdated?: { playerContactId: string; slack: string };
+  slackUpdated?: { playerContactId: string; slack: string; slackName: string | null };
   values?: PlayMutationValues;
 };
 

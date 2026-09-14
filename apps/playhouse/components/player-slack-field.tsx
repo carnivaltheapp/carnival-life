@@ -3,13 +3,17 @@
 import { useEffect, useState } from "react";
 
 import { loadPlayerSlack } from "../app/players/actions";
-import { PLAYER_SLACK_UPDATED_EVENT } from "../lib/google/contact-slack";
+import {
+  PLAYER_SLACK_UPDATED_EVENT,
+  slackFieldDisplayValue,
+} from "../lib/google/contact-slack";
 
 export function PlayerSlackField({ playerContactId }: { playerContactId: string | null }) {
   const [confirmed, setConfirmed] = useState("");
   const [value, setValue] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [resolvedName, setResolvedName] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(Boolean(playerContactId));
 
   useEffect(() => {
@@ -30,10 +34,16 @@ export function PlayerSlackField({ playerContactId }: { playerContactId: string 
 
   useEffect(() => {
     const update = (event: Event) => {
-      const detail = (event as CustomEvent<{ playerContactId: string; slack: string }>).detail;
+      const detail = (event as CustomEvent<{
+        playerContactId: string;
+        slack: string;
+        slackName?: string | null;
+      }>).detail;
       if (detail?.playerContactId !== playerContactId) return;
       setConfirmed(detail.slack);
       setValue(detail.slack);
+      setResolvedName(detail.slackName ?? null);
+      setEditing(false);
       setMessage(null);
     };
     window.addEventListener(PLAYER_SLACK_UPDATED_EVENT, update);
@@ -46,16 +56,19 @@ export function PlayerSlackField({ playerContactId }: { playerContactId: string 
       <input
         aria-label="Slack"
         disabled={!playerContactId || loading}
-        name="slack"
         onChange={(event) => {
           setValue(event.target.value);
           setResolvedName(null);
         }}
+        onBlur={() => {
+          if (value.trim() === confirmed.trim()) setEditing(false);
+        }}
+        onFocus={() => setEditing(true)}
         placeholder={loading ? "Loading Slack…" : "Slack URL"}
-        value={value}
+        value={slackFieldDisplayValue({ editing, resolvedName, url: value })}
       />
+      <input name="slack" type="hidden" value={value} />
       <input name="slackConfirmed" type="hidden" value={confirmed} />
-      {resolvedName ? <small className="playerSlackResolved">{resolvedName}</small> : null}
       {message ? <small className="playerSlackError" role="alert">{message}</small> : null}
     </label>
   );

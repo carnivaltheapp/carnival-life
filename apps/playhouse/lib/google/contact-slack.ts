@@ -26,3 +26,15 @@ export function usableSlackUrl(value: string | null | undefined) {
     return null;
   }
 }
+
+export function slackFieldDisplayValue({
+  editing,
+  resolvedName,
+  url,
+}: {
+  editing: boolean;
+  resolvedName: string | null;
+  url: string;
+}) {
+  return editing ? url : resolvedName || url;
+}
