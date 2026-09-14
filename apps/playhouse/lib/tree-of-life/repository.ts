@@ -96,6 +96,14 @@ export class MongoTreeOfLifeRepository {
     return buildFolderTree(await this.listAllFoldersForOwner(ownerUserId));
   }
 
+  async searchFoldersForOwner(ownerUserId: string, query: string) {
+    const normalized = query.trim().toLocaleLowerCase();
+    const folders = await this.listAllFoldersForOwner(ownerUserId);
+    return normalized
+      ? folders.filter((folder) => folder.relativePath.toLocaleLowerCase().includes(normalized))
+      : folders;
+  }
+
   async getBranchTreeForOwner(ownerUserId: string) {
     const folders = await this.listAllFoldersForOwner(ownerUserId);
     return branchTreeFromFolders(buildFolderTree(folders));

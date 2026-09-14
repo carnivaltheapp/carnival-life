@@ -13,6 +13,7 @@ import {
 const DEVICE_COLLECTION = "carnival_companion_devices";
 const PAIRING_COLLECTION = "carnival_companion_pairing_codes";
 const OPERATION_COLLECTION = "carnival_companion_operations";
+const COMMAND_COLLECTION = "carnival_companion_commands";
 const PAIRING_TTL_MS = 10 * 60 * 1000;
 
 type DeviceDocument = {
@@ -35,21 +36,40 @@ type PairingDocument = {
   owner_user_id: string;
 };
 
+type CommandDocument = {
+  command_id: string;
+  completed_at: Date | null;
+  created_at: Date;
+  device_id: string;
+  error: string | null;
+  is_branch: boolean;
+  name: string;
+  owner_user_id: string;
+  parent_relative_path: string;
+  relative_path: string | null;
+  status: "completed" | "failed" | "pending";
+  type: "create_folder";
+  updated_at: Date;
+};
+
+type OperationDocument = {
+  completed_at: Date | null;
+  created_at: Date;
+  device_id: string;
+  operation_id: string;
+  owner_user_id: string;
+  type: string;
+};
+
 export type CompanionDevice = Pick<
   DeviceDocument,
   "device_id" | "device_name" | "last_seen_at" | "status"
 >;
 
 type Collections = {
+  commands: Collection<CommandDocument>;
   devices: Collection<DeviceDocument>;
-  operations: Collection<{
-    completed_at: Date | null;
-    created_at: Date;
-    device_id: string;
-    operation_id: string;
-    owner_user_id: string;
-    type: string;
-  }>;
+  operations: Collection<OperationDocument>;
   pairing: Collection<PairingDocument>;
 };
 
@@ -61,7 +81,8 @@ async function defaultCollections(): Promise<Collections> {
   const database = await getCarnivalMongoDatabase();
   const devices = database.collection<DeviceDocument>(DEVICE_COLLECTION);
   const pairing = database.collection<PairingDocument>(PAIRING_COLLECTION);
-  const operations = database.collection<Collections["operations"] extends Collection<infer T> ? T : never>(OPERATION_COLLECTION);
+  const operations = database.collection<OperationDocument>(OPERATION_COLLECTION);
+  const commands = database.collection<CommandDocument>(COMMAND_COLLECTION);
   globalThis.carnivalCompanionIndexPromise ??= Promise.all([
     devices.createIndex({ credential_hash: 1 }, { name: "credential_hash_unique", unique: true }),
     devices.createIndex({ owner_user_id: 1, status: 1 }, { name: "owner_device_status" }),
@@ -71,9 +92,17 @@ async function defaultCollections(): Promise<Collections> {
       { device_id: 1, operation_id: 1 },
       { name: "device_operation_unique", unique: true },
     ),
+    commands.createIndex(
+      { device_id: 1, status: 1, created_at: 1 },
+      { name: "device_pending_commands" },
+    ),
+    commands.createIndex(
+      { command_id: 1 },
+      { name: "command_id_unique", unique: true },
+    ),
   ]);
   await globalThis.carnivalCompanionIndexPromise;
-  return { devices, operations, pairing };
+  return { commands, devices, operations, pairing };
 }
 
 export class MongoCompanionRepository {
@@ -153,6 +182,92 @@ export class MongoCompanionRepository {
     )).modifiedCount === 1;
   }
 
+  async findOnlineDevice(ownerUserId: string, since: Date) {
+    return (await this.collections()).devices.findOne(
+      { last_seen_at: { $gte: since }, owner_user_id: ownerUserId, status: "active" },
+      { sort: { last_seen_at: -1 } },
+    );
+  }
+
+  async createFolderCommand(ownerUserId: string, deviceId: string, input: {
+    isBranch: boolean;
+    name: string;
+    parentRelativePath: string;
+  }) {
+    const commandId = createDeviceId();
+    const now = new Date();
+    await (await this.collections()).commands.insertOne({
+      command_id: commandId,
+      completed_at: null,
+      created_at: now,
+      device_id: deviceId,
+      error: null,
+      is_branch: input.isBranch,
+      name: input.name,
+      owner_user_id: ownerUserId,
+      parent_relative_path: input.parentRelativePath,
+      relative_path: null,
+      status: "pending",
+      type: "create_folder",
+      updated_at: now,
+    });
+    return commandId;
+  }
+
+  async pendingFolderCommands(deviceId: string, ownerUserId: string) {
+    return (await (await this.collections()).commands.find({
+      device_id: deviceId,
+      owner_user_id: ownerUserId,
+      status: "pending",
+      type: "create_folder",
+    }).sort({ created_at: 1 }).limit(10).toArray()).map((command) => ({
+      commandId: command.command_id,
+      isBranch: command.is_branch,
+      name: command.name,
+      parentRelativePath: command.parent_relative_path,
+    }));
+  }
+
+  async getPendingFolderCommand(deviceId: string, ownerUserId: string, commandId: string) {
+    return (await this.collections()).commands.findOne({
+      command_id: commandId,
+      device_id: deviceId,
+      owner_user_id: ownerUserId,
+      status: "pending",
+    });
+  }
+
+  async completeFolderCommand(deviceId: string, ownerUserId: string, commandId: string, result: {
+    error?: string;
+    ok: boolean;
+    relativePath?: string;
+  }) {
+    const now = new Date();
+    return (await (await this.collections()).commands.findOneAndUpdate(
+      { command_id: commandId, device_id: deviceId, owner_user_id: ownerUserId, status: "pending" },
+      { $set: {
+        completed_at: now,
+        error: result.ok ? null : (result.error ?? "folder_creation_failed").slice(0, 240),
+        relative_path: result.ok ? result.relativePath ?? null : null,
+        status: result.ok ? "completed" : "failed",
+        updated_at: now,
+      } },
+      { returnDocument: "after" },
+    )) ?? null;
+  }
+
+  async getFolderCommand(ownerUserId: string, commandId: string) {
+    const command = await (await this.collections()).commands.findOne({
+      command_id: commandId,
+      owner_user_id: ownerUserId,
+    });
+    return command ? {
+      error: command.error,
+      relativePath: command.relative_path,
+      status: command.status,
+    } : null;
+  }
+
   async beginOperation(ownerUserId: string, deviceId: string, operationId: string, type: string) {
     try {
       await (await this.collections()).operations.insertOne({
@@ -189,3 +304,4 @@ export class MongoCompanionRepository {
 export const COMPANION_DEVICE_COLLECTION = DEVICE_COLLECTION;
 export const COMPANION_PAIRING_COLLECTION = PAIRING_COLLECTION;
 export const COMPANION_OPERATION_COLLECTION = OPERATION_COLLECTION;
+export const COMPANION_COMMAND_COLLECTION = COMMAND_COLLECTION;

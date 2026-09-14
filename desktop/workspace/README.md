@@ -39,10 +39,14 @@ The installer compiles the small C# host into the current user's Local AppData,
 stops an older installed companion if necessary, replaces its binary, writes a
 Chrome native-host manifest, registers it under HKCU, configures the resident
 companion in the current user's `Run` key, and starts it. It prints the installed
-path and native-host marker (`DRAWER-HOST-11`). Administrator access is not
+path and native-host marker (`DRAWER-HOST-12`). Administrator access is not
 required. Restart Chrome after installation. Git updates do not update the
 installed native executable automatically, so rerun this command after native
 host source changes.
+
+Once paired, the companion uploads the folder-only hierarchy beneath
+`C:\Google Drive`, watches folder changes, and executes verified **Create folder
+on Windows** requests from PlayHouse Settings. Files are never uploaded.
 
 The installer also registers **Add Branch** and **Remove Branch** for folders
 beneath `C:\Google Drive`. To remove the companion, its credential, pending
@@ -108,7 +112,7 @@ are accepted. No PlayHouse bridge invokes that message in this foundation slice.
 After updating the checked-out extension or native-host source, reload the
 extension at `chrome://extensions` and rerun the platform installer before
 manual verification. The extension service-worker console confirms the current
-Windows companion with `Carnival native host: DRAWER-HOST-11`; startup is also
+Windows companion with `Carnival native host: DRAWER-HOST-12`; startup is also
 recorded without credentials in
 `%LOCALAPPDATA%\Carnival\DesktopWorkspace\CarnivalWorkspaceHost.log`. The log
 records pointer-monitor startup, hot-corner entry/cancellation/activation,

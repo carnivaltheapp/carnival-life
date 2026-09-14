@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-EXPLORER-BRANCH-78
+          P3-COMPANION-FOLDER-CREATE-79
         </small>
       </body>
     </html>

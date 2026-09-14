@@ -4,7 +4,10 @@ import { useEffect, useState } from "react";
 
 import {
   generateCompanionPairingCode,
+  getCompanionFolderCreationStatus,
   listCompanionDevices,
+  listCompanionFolderOptions,
+  requestCompanionFolderCreation,
   revokeCompanionDevice,
 } from "../app/companion/actions";
 
@@ -14,6 +17,11 @@ export function DesktopCompanionSettings() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [folders, setFolders] = useState<string[]>([]);
+  const [folderName, setFolderName] = useState("");
+  const [parentFolder, setParentFolder] = useState("");
+  const [makeBranch, setMakeBranch] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   async function refresh() {
     const result = await listCompanionDevices();
@@ -28,8 +36,45 @@ export function DesktopCompanionSettings() {
       setDevices(result.devices);
       setMessage(result.error);
     });
+    void listCompanionFolderOptions().then((result) => {
+      if (active) setFolders(result.folders);
+    });
     return () => { active = false; };
   }, []);
+
+  async function createFolder() {
+    setCreating(true);
+    setMessage(null);
+    const request = await requestCompanionFolderCreation({
+      isBranch: makeBranch,
+      name: folderName,
+      parentRelativePath: parentFolder,
+    });
+    if (!request.commandId) {
+      setMessage(request.error);
+      setCreating(false);
+      return;
+    }
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+      const status = await getCompanionFolderCreationStatus(request.commandId);
+      if (status.status === "completed") {
+        setMessage(`Folder created: ${status.relativePath}`);
+        setFolderName("");
+        setCreating(false);
+        const refreshed = await listCompanionFolderOptions();
+        setFolders(refreshed.folders);
+        return;
+      }
+      if (status.status === "failed") {
+        setMessage(status.error ?? "Windows could not create the folder.");
+        setCreating(false);
+        return;
+      }
+    }
+    setMessage("Folder creation is still pending. Check the Windows companion.");
+    setCreating(false);
+  }
 
   return (
     <section aria-labelledby="desktop-companion-heading" className="desktopCompanionSettings">
@@ -64,6 +109,35 @@ export function DesktopCompanionSettings() {
           </button>
         </div>
       ))}
+      <form action={() => void createFolder()} className="companionFolderForm">
+        <h3>Create folder on Windows</h3>
+        <label>
+          Parent
+          <select onChange={(event) => setParentFolder(event.target.value)} value={parentFolder}>
+            <option value="">C:\Google Drive</option>
+            {folders.map((folder) => <option key={folder} value={folder}>{folder}</option>)}
+          </select>
+        </label>
+        <label>
+          Folder name
+          <input
+            onChange={(event) => setFolderName(event.target.value)}
+            required
+            value={folderName}
+          />
+        </label>
+        <label className="companionBranchChoice">
+          <input
+            checked={makeBranch}
+            onChange={(event) => setMakeBranch(event.target.checked)}
+            type="checkbox"
+          />
+          Make this folder a Branch
+        </label>
+        <button disabled={creating || !folderName.trim()} type="submit">
+          {creating ? "Creating…" : "Create folder"}
+        </button>
+      </form>
       {message ? <p role="alert">{message}</p> : null}
     </section>
   );

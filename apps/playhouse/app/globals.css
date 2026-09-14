@@ -1451,6 +1451,27 @@ h1 {
   color: var(--muted);
 }
 
+.companionFolderForm {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.companionFolderForm h3 {
+  margin: 0;
+}
+
+.companionFolderForm label:not(.companionBranchChoice) {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.companionBranchChoice {
+  align-items: center;
+  display: flex;
+  gap: 0.4rem;
+}
+
 .companionDevice {
   display: grid;
   padding: 7px 0;

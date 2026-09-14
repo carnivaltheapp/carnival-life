@@ -14,7 +14,7 @@ using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
-    private const string HostMarker = "DRAWER-HOST-11";
+    private const string HostMarker = "DRAWER-HOST-12";
     private const string BranchRoot = @"C:\Google Drive";
     private const int FcsmInfoTip = 0x4;
     private const uint FcsRead = 0x1;
@@ -104,6 +104,14 @@ internal static class CarnivalWorkspaceHost
         public string Name;
         public string ParentPath;
         public string Path;
+    }
+
+    private sealed class FolderCommand
+    {
+        public string CommandId;
+        public bool IsBranch;
+        public string Name;
+        public string ParentRelativePath;
     }
 
     private delegate bool EnumWindowsCallback(IntPtr window, IntPtr parameter);
@@ -842,6 +850,7 @@ internal static class CarnivalWorkspaceHost
                 while (true)
                 {
                     FlushPendingOperations();
+                    PollFolderCommands();
                     if (DateTime.UtcNow >= nextReconcile)
                     {
                         ReconcileFolderImage();
@@ -857,9 +866,112 @@ internal static class CarnivalWorkspaceHost
         }
     }
 
+    private static void PollFolderCommands()
+    {
+        var credential = LoadDeviceCredential();
+        if (string.IsNullOrWhiteSpace(credential)) return;
+        try
+        {
+            var response = CompanionRequest("/commands", "GET", credential, null);
+            foreach (var command in ParseFolderCommands(response)) ExecuteFolderCommand(command, credential);
+        }
+        catch (Exception error)
+        {
+            WriteDiagnostic("folder command poll failed reason=" + error.GetType().Name);
+        }
+    }
+
+    private static List<FolderCommand> ParseFolderCommands(string json)
+    {
+        var commands = new List<FolderCommand>();
+        foreach (Match match in Regex.Matches(json ?? "", "\\{[^{}]*\\}"))
+        {
+            var item = match.Value;
+            var commandId = ReadJsonString(item, "commandId");
+            if (string.IsNullOrWhiteSpace(commandId)) continue;
+            commands.Add(new FolderCommand
+            {
+                CommandId = commandId,
+                IsBranch = Regex.IsMatch(item, "\\\"isBranch\\\"\\s*:\\s*true"),
+                Name = ReadJsonString(item, "name"),
+                ParentRelativePath = ReadJsonString(item, "parentRelativePath") ?? "",
+            });
+        }
+        return commands;
+    }
+
+    private static void ExecuteFolderCommand(FolderCommand command, string credential)
+    {
+        string relativePath = null;
+        var receiptPath = Path.Combine(CompletedCommandDirectory(), command.CommandId + ".txt");
+        try
+        {
+            if (File.Exists(receiptPath))
+            {
+                relativePath = File.ReadAllText(receiptPath, Encoding.UTF8);
+                CompleteFolderCommand(command.CommandId, credential, true, relativePath, null);
+                File.Delete(receiptPath);
+                return;
+            }
+            ValidateFolderName(command.Name);
+            var parent = FullPathForRelativeFolder(command.ParentRelativePath);
+            if (!Directory.Exists(parent)) throw new DirectoryNotFoundException("parent_folder_missing");
+            var target = Path.GetFullPath(Path.Combine(parent, command.Name));
+            relativePath = RelativeFolderPath(target);
+            if (Directory.Exists(target)) throw new IOException("folder_already_exists");
+            Directory.CreateDirectory(target);
+            if (!Directory.Exists(target)) throw new IOException("folder_verification_failed");
+            if (command.IsBranch && !WriteFolderInfoTip(target, "branch=1"))
+                throw new InvalidOperationException("branch_marker_failed");
+            Directory.CreateDirectory(CompletedCommandDirectory());
+            File.WriteAllText(receiptPath, relativePath, Encoding.UTF8);
+            CompleteFolderCommand(command.CommandId, credential, true, relativePath, null);
+            File.Delete(receiptPath);
+        }
+        catch (Exception error)
+        {
+            if (File.Exists(receiptPath)) return;
+            CompleteFolderCommand(command.CommandId, credential, false, relativePath,
+                error.Message.Length > 120 ? error.GetType().Name : error.Message);
+        }
+    }
+
+    private static void CompleteFolderCommand(string commandId, string credential, bool ok,
+        string relativePath, string error)
+    {
+        var body = "{\"ok\":" + (ok ? "true" : "false") +
+            (relativePath == null ? "" : ",\"relativePath\":\"" + EscapeJson(relativePath) + "\"") +
+            (error == null ? "" : ",\"error\":\"" + EscapeJson(error) + "\"") + "}";
+        CompanionRequest("/commands/" + Uri.EscapeDataString(commandId) + "/complete", "POST",
+            credential, body);
+    }
+
+    private static string FullPathForRelativeFolder(string relativePath)
+    {
+        var normalized = (relativePath ?? "").Replace('/', '\\').Trim('\\');
+        var fullPath = Path.GetFullPath(Path.Combine(BranchRoot, normalized));
+        if (string.Equals(fullPath.TrimEnd('\\'), Path.GetFullPath(BranchRoot).TrimEnd('\\'),
+            StringComparison.OrdinalIgnoreCase)) return fullPath;
+        RelativeFolderPath(fullPath);
+        return fullPath;
+    }
+
+    private static void ValidateFolderName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 120 || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
+            name.EndsWith(".", StringComparison.Ordinal) || name.EndsWith(" ", StringComparison.Ordinal) ||
+            Regex.IsMatch(name, "^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\..*)?$", RegexOptions.IgnoreCase))
+            throw new ArgumentException("invalid_folder_name");
+    }
+
     private static string PendingOperationDirectory()
     {
         return Path.Combine(CompanionDataDirectory(), "pending");
+    }
+
+    private static string CompletedCommandDirectory()
+    {
+        return Path.Combine(CompanionDataDirectory(), "completed-commands");
     }
 
     private static void QueueFolderEvent(string kind, string fullPath, string oldFullPath)
