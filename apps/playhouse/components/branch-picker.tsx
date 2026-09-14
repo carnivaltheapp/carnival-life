@@ -71,12 +71,12 @@ export function BranchPicker({ initialBranch }: { initialBranch: string }) {
           {status === "loading" ? <p>Loading Branches…</p> : null}
           {status === "unavailable" ? <p>Branches unavailable</p> : null}
           {status === "ready" ? currentNodes.map((node) => (
-            <div className="branchPickerRow" key={node.path}>
+            <div className="branchPickerRow" key={node.relativePath}>
               <button
                 className="branchPickerName"
                 disabled={!node.selectable}
                 onClick={() => {
-                  setSelectedBranch(canonicalBranchValue(node.path));
+                  setSelectedBranch(canonicalBranchValue(node.relativePath));
                   setOpen(false);
                   setTrail([]);
                 }}

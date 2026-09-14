@@ -8,7 +8,7 @@ import {
 } from "./gmail-tab-metadata.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
-const NATIVE_HOST_VERSION = "DRAWER-HOST-8";
+const NATIVE_HOST_VERSION = "DRAWER-HOST-9";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
@@ -214,7 +214,7 @@ function connectNativeHost() {
         complete?.(message.ok === true);
         return;
       }
-      if (message?.type === "branchesResult") {
+      if (message?.type === "BRANCH_TREE_RESULT") {
         const request = nativeBranchRequests.get(message.requestId);
         nativeBranchRequests.delete(message.requestId);
         if (!request) return;
@@ -222,6 +222,7 @@ function connectNativeHost() {
           branchHierarchyCache = message.branches;
           const summary = branchSummary(branchHierarchyCache, Date.now() - request.startedAt);
           recordDiagnostic("info", "BRANCH_TREE_NATIVE_RESPONSE", summary);
+          recordDiagnostic("info", "BRANCH_TREE_EXTENSION_RESPONSE", summary);
           request.complete({ ok: true, branches: branchHierarchyCache, summary });
         } else {
           recordDiagnostic("warn", "BRANCH_TREE_FAILED", { reason: "native_response_failed" });
@@ -337,7 +338,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     });
     try {
       recordDiagnostic("info", "BRANCH_TREE_NATIVE_REQUESTED");
-      nativePort.postMessage({ requestId, type: "getBranches" });
+      nativePort.postMessage({ requestId, type: "GET_BRANCH_TREE" });
     } catch {
       clearTimeout(timeout);
       nativeBranchRequests.delete(requestId);

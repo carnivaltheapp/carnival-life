@@ -7,7 +7,7 @@ const form = await readFile(new URL("./play-form.tsx", import.meta.url), "utf8")
 
 describe("BranchPicker", () => {
   it("keeps selection and drill-down as separate controls with back navigation", () => {
-    expect(picker).toContain("setSelectedBranch(canonicalBranchValue(node.path))");
+    expect(picker).toContain("setSelectedBranch(canonicalBranchValue(node.relativePath))");
     expect(picker).toContain("aria-label={`Open ${node.name}`}");
     expect(picker).toContain("setTrail((current) => [...current, node])");
     expect(picker).toContain("setTrail((current) => current.slice(0, -1))");

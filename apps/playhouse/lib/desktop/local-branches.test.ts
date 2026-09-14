@@ -32,9 +32,9 @@ function branchTarget(branches: unknown, ok = true) {
 }
 
 const hierarchy = [{
-  children: [{ children: [], name: "Paid Marketing", path: "Blue Field Law/Marketing/Paid Marketing", selectable: true }],
+  children: [{ children: [], name: "Paid Marketing", relativePath: "Blue Field Law/Marketing/Paid Marketing", selectable: true }],
   name: "Marketing",
-  path: "Blue Field Law/Marketing",
+  relativePath: "Blue Field Law/Marketing",
   selectable: false,
 }];
 
@@ -60,6 +60,14 @@ describe("local Branch bridge", () => {
   it("fails closed when the bridge returns malformed filesystem data", async () => {
     const target = branchTarget([{ name: "Document.txt", path: "Document.txt" }]);
     await expect(loadLocalBranches(target as never)).resolves.toEqual({ branches: [], ok: false });
+  });
+
+  it("normalizes the already-loaded extension response during rollout", async () => {
+    const target = branchTarget([{ children: [], name: "Carnival", path: "Carnival", selectable: true }]);
+    await expect(loadLocalBranches(target as never)).resolves.toEqual({
+      branches: [{ children: [], name: "Carnival", relativePath: "Carnival", selectable: true }],
+      ok: true,
+    });
   });
 
   it("uses the existing full Google Drive path convention while displaying the leaf", () => {

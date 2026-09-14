@@ -12,7 +12,7 @@ using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
-    private const string HostMarker = "DRAWER-HOST-8";
+    private const string HostMarker = "DRAWER-HOST-9";
     private const string BranchRoot = @"C:\Google Drive";
     private const int FcsmInfoTip = 0x4;
     private const uint FcsRead = 0x1;
@@ -52,6 +52,7 @@ internal static class CarnivalWorkspaceHost
     private static DateTime pendingSummonSentAt;
     private static int pendingSummonRetries;
     private static string branchHierarchyPayload;
+    private static string legacyBranchHierarchyPayload;
     private static int branchHierarchyCount;
     private static int branchTopLevelCount;
 
@@ -694,7 +695,7 @@ internal static class CarnivalWorkspaceHost
             }
             WriteDiagnostic("pending summon complete; Chrome accepted native summon");
         }
-        else if (Regex.IsMatch(json, "\\\"type\\\"\\s*:\\s*\\\"getBranches\\\""))
+        else if (Regex.IsMatch(json, "\\\"type\\\"\\s*:\\s*\\\"(?:GET_BRANCH_TREE|getBranches)\\\""))
         {
             ApplyBranchesRequest(json);
         }
@@ -704,8 +705,10 @@ internal static class CarnivalWorkspaceHost
     {
         int requestId;
         if (!TryReadInteger(json, "requestId", out requestId)) return;
+        var legacyRequest = Regex.IsMatch(json, "\\\"type\\\"\\s*:\\s*\\\"getBranches\\\"");
+        var responseType = legacyRequest ? "branchesResult" : "BRANCH_TREE_RESULT";
         var startedAt = DateTime.UtcNow;
-        WriteDiagnostic("BRANCH_TREE_NATIVE_REQUESTED");
+        WriteDiagnostic("BRANCH_TREE_HOST_REQUEST");
         try
         {
             string payload;
@@ -713,28 +716,33 @@ internal static class CarnivalWorkspaceHost
             {
                 if (branchHierarchyPayload == null)
                 {
+                    WriteDiagnostic("BRANCH_TREE_HOST_SCAN_START");
                     var branches = DiscoverBranchHierarchy(BranchRoot);
-                    branchHierarchyPayload = SerializeBranches(branches);
+                    branchHierarchyPayload = SerializeBranches(branches, false);
+                    legacyBranchHierarchyPayload = SerializeBranches(branches, true);
                     branchHierarchyCount = CountSelectableBranches(branches);
                     branchTopLevelCount = branches.Count;
-                    WriteDiagnostic("Branch hierarchy discovered count=" + branchHierarchyCount);
+                    WriteDiagnostic(string.Format(CultureInfo.InvariantCulture,
+                        "BRANCH_TREE_HOST_SCAN_COMPLETE branchCount={0} topLevelCount={1} durationMs={2}",
+                        branchHierarchyCount, branchTopLevelCount,
+                        (int)(DateTime.UtcNow - startedAt).TotalMilliseconds));
                 }
-                payload = branchHierarchyPayload;
+                payload = legacyRequest ? legacyBranchHierarchyPayload : branchHierarchyPayload;
             }
             var durationMs = (int)(DateTime.UtcNow - startedAt).TotalMilliseconds;
             WriteDiagnostic(string.Format(CultureInfo.InvariantCulture,
                 "BRANCH_TREE_NATIVE_RESPONSE branchCount={0} topLevelCount={1} durationMs={2}",
                 branchHierarchyCount, branchTopLevelCount, durationMs));
             SendToChrome(string.Format(CultureInfo.InvariantCulture,
-                "{{\"type\":\"branchesResult\",\"requestId\":{0},\"ok\":true,\"branches\":{1}}}",
-                requestId, payload));
+                "{{\"type\":\"{0}\",\"requestId\":{1},\"ok\":true,\"branches\":{2}}}",
+                responseType, requestId, payload));
         }
         catch (Exception error)
         {
-            WriteDiagnostic("BRANCH_TREE_FAILED reason=" + error.GetType().Name);
+            WriteDiagnostic("BRANCH_TREE_HOST_ERROR reason=" + error.GetType().Name);
             SendToChrome(string.Format(CultureInfo.InvariantCulture,
-                "{{\"type\":\"branchesResult\",\"requestId\":{0},\"ok\":false,\"branches\":[]}}",
-                requestId));
+                "{{\"type\":\"{0}\",\"requestId\":{1},\"ok\":false,\"error\":\"branch_tree_unavailable\",\"branches\":[]}}",
+                responseType, requestId));
         }
     }
 
@@ -846,7 +854,7 @@ internal static class CarnivalWorkspaceHost
         return count;
     }
 
-    private static string SerializeBranches(IEnumerable<BranchNode> branches)
+    private static string SerializeBranches(IEnumerable<BranchNode> branches, bool legacy)
     {
         var json = new StringBuilder("[");
         var first = true;
@@ -854,17 +862,18 @@ internal static class CarnivalWorkspaceHost
         {
             if (!first) json.Append(',');
             first = false;
-            SerializeBranch(json, branch);
+            SerializeBranch(json, branch, legacy);
         }
         return json.Append(']').ToString();
     }
 
-    private static void SerializeBranch(StringBuilder json, BranchNode branch)
+    private static void SerializeBranch(StringBuilder json, BranchNode branch, bool legacy)
     {
         json.Append("{\"name\":\"").Append(EscapeJson(branch.Name))
-            .Append("\",\"path\":\"").Append(EscapeJson(branch.Path))
+            .Append(legacy ? "\",\"path\":\"" : "\",\"relativePath\":\"")
+            .Append(EscapeJson(branch.Path))
             .Append("\",\"selectable\":").Append(branch.Selectable ? "true" : "false")
-            .Append(",\"children\":").Append(SerializeBranches(branch.Children)).Append('}');
+            .Append(",\"children\":").Append(SerializeBranches(branch.Children, legacy)).Append('}');
     }
 
     private static string EscapeJson(string value)
@@ -1188,6 +1197,12 @@ internal static class CarnivalWorkspaceHost
             AssertSelfTest(branches[0].Children.Count == 1 && branches[0].Children[0].Selectable &&
                 branches[0].Children[0].Path == "Parent/Marked Child",
                 "marked nested branch is selectable with canonical relative path");
+            AssertSelfTest(SerializeBranches(branches, false).Contains("\"relativePath\"") &&
+                !SerializeBranches(branches, false).Contains("\"path\""),
+                "GET_BRANCH_TREE returns relativePath");
+            AssertSelfTest(SerializeBranches(branches, true).Contains("\"path\"") &&
+                !SerializeBranches(branches, true).Contains("\"relativePath\""),
+                "installed host remains compatible during extension reload");
         }
         finally
         {

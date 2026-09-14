@@ -93,7 +93,7 @@ test("content script forwards one compact local Branch hierarchy response", asyn
     location: { origin: "https://carnival-playhouse.vercel.app" },
     postMessage(message, origin) { pageMessages.push({ message, origin }); },
   };
-  const branches = [{ children: [], name: "Carnival", path: "Carnival", selectable: true }];
+  const branches = [{ children: [], name: "Carnival", relativePath: "Carnival", selectable: true }];
   vm.runInNewContext(bridgeSource, {
     chrome: { runtime: { async sendMessage(message) { runtimeMessages.push(message); return { branches, ok: true }; } } },
     console: {
@@ -124,7 +124,7 @@ test("content script forwards one compact local Branch hierarchy response", asyn
 
 test("extension forwards local Branch discovery to the existing native host", () => {
   assert.match(backgroundSource, /message\?\.type === GET_LOCAL_BRANCHES/);
-  assert.match(backgroundSource, /nativePort\.postMessage\(\{ requestId, type: "getBranches" \}\)/);
-  assert.match(backgroundSource, /message\?\.type === "branchesResult"/);
+  assert.match(backgroundSource, /nativePort\.postMessage\(\{ requestId, type: "GET_BRANCH_TREE" \}\)/);
+  assert.match(backgroundSource, /message\?\.type === "BRANCH_TREE_RESULT"/);
   assert.match(backgroundSource, /branchHierarchyCache = message\.branches/);
 });

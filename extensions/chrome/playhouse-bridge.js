@@ -6,6 +6,7 @@ const GET_LOCAL_BRANCHES_MESSAGE_TYPE = "getLocalBranches";
 const LOCAL_BRANCHES_RESULT_TYPE = "localBranchesResult";
 
 console.info("Carnival Aux bridge content script loaded");
+console.info("BRANCH_TREE_BRIDGE_READY");
 
 window.addEventListener("message", (event) => {
   if (event.origin !== window.location.origin) return;

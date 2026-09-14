@@ -6,7 +6,7 @@ export const LOCAL_BRANCHES_RESULT_TYPE = "localBranchesResult";
 export type LocalBranchNode = {
   children: LocalBranchNode[];
   name: string;
-  path: string;
+  relativePath: string;
   selectable: boolean;
 };
 
@@ -45,6 +45,9 @@ export async function loadLocalBranches(
         event.data?.requestId !== requestId
       ) return;
       const branches = validBranchNodes(event.data.branches);
+      console.info("BRANCH_TREE_PLAYHOUSE_RECEIVED", branches
+        ? branchSummary(branches, Date.now() - startedAt)
+        : { durationMs: Date.now() - startedAt });
       finish(event.data.ok === true && branches !== null, branches ?? []);
     }
     target.addEventListener("message", onMessage);
@@ -77,7 +80,8 @@ function validBranchNodes(value: unknown, depth = 0): LocalBranchNode[] | null {
   for (const candidate of value) {
     if (
       !candidate || typeof candidate !== "object" ||
-      typeof candidate.name !== "string" || typeof candidate.path !== "string" ||
+      typeof candidate.name !== "string" ||
+      (typeof candidate.relativePath !== "string" && typeof candidate.path !== "string") ||
       typeof candidate.selectable !== "boolean"
     ) return null;
     const children = validBranchNodes(candidate.children, depth + 1);
@@ -85,7 +89,7 @@ function validBranchNodes(value: unknown, depth = 0): LocalBranchNode[] | null {
     nodes.push({
       children,
       name: candidate.name,
-      path: candidate.path,
+      relativePath: typeof candidate.relativePath === "string" ? candidate.relativePath : candidate.path,
       selectable: candidate.selectable,
     });
   }
