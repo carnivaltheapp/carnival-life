@@ -116,11 +116,35 @@ export class GoogleDriveHierarchyResolver {
         }
         throw error;
       }
-      if (candidates.length === 0) return { relativePath: currentPath, status: "not_found" };
+      if (candidates.length === 0) {
+        console.warn("CARNIVAL_DRIVE_RESOLVE SEGMENT", {
+          candidateCount: 0,
+          parentFolderId: parentId,
+          relativePath: currentPath,
+          segmentName: name,
+          status: "not_found",
+        });
+        return { relativePath: currentPath, status: "not_found" };
+      }
       if (candidates.length > 1) {
+        console.warn("CARNIVAL_DRIVE_RESOLVE SEGMENT", {
+          candidateCount: candidates.length,
+          parentFolderId: parentId,
+          relativePath: currentPath,
+          segmentName: name,
+          status: "ambiguous",
+        });
         return { candidateCount: candidates.length, relativePath: currentPath, status: "ambiguous" };
       }
       const folderId = text(candidates[0].id)!;
+      console.info("CARNIVAL_DRIVE_RESOLVE SEGMENT", {
+        candidateCount: 1,
+        parentFolderId: parentId,
+        relativePath: currentPath,
+        resolvedFolderId: folderId,
+        segmentName: name,
+        status: "resolved",
+      });
       const webUrl = exactDriveFolderUrl({ driveFolderId: folderId })!;
       folders.push({ folderId, relativePath: currentPath, webUrl });
       parentId = folderId;

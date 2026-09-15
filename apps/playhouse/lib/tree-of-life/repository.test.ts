@@ -175,6 +175,57 @@ describe("Mongo Tree of Life repository", () => {
     );
   });
 
+  it("normalizes the canonical stored Play Branch before the owner-scoped lookup", async () => {
+    const { collection, repository } = repositoryWith({
+      findOne: vi.fn().mockResolvedValue({ drive_folder_id: "ABC123" }),
+    });
+    await expect(repository.resolveDriveFolderForOwner(
+      "owner-a",
+      "C:\\Google Drive\\BlueField Law\\Automation\\BFLX",
+    )).resolves.toBe("https://drive.google.com/drive/folders/ABC123");
+    expect(collection.findOne).toHaveBeenCalledWith(
+      {
+        active: true,
+        owner_user_id: "owner-a",
+        relative_path: "BlueField Law/Automation/BFLX",
+      },
+      { projection: { _id: 0, drive_folder_id: 1, drive_web_url: 1 } },
+    );
+  });
+
+  it("loads Branch backfill targets and verifies cached identities with owner scope", async () => {
+    const targets = [{
+      drive_folder_id: "ABC123",
+      drive_web_url: "https://drive.google.com/drive/folders/ABC123",
+      relative_path: "Work/Branch",
+    }];
+    const targetToArray = vi.fn().mockResolvedValue(targets);
+    const verifyToArray = vi.fn().mockResolvedValue(targets);
+    const sort = vi.fn(() => ({ toArray: targetToArray }));
+    const find = vi.fn()
+      .mockReturnValueOnce({ sort })
+      .mockReturnValueOnce({ toArray: verifyToArray });
+    const { repository } = repositoryWith({ find });
+
+    await expect(repository.listDriveResolutionTargets("owner-a", true)).resolves.toEqual([{
+      driveFolderId: "ABC123",
+      driveWebUrl: "https://drive.google.com/drive/folders/ABC123",
+      relativePath: "Work/Branch",
+    }]);
+    await repository.readDriveFolderIdentitiesForOwner("owner-a", ["Work/Branch"]);
+
+    expect(find.mock.calls[0][0]).toEqual({
+      active: true,
+      owner_user_id: "owner-a",
+      $or: [{ is_branch: true }, { selectable: true }],
+    });
+    expect(find.mock.calls[1][0]).toEqual({
+      active: true,
+      owner_user_id: "owner-a",
+      relative_path: { $in: ["Work/Branch"] },
+    });
+  });
+
   it("stores only validated non-secret Drive identity on an existing owner folder", async () => {
     const { collection, repository } = repositoryWith({
       updateOne: vi.fn().mockResolvedValue({ matchedCount: 1 }),

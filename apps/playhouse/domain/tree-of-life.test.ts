@@ -9,6 +9,7 @@ import {
   parseFolderImage,
   searchBranchTree,
   searchFolderTree,
+  treeOfLifeRelativePathFromBranch,
 } from "./tree-of-life";
 
 const nativeTree = [{
@@ -29,6 +30,15 @@ const nativeTree = [{
 }];
 
 describe("Tree of Life hierarchy", () => {
+  it("maps canonical stored Play Branches to Tree of Life relative paths", () => {
+    expect(treeOfLifeRelativePathFromBranch("C:\\Google Drive\\BlueField Law\\Automation"))
+      .toBe("BlueField Law/Automation");
+    expect(treeOfLifeRelativePathFromBranch("Google Drive/Personal/Me"))
+      .toBe("Personal/Me");
+    expect(treeOfLifeRelativePathFromBranch("Rumi/Anjoman-e Mehrdad"))
+      .toBe("Rumi/Anjoman-e Mehrdad");
+  });
+
   it("validates and flattens canonical relative paths through 3+ levels", () => {
     expect(flattenBranchTree(nativeTree)).toEqual([
       expect.objectContaining({ depth: 0, parentRelativePath: null, relativePath: "Blue Field Law" }),

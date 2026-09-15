@@ -1,10 +1,13 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-
 import type { DriveBackfillState } from "../../domain/drive-backfill";
-import type { BranchTreeNode, FolderTreeNode } from "../../domain/tree-of-life";
+import {
+  treeOfLifeRelativePathFromBranch,
+  type BranchTreeNode,
+  type FolderTreeNode,
+} from "../../domain/tree-of-life";
 import { isUuid } from "../../domain/play-input";
+import { runExactDriveBackfill } from "../../lib/google/drive-backfill";
 import { createDriveHierarchyResolver } from "../../lib/google/drive.server";
 import { GOOGLE_DRIVE_METADATA_READONLY_SCOPE } from "../../lib/google/scopes";
 import { GoogleAccountReconnectRequiredError } from "../../lib/google/token-broker";
@@ -83,22 +86,35 @@ export async function resolveTreeOfLifeDriveDestination(relativePath: string) {
   const ownerUserId = await authenticatedOwnerId();
   if (!ownerUserId) return null;
   const repository = new MongoTreeOfLifeRepository();
+  let normalizedPath: string;
   try {
-    const cachedUrl = await repository.resolveDriveFolderForOwner(ownerUserId, relativePath);
-    if (cachedUrl) return cachedUrl;
-    console.info("DRIVE_RESOLVE_START", { relativePath });
+    normalizedPath = treeOfLifeRelativePathFromBranch(relativePath);
+  } catch {
+    console.error("CARNIVAL_DRIVE_RESOLVE ERROR", { category: "ROOT_MAPPING_ERROR", relativePath });
+    console.info("HOT_TAB_DRIVE_UNRESOLVED", { relativePath });
+    return null;
+  }
+  try {
+    console.info("HOT_TAB_DRIVE_LOOKUP", { relativePath: normalizedPath });
+    const cachedUrl = await repository.resolveDriveFolderForOwner(ownerUserId, normalizedPath);
+    if (cachedUrl) {
+      console.info("HOT_TAB_DRIVE_CACHE_HIT", { relativePath: normalizedPath });
+      return cachedUrl;
+    }
+    console.info("HOT_TAB_DRIVE_RESOLVE_START", { relativePath: normalizedPath });
+    console.info("CARNIVAL_DRIVE_RESOLVE START", { mode: "on_demand", relativePath: normalizedPath });
     const account = await driveAccountForOwner(ownerUserId);
     if (!account.accountId) {
-      console.warn("DRIVE_AUTH_REQUIRED", { relativePath, status: account.status });
+      console.warn("DRIVE_AUTH_REQUIRED", { relativePath: normalizedPath, status: account.status });
       return null;
     }
     const resolver = await createDriveHierarchyResolver({
       googleAccountId: account.accountId,
       ownerUserId,
     });
-    const result = await resolver.resolve(relativePath);
+    const result = await resolver.resolve(normalizedPath);
     if (result.status === "auth_required") {
-      console.warn("DRIVE_AUTH_REQUIRED", { relativePath });
+      console.warn("DRIVE_AUTH_REQUIRED", { relativePath: normalizedPath });
       return null;
     }
     if (result.status === "ambiguous") {
@@ -113,9 +129,15 @@ export async function resolveTreeOfLifeDriveDestination(relativePath: string) {
       return null;
     }
     await repository.cacheDriveFolderIdentities(ownerUserId, result.folders);
-    console.info("DRIVE_ID_CACHED", { count: result.folders.length, relativePath });
-    console.info("DRIVE_RESOLVE_COMPLETE", { relativePath });
-    return result.folders.at(-1)?.webUrl ?? null;
+    const driveUrl = await repository.resolveDriveFolderForOwner(ownerUserId, normalizedPath);
+    if (!driveUrl) {
+      console.error("CARNIVAL_DRIVE_RESOLVE ERROR", { category: "DB_ERROR", relativePath: normalizedPath });
+      return null;
+    }
+    console.info("DRIVE_ID_CACHED", { count: result.folders.length, relativePath: normalizedPath });
+    console.info("HOT_TAB_DRIVE_RESOLVED", { relativePath: normalizedPath });
+    console.info("CARNIVAL_DRIVE_RESOLVE COMPLETE", { mode: "on_demand", relativePath: normalizedPath });
+    return driveUrl;
   } catch (error) {
     if (error instanceof GoogleAccountReconnectRequiredError) {
       console.warn("DRIVE_AUTH_REQUIRED", { relativePath });
@@ -149,46 +171,40 @@ export async function backfillTreeOfLifeDriveFolders(
   }
 
   const repository = new MongoTreeOfLifeRepository();
+  const startedAt = Date.now();
+  let stage: "auth" | "load" | "resolve" | "persist" = "load";
   try {
-    const paths = await repository.listDriveResolutionPaths(ownerUserId, true);
+    const targets = await repository.listDriveResolutionTargets(ownerUserId, true);
+    stage = "auth";
     const resolver = await createDriveHierarchyResolver({ googleAccountId, ownerUserId });
-    const identities = new Map<string, { folderId: string; relativePath: string; webUrl: string }>();
-    let ambiguous = 0;
-    let notFound = 0;
-    let resolved = 0;
-    console.info("DRIVE_RESOLVE_START", { count: paths.length, mode: "branch_backfill" });
-    for (const relativePath of paths) {
-      const result = await resolver.resolve(relativePath);
-      if (result.status === "auth_required") {
-        console.warn("DRIVE_AUTH_REQUIRED", { relativePath });
-        return {
-          message: "Google Drive reconnect required. Sign out and sign in with Google to grant access.",
-          status: "error",
-        };
-      }
-      if (result.status === "ambiguous") {
-        ambiguous += 1;
-        console.warn("DRIVE_FOLDER_AMBIGUOUS", {
-          candidateCount: result.candidateCount,
-          relativePath: result.relativePath,
-        });
-        continue;
-      }
-      if (result.status === "not_found") {
-        notFound += 1;
-        console.warn("DRIVE_FOLDER_NOT_FOUND", { relativePath: result.relativePath });
-        continue;
-      }
-      resolved += 1;
-      for (const folder of result.folders) identities.set(folder.relativePath, folder);
+    console.info("CARNIVAL_DRIVE_RESOLVE START", {
+      accountId: googleAccountId,
+      count: targets.length,
+      mode: "branch_backfill",
+    });
+    stage = "resolve";
+    const summary = await runExactDriveBackfill({
+      cache: async (folders) => {
+        stage = "persist";
+        await repository.cacheDriveFolderIdentities(ownerUserId, folders);
+      },
+      readBack: (relativePaths) => repository.readDriveFolderIdentitiesForOwner(ownerUserId, relativePaths),
+      resolve: (relativePath) => resolver.resolve(relativePath),
+      targets,
+    });
+    console.info("CARNIVAL_DRIVE_RESOLVE COMPLETE", { ...summary, unresolved: summary.unresolved.length });
+    if (summary.authRequired) {
+      console.warn("DRIVE_AUTH_REQUIRED", { googleAccountId });
+      return {
+        message: "Google Drive reconnect required. Sign out and sign in with Google to grant access.",
+        status: "error",
+        summary,
+      };
     }
-    await repository.cacheDriveFolderIdentities(ownerUserId, [...identities.values()]);
-    console.info("DRIVE_ID_CACHED", { count: identities.size, mode: "branch_backfill" });
-    console.info("DRIVE_RESOLVE_COMPLETE", { ambiguous, notFound, resolved });
-    revalidatePath("/");
     return {
-      message: `${resolved} Branch${resolved === 1 ? "" : "es"} resolved; ${notFound} not found; ${ambiguous} ambiguous.`,
+      message: "Drive folder resolution complete.",
       status: "success",
+      summary,
     };
   } catch (error) {
     if (error instanceof GoogleAccountReconnectRequiredError) {
@@ -198,10 +214,20 @@ export async function backfillTreeOfLifeDriveFolders(
         status: "error",
       };
     }
-    console.error("[Tree of Life] Drive backfill failed", {
+    const category = stage === "auth" ? "AUTH_REQUIRED" : stage === "resolve" ? "API_ERROR" : "DB_ERROR";
+    console.error("CARNIVAL_DRIVE_RESOLVE ERROR", {
+      category,
+      durationMs: Date.now() - startedAt,
       message: error instanceof Error ? error.message : "Unknown error",
     });
-    return { message: "Drive folder IDs could not be resolved.", status: "error" };
+    return {
+      message: `Drive folder resolution failed: ${
+        category === "AUTH_REQUIRED"
+          ? "Google authorization error."
+          : category === "API_ERROR" ? "Google Drive API error." : "database update error."
+      }`,
+      status: "error",
+    };
   }
 }
 

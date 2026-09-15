@@ -1470,10 +1470,40 @@ h1 {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 7px;
+  align-items: end;
+}
+
+.driveFolderSettings label {
+  display: grid;
+  gap: 4px;
 }
 
 .driveFolderSettings select {
   min-width: 0;
+}
+
+.driveFolderSummary {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+}
+
+.driveFolderSummary div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.driveFolderSummary dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.driveFolderUnresolved ul {
+  max-height: 110px;
+  margin: 4px 0 0;
+  padding-left: 18px;
+  overflow-y: auto;
 }
 
 .desktopCompanionSettings,

@@ -21,7 +21,9 @@ export async function routePlayDescriptionAux(
     }
     if (driveUrl) {
       try {
+        console.info("HOT_TAB_DRIVE_NAVIGATE", { playId: play.id });
         await route(driveUrl);
+        console.info("HOT_TAB_DRIVE_COMPLETE", { playId: play.id });
         console.info("HOT_TAB_NAVIGATED", { hostname: "drive.google.com", role: "drive" });
       } catch {
         // Routing remains best-effort; the other Hot Tabs still get their chance.

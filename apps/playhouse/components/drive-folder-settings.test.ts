@@ -11,6 +11,12 @@ describe("Drive folder settings", () => {
     expect(component).toContain('name="googleAccountId"');
     expect(component).toContain("Resolve Drive Folders");
     expect(component).toContain("backfillTreeOfLifeDriveFolders");
+    expect(component).toContain('pending ? "Resolving…"');
+    expect(component).toContain("Branches processed");
+    expect(component).toContain("Branches resolved");
+    expect(component).toContain("Already resolved");
+    expect(component).toContain("Authorization required");
+    expect(component).toContain("state.summary.unresolved");
   });
 
   it("reports the explicit Google reconnect requirement", () => {

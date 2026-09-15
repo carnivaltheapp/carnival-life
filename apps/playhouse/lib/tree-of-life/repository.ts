@@ -9,6 +9,7 @@ import {
   buildFolderTree,
   flattenBranchTree,
   parseFolderImage,
+  treeOfLifeRelativePathFromBranch,
   type TreeOfLifeFolderRecord,
   type TreeOfLifeBranchRecord,
 } from "../../domain/tree-of-life";
@@ -100,9 +101,9 @@ export class MongoTreeOfLifeRepository {
   }
 
   async resolveDriveFolderForOwner(ownerUserId: string, relativePath: string) {
-    const record = parseFolderImage([{ name: relativePath.replaceAll("\\", "/").split("/").at(-1), relativePath }])[0];
+    const normalizedPath = treeOfLifeRelativePathFromBranch(relativePath);
     const document = await (await this.collection()).findOne(
-      { active: true, owner_user_id: ownerUserId, relative_path: record.relativePath },
+      { active: true, owner_user_id: ownerUserId, relative_path: normalizedPath },
       { projection: { _id: 0, drive_folder_id: 1, drive_web_url: 1 } },
     );
     return document ? exactDriveFolderUrl({
@@ -153,13 +154,35 @@ export class MongoTreeOfLifeRepository {
     return result.modifiedCount;
   }
 
-  async listDriveResolutionPaths(ownerUserId: string, branchesOnly = true) {
+  async listDriveResolutionTargets(ownerUserId: string, branchesOnly = true) {
     const documents = await (await this.collection()).find({
       active: true,
       owner_user_id: ownerUserId,
       ...(branchesOnly ? { $or: [{ is_branch: true }, { selectable: true }] } : {}),
-    }, { projection: { _id: 0, relative_path: 1 } }).sort({ depth: 1, relative_path: 1 }).toArray();
-    return documents.map((document) => document.relative_path);
+    }, {
+      projection: { _id: 0, drive_folder_id: 1, drive_web_url: 1, relative_path: 1 },
+    }).sort({ depth: 1, relative_path: 1 }).toArray();
+    return documents.map((document) => ({
+      driveFolderId: document.drive_folder_id ?? null,
+      driveWebUrl: document.drive_web_url ?? null,
+      relativePath: document.relative_path,
+    }));
+  }
+
+  async readDriveFolderIdentitiesForOwner(ownerUserId: string, relativePaths: string[]) {
+    if (!relativePaths.length) return [];
+    const documents = await (await this.collection()).find({
+      active: true,
+      owner_user_id: ownerUserId,
+      relative_path: { $in: relativePaths },
+    }, {
+      projection: { _id: 0, drive_folder_id: 1, drive_web_url: 1, relative_path: 1 },
+    }).toArray();
+    return documents.map((document) => ({
+      driveFolderId: document.drive_folder_id ?? null,
+      driveWebUrl: document.drive_web_url ?? null,
+      relativePath: document.relative_path,
+    }));
   }
 
   async searchFoldersForOwner(ownerUserId: string, query: string) {

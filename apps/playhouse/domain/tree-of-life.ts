@@ -107,6 +107,14 @@ export function canonicalFolderRelativePath(value: string) {
   return path;
 }
 
+export function treeOfLifeRelativePathFromBranch(value: string) {
+  const normalized = value.trim().replaceAll("\\", "/");
+  const relativePath = normalized
+    .replace(/^C:\/Google Drive\//i, "")
+    .replace(/^Google Drive\//i, "");
+  return canonicalFolderRelativePath(relativePath);
+}
+
 export function parseFolderImage(value: unknown): TreeOfLifeFolderRecord[] {
   if (!Array.isArray(value)) throw new Error("Folder image must be an array.");
   const seen = new Set<string>();
