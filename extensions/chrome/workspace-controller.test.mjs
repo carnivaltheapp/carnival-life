@@ -20,6 +20,18 @@ function fakeChrome() {
   const windows = new Map();
   const tabs = new Map();
   const calls = { createTab: [], createWindow: [], updateTab: [], updateWindow: [] };
+  function chromeEvent() {
+    const listeners = new Set();
+    return {
+      addListener(listener) { listeners.add(listener); },
+      emit(...args) { for (const listener of listeners) listener(...args); },
+      get size() { return listeners.size; },
+      removeListener(listener) { listeners.delete(listener); },
+    };
+  }
+  const tabRemoved = chromeEvent();
+  const tabUpdated = chromeEvent();
+  const windowRemoved = chromeEvent();
 
   function windowTabs(windowId) {
     return [...tabs.values()]
@@ -76,6 +88,7 @@ function fakeChrome() {
     closeWindow(id) {
       windows.delete(id);
       for (const tab of windowTabs(id)) tabs.delete(tab.id);
+      windowRemoved.emit(id);
     },
     getTab(id) { return tabs.get(id); },
     getTabs(id) { return windowTabs(id); },
@@ -88,6 +101,11 @@ function fakeChrome() {
       syncWindowTabs(moved.windowId);
     },
     resizeWindow(id, bounds) { windows.set(id, { ...windows.get(id), ...bounds }); },
+    setTab(id, changes) {
+      const tab = { ...tabs.get(id), ...changes };
+      tabs.set(id, tab);
+      syncWindowTabs(tab.windowId);
+    },
     setWorkspaceState(value) { state = { carnivalDesktopWorkspace: value }; },
     storage: {
       local: {
@@ -96,6 +114,8 @@ function fakeChrome() {
       },
     },
     tabs: {
+      onRemoved: tabRemoved,
+      onUpdated: tabUpdated,
       async create(options) {
         calls.createTab.push(options);
         return addTab(options.windowId, options.url, options);
@@ -124,6 +144,7 @@ function fakeChrome() {
         const tab = { ...tabs.get(id), ...options };
         tabs.set(id, tab);
         syncWindowTabs(tab.windowId);
+        tabUpdated.emit(id, options, tab);
         return tab;
       },
     },
@@ -142,6 +163,11 @@ function fakeChrome() {
         syncWindowTabs(id);
         return windows.get(id);
       },
+      async getAll() {
+        for (const id of windows.keys()) syncWindowTabs(id);
+        return [...windows.values()];
+      },
+      onRemoved: windowRemoved,
       async update(id, options) {
         calls.updateWindow.push({ id, options });
         const window = { ...windows.get(id), ...options };
@@ -149,6 +175,7 @@ function fakeChrome() {
         return window;
       },
     },
+    get tabUpdatedListenerCount() { return tabUpdated.size; },
   };
 }
 
@@ -645,6 +672,96 @@ test("opening in Aux restores a minimized or offscreen Aux and focuses it", asyn
     id: initial.contextWindowId,
     options: { focused: true },
   });
+});
+
+test("cold native startup adopts the resolving Chrome window and creates only Aux", async () => {
+  const chrome = fakeChrome();
+  const startupWindow = await chrome.windows.create({
+    focused: true,
+    height: 900,
+    left: 40,
+    state: "normal",
+    top: 20,
+    type: "normal",
+    url: "about:blank",
+    width: 900,
+  });
+  chrome.setTab(startupWindow.tabs[0].id, { status: "loading" });
+  const unrelatedTab = chrome.addTab(startupWindow.id, "https://example.com/", { active: false });
+  const unrelatedWindow = await chrome.windows.create({
+    focused: false,
+    height: 700,
+    left: 1200,
+    state: "normal",
+    top: 50,
+    type: "normal",
+    url: "https://example.org/",
+    width: 500,
+  });
+  chrome.calls.createWindow.length = 0;
+  chrome.calls.updateWindow.length = 0;
+  const traceEvents = [];
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { info() {}, warn() {} },
+    windowTrace: {
+      afterCreate() {},
+      async beforeCreate() { return "test-create"; },
+      async beforeUpdate() {},
+      createFailed() {},
+      async discovery() {},
+      emit(eventSource, event, details) { traceEvents.push({ details, event, eventSource }); },
+      enter() {},
+      exit() {},
+    },
+  });
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const summon = workspace.summon(workArea, null, {
+    allowColdStartPlayhouseAdoption: true,
+    coldStartCandidateWindowIds: [startupWindow.id],
+  });
+  for (let attempt = 0; attempt < 20 && chrome.tabUpdatedListenerCount === 0; attempt += 1) {
+    await Promise.resolve();
+  }
+  assert.equal(chrome.tabUpdatedListenerCount, 1);
+  await chrome.tabs.update(startupWindow.tabs[0].id, {
+    status: "complete",
+    url: PLAYHOUSE_URL,
+  });
+
+  const state = await summon;
+  assert.equal(state.phWindowId, startupWindow.id);
+  assert.equal(state.phPrimaryTabId, startupWindow.tabs[0].id);
+  assert.equal(chrome.calls.createWindow.length, 1);
+  assert.equal(chrome.calls.createWindow[0].url[0], DEFAULT_CONTEXT_URL);
+  assert.equal(chrome.getTabs(startupWindow.id).some(({ id }) => id === unrelatedTab.id), true);
+  assert.equal(chrome.calls.updateWindow.some(({ id }) => id === unrelatedWindow.id), false);
+  assert.ok(traceEvents.some(({ event }) => event === "PLAYHOUSE_ADOPTED"));
+});
+
+test("warm startup never waits for or adopts an unrelated loading window", async () => {
+  const chrome = fakeChrome();
+  const ordinary = await chrome.windows.create({
+    focused: true,
+    height: 900,
+    left: 0,
+    state: "normal",
+    top: 0,
+    type: "normal",
+    url: "about:blank",
+    width: 900,
+  });
+  chrome.setTab(ordinary.tabs[0].id, { status: "loading" });
+  chrome.calls.createWindow.length = 0;
+
+  const state = await controller(chrome).summon(
+    { height: 900, left: 0, top: 0, width: 1600 },
+    null,
+    { allowColdStartPlayhouseAdoption: false, coldStartCandidateWindowIds: [ordinary.id] },
+  );
+
+  assert.notEqual(state.phWindowId, ordinary.id);
+  assert.equal(chrome.calls.createWindow.length, 2);
+  assert.equal(chrome.tabUpdatedListenerCount, 0);
 });
 
 test("startup reuses the existing PlayHouse across query changes and stale saved tab IDs", async () => {

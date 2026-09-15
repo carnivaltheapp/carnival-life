@@ -112,6 +112,8 @@ export function createWindowTrace({
   let startPromise = null;
   let startupTraceId = null;
   let startupMode = "WARM";
+  let coldStartAdoptionEligible = false;
+  const coldStartCandidateWindowIds = new Set();
   let workspaceStartRequestCount = 0;
   const counters = { auxEnsureInFlight: 0, playhouseEnsureInFlight: 0, workspaceInitInFlight: 0 };
   const createCalls = [];
@@ -315,11 +317,18 @@ export function createWindowTrace({
       records.length = 0;
       tabMoveCalls.length = 0;
       windowRoles.clear();
+      coldStartCandidateWindowIds.clear();
       startupTraceId = `WT-${randomId()}`;
       createdAtStart = now().toISOString();
       active = true;
-      const runtimeStartupObserved = lifecycle.some(({ event }) => event === "CHROME_RUNTIME_ON_STARTUP");
+      const runtimeStartupEvent = [...lifecycle].reverse()
+        .find(({ event }) => event === "CHROME_RUNTIME_ON_STARTUP");
+      const runtimeStartupObserved = Boolean(runtimeStartupEvent);
+      const runtimeStartupAgeMs = runtimeStartupEvent
+        ? Math.max(0, now().getTime() - new Date(runtimeStartupEvent.timestamp).getTime())
+        : null;
       startupMode = runtimeStartupObserved ? "COLD" : "WARM";
+      coldStartAdoptionEligible = runtimeStartupAgeMs !== null && runtimeStartupAgeMs <= 10_000;
       await chromeApi.storage.local.set({
         [WINDOW_TRACE_CURRENT_KEY]: {
           events: [],
@@ -336,6 +345,7 @@ export function createWindowTrace({
           lifecycleObservedAt: entry.timestamp,
         });
         if (entry.event === "CHROME_WINDOW_ON_CREATED") {
+          coldStartCandidateWindowIds.add(entry.details.windowId);
           windowRoles.set(entry.details.windowId, entry.details.classification ?? "OTHER");
         } else if (entry.event.startsWith("CHROME_TAB_") && entry.details.classification) {
           trackWindowRole(
@@ -353,8 +363,14 @@ export function createWindowTrace({
         startupMode,
         workspaceInitializationTriggeredDuringExtensionStartup: reason === "extension startup",
       });
-      await snapshot("T+0ms");
+      const initialSnapshot = await snapshot("T+0ms");
+      if (coldStartAdoptionEligible && coldStartCandidateWindowIds.size === 0 &&
+        initialSnapshot.windows.length === 1) {
+        coldStartCandidateWindowIds.add(initialSnapshot.windows[0].windowId);
+      }
       emit("background", "COLD_START_CONTEXT", {
+        adoptionCandidateWindowIds: [...coldStartCandidateWindowIds],
+        adoptionEligible: coldStartAdoptionEligible,
         initialAuxCount: initialCounts?.auxCount ?? 0,
         initialChromeWindowCount: (initialCounts?.auxCount ?? 0) +
           (initialCounts?.otherCount ?? 0) + (initialCounts?.playhouseCount ?? 0),
@@ -362,6 +378,7 @@ export function createWindowTrace({
         noChromeWindowsAtTraceStart: !initialCounts ||
           initialCounts.auxCount + initialCounts.otherCount + initialCounts.playhouseCount === 0,
         startupMode,
+        runtimeStartupAgeMs,
         triggerSource: classifyTriggerSource(reason),
         workspaceInitializationTriggeredDuringExtensionStartup: reason === "extension startup",
       });
@@ -667,6 +684,8 @@ export function createWindowTrace({
       WINDOW_TRACE_LIFECYCLE_KEY,
     ]);
     active = false;
+    coldStartAdoptionEligible = false;
+    coldStartCandidateWindowIds.clear();
     startPromise = null;
     pendingPersistence.length = 0;
     return true;
@@ -686,6 +705,13 @@ export function createWindowTrace({
     enter,
     exit,
     get active() { return active; },
+    get coldStartContext() {
+      return {
+        candidateWindowIds: [...coldStartCandidateWindowIds],
+        eligible: coldStartAdoptionEligible,
+        startupMode,
+      };
+    },
     get records() { return [...records]; },
     start,
     tabMove,

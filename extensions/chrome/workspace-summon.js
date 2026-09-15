@@ -40,7 +40,11 @@ export function createWorkspaceActions({
           return active;
         }
         logger.info("Carnival: creating/restoring windows");
-        const state = await controller.summon(workArea, monitorId);
+        const coldStart = windowTrace?.coldStartContext;
+        const state = await controller.summon(workArea, monitorId, {
+          allowColdStartPlayhouseAdoption: source === "native hot corner" && coldStart?.eligible === true,
+          coldStartCandidateWindowIds: coldStart?.candidateWindowIds ?? [],
+        });
         reportDrawerState(state);
         logger.info(`Carnival: workspace state = ${state.drawerState}`);
         return state;

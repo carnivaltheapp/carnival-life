@@ -124,6 +124,8 @@ test("cold-start lifecycle and trace persist across a worker restart and dump ch
   await first.trace.workerLoaded();
   await first.trace.runtimeStartup();
   await first.trace.start("native hot corner");
+  assert.equal(first.trace.coldStartContext.eligible, true);
+  assert.deepEqual(first.trace.coldStartContext.candidateWindowIds, [1]);
   first.trace.workspaceStartRequest("native hot corner");
   first.trace.tabMove({
     classification: "PLAYHOUSE",

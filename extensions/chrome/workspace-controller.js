@@ -7,6 +7,7 @@ import {
   snapshotTabs,
   validSavedTabs,
 } from "./workspace-tabs.js";
+import { waitForColdStartPlayhouse } from "./cold-start-playhouse.js";
 
 export const PLAYHOUSE_URL = "https://carnival-playhouse.vercel.app/";
 export const DEFAULT_CONTEXT_URL = "https://calendar.google.com/calendar/u/0/r";
@@ -20,6 +21,7 @@ const LAYOUT_VERSION = 2;
 const DEFAULT_PLAYHOUSE_RATIO = 0.6;
 const MINIMUM_VISIBLE_INTERSECTION_PX = 64;
 const POST_RESTORE_GEOMETRY_SETTLE_MS = 500;
+const COLD_START_CANDIDATE_TIMEOUT_MS = 3500;
 
 function validInteger(value) {
   return Number.isInteger(value) && value >= 0;
@@ -248,6 +250,8 @@ export class CarnivalWorkspaceController {
     this.chrome = chromeApi;
     this.logger = options.logger ?? console;
     this.windowTrace = options.windowTrace ?? null;
+    this.coldStartCandidateTimeoutMs = options.coldStartCandidateTimeoutMs ??
+      COLD_START_CANDIDATE_TIMEOUT_MS;
     this.nativeActivate = options.nativeActivate ?? null;
     this.nativeAnimate = options.nativeAnimate ?? null;
     this.movingWindowIds = new Set();
@@ -501,7 +505,7 @@ export class CarnivalWorkspaceController {
     return { snapshot, tabs };
   }
 
-  async findPlayhouse(prior, bounds, positionExisting = true) {
+  async findPlayhouse(prior, bounds, positionExisting = true, startup = {}) {
     this.windowTrace?.enter("playhouse", {
       reason: "find-or-create-playhouse",
       savedWindowId: prior.phWindowId,
@@ -509,9 +513,30 @@ export class CarnivalWorkspaceController {
     });
     try {
       await this.windowTrace?.discovery("PLAYHOUSE", prior.phWindowId);
-      const window = await existingWindow(this.chrome, prior.phWindowId);
+      let window = await existingWindow(this.chrome, prior.phWindowId);
     let tab = await existingTab(this.chrome, prior.phPrimaryTabId);
     if (!window || tab?.windowId !== window.id) tab = null;
+    if (!window && startup.allowColdStartPlayhouseAdoption) {
+      const adopted = await waitForColdStartPlayhouse({
+        candidateWindowIds: startup.coldStartCandidateWindowIds,
+        chromeApi: this.chrome,
+        excludedWindowIds: [prior.auxWindowId].filter(Number.isInteger),
+        onEvent: (event, details) => this.windowTrace?.emit(
+          "workspace-controller",
+          event,
+          details,
+        ),
+        timeoutMs: this.coldStartCandidateTimeoutMs,
+      });
+      if (adopted) {
+        window = adopted.window;
+        tab = adopted.tab;
+        this.windowTrace?.emit("workspace-controller", "PLAYHOUSE_ADOPTED", {
+          phPrimaryTabId: tab.id,
+          phWindowId: window.id,
+        });
+      }
+    }
     if (!window) {
       const restored = await this.createWindowFromTabs(
         bounds,
@@ -636,10 +661,10 @@ export class CarnivalWorkspaceController {
     }
   }
 
-  async summon(workArea, monitorId = null) {
+  async summon(workArea, monitorId = null, startup = {}) {
     this.transitioning = true;
     try {
-      return await this.summonDrawer(workArea, monitorId);
+      return await this.summonDrawer(workArea, monitorId, startup);
     } catch (error) {
       this.cancelRestores();
       throw error;
@@ -739,7 +764,7 @@ export class CarnivalWorkspaceController {
     return result;
   }
 
-  async summonDrawer(workArea, monitorId = null) {
+  async summonDrawer(workArea, monitorId = null, startup = {}) {
     const prior = await this.state();
     const layout = restoredWorkspaceLayout(prior, workArea);
     const savedPlayhouse = storedGeometry(prior.phSession.geometry);
@@ -765,6 +790,7 @@ export class CarnivalWorkspaceController {
       prior,
       layout.playhouse,
       positionExisting && !(repairingOneSide && knownPlayhouse),
+      startup,
     );
     const context = await this.findContext(
       prior,
