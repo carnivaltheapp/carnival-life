@@ -9,17 +9,8 @@ import {
   requestCompanionFolderCreation,
 } from "../app/companion/actions";
 import { loadTreeOfLifeFolders } from "../app/tree-of-life/actions";
-import { searchFolderTree, type FolderTreeNode } from "../domain/tree-of-life";
+import { folderTrailForPath, searchFolderTree, type FolderTreeNode } from "../domain/tree-of-life";
 import { displayBranchPath } from "../lib/desktop/local-branches";
-
-function findFolder(roots: FolderTreeNode[], relativePath: string): FolderTreeNode | null {
-  for (const node of roots) {
-    if (node.relativePath === relativePath) return node;
-    const child = findFolder(node.children, relativePath);
-    if (child) return child;
-  }
-  return null;
-}
 
 async function waitForCommand(commandId: string) {
   for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -46,6 +37,7 @@ export function AllFolderNavigator({
   const [folderName, setFolderName] = useState("");
   const [makeBranch, setMakeBranch] = useState(false);
   const [pending, setPending] = useState(false);
+  const currentRelativePath = trail.at(-1)?.relativePath ?? "";
   const currentNodes = trail.at(-1)?.children ?? roots;
   const results = useMemo(() => searchFolderTree(roots, query), [query, roots]);
 
@@ -53,13 +45,26 @@ export function AllFolderNavigator({
     const result = await loadTreeOfLifeFolders();
     setRoots(result.folders);
     setMessage(result.ok ? (result.folders.length ? "" : "No folders synchronized yet.") : result.message ?? "Folders unavailable.");
-    const nextTrail: FolderTreeNode[] = [];
-    for (const path of trailPaths) {
-      const node = findFolder(result.folders, path);
-      if (node) nextTrail.push(node);
+    const currentPath = trailPaths.at(-1) ?? "";
+    if (!currentPath) {
+      setTrail([]);
+    } else {
+      const nextTrail = folderTrailForPath(result.folders, currentPath);
+      if (nextTrail) setTrail(nextTrail);
+      else setMessage("The current parent folder could not be found.");
+    }
+    return result;
+  }
+
+  function selectCandidate(node: FolderTreeNode) {
+    const nextTrail = folderTrailForPath(roots, node.relativePath);
+    if (!nextTrail) {
+      setMessage("The selected folder could not be found.");
+      return;
     }
     setTrail(nextTrail);
-    return result;
+    setCandidate(node);
+    setQuery("");
   }
 
   useEffect(() => {
@@ -112,11 +117,10 @@ export function AllFolderNavigator({
   async function createFolder() {
     setPending(true);
     setMessage("");
-    const parentRelativePath = trail.at(-1)?.relativePath ?? "";
     const request = await requestCompanionFolderCreation({
       isBranch: makeBranch,
       name: folderName,
-      parentRelativePath,
+      parentRelativePath: currentRelativePath,
     });
     if (!request.commandId) {
       setMessage(request.error ?? "Desktop companion unavailable");
@@ -167,7 +171,7 @@ export function AllFolderNavigator({
         />
         <div className="allFolderList">
           {query.trim() ? results.map((node) => (
-            <button className="allFolderSearchResult" key={node.relativePath} onClick={() => setCandidate(node)} type="button">
+            <button className="allFolderSearchResult" key={node.relativePath} onClick={() => selectCandidate(node)} type="button">
               {node.isBranch ? <span aria-label="Branch">✓</span> : <span />}
               {displayBranchPath(node.relativePath)}
             </button>
@@ -176,10 +180,10 @@ export function AllFolderNavigator({
               {trail.length ? <button className="allFolderBack" onClick={() => setTrail((value) => value.slice(0, -1))} type="button">‹ Back</button> : null}
               {currentNodes.map((node) => (
                 <div className="allFolderRow" key={node.relativePath}>
-                  <button onClick={() => setCandidate(node)} type="button">
+                  <button onClick={() => selectCandidate(node)} type="button">
                     {node.isBranch ? <span aria-label="Branch">✓</span> : <span />}{node.name}
                   </button>
-                  {node.children.length ? <button aria-label={`Open ${node.name}`} onClick={() => setTrail((value) => [...value, node])} type="button">›</button> : <span />}
+                  <button aria-label={`Open ${node.name}`} onClick={() => setTrail((value) => [...value, node])} type="button">›</button>
                 </div>
               ))}
             </>

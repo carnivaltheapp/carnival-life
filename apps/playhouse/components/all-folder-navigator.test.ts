@@ -33,6 +33,14 @@ describe("Detail all-folder navigator", () => {
     expect(navigator).not.toContain("savePlay");
   });
 
+  it("uses the selected folder's full navigation trail as the creation parent", () => {
+    expect(navigator).toContain("folderTrailForPath(roots, node.relativePath)");
+    expect(navigator).toContain("setTrail(nextTrail)");
+    expect(navigator).toContain('const currentRelativePath = trail.at(-1)?.relativePath ?? ""');
+    expect(navigator).toContain("parentRelativePath: currentRelativePath");
+    expect(navigator).not.toContain('parentRelativePath: ""');
+  });
+
   it("keeps Settings administrative and uses responsive modal layering", () => {
     expect(settings).not.toContain("Folder name");
     expect(settings).not.toContain("Create folder");

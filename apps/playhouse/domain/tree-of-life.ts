@@ -219,3 +219,17 @@ export function searchFolderTree(roots: FolderTreeNode[], query: string, limit =
   visit(roots);
   return matches;
 }
+
+export function folderTrailForPath(
+  roots: FolderTreeNode[],
+  relativePath: string,
+  ancestors: FolderTreeNode[] = [],
+): FolderTreeNode[] | null {
+  for (const node of roots) {
+    const trail = [...ancestors, node];
+    if (node.relativePath === relativePath) return trail;
+    const childTrail = folderTrailForPath(node.children, relativePath, trail);
+    if (childTrail) return childTrail;
+  }
+  return null;
+}

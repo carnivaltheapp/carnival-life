@@ -5,6 +5,7 @@ import {
   buildBranchTree,
   buildFolderTree,
   flattenBranchTree,
+  folderTrailForPath,
   parseFolderImage,
   searchBranchTree,
   searchFolderTree,
@@ -78,6 +79,21 @@ describe("Tree of Life hierarchy", () => {
       relativePath: "Personal",
       selectable: false,
     }]);
+  });
+
+  it("resolves the full current navigator path for nested and empty folders", () => {
+    const folders = buildFolderTree(parseFolderImage([
+      { isBranch: false, name: "Blue Field Law", relativePath: "Blue Field Law" },
+      { isBranch: false, name: "Automation", relativePath: "Blue Field Law/Automation" },
+      { isBranch: false, name: "A", relativePath: "A" },
+      { isBranch: false, name: "B", relativePath: "A/B" },
+      { isBranch: false, name: "C", relativePath: "A/B/C" },
+    ]));
+
+    expect(folderTrailForPath(folders, "Blue Field Law/Automation")?.map((node) => node.relativePath))
+      .toEqual(["Blue Field Law", "Blue Field Law/Automation"]);
+    expect(folderTrailForPath(folders, "A/B/C")?.at(-1)?.relativePath).toBe("A/B/C");
+    expect(folderTrailForPath(folders, "Blue Field Law/Does Not Exist")).toBeNull();
   });
 
   it("keeps all 15 Elastic Teams children in the folder navigator without exposing ordinary folders in the Branch picker", () => {

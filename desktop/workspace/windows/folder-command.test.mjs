@@ -15,6 +15,9 @@ test("resident polls authenticated folder commands and acknowledges verified cre
 });
 
 test("native validation constrains parents beneath Google Drive and rejects unsafe names", () => {
+  assert.match(host, /var parent = FullPathForRelativeFolder\(command\.ParentRelativePath\)/);
+  assert.match(host, /if \(!Directory\.Exists\(parent\)\) throw new DirectoryNotFoundException\("parent_folder_missing"\)/);
+  assert.match(host, /Path\.GetFullPath\(Path\.Combine\(parent, command\.Name\)\)/);
   assert.match(host, /RelativeFolderPath\(fullPath\)/);
   assert.match(host, /Path\.GetInvalidFileNameChars\(\)/);
   assert.match(host, /con\|prn\|aux\|nul/);
