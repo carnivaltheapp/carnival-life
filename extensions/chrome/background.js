@@ -29,7 +29,7 @@ const nativeAnimationRequests = new Map();
 const nativeBranchRequests = new Map();
 let nativeBranchRequestId = 0;
 let branchHierarchyCache = null;
-let geometrySaveTimer = null;
+const geometrySaveTimers = new Map();
 const tabSaveTimers = new Map();
 const tabSaveReasons = new Map();
 let diagnosticWriteQueue = Promise.resolve();
@@ -123,6 +123,12 @@ async function animateWindowsNatively(animation) {
       resolve(ok);
     });
     try {
+      windowTrace.emit("background", "NATIVE_ANIMATION_GEOMETRY", {
+        action: animation.easing === "out" ? "open" : "retract",
+        playhouseCurrentLeft: animation.playhouse.current.left,
+        playhouseFromLeft: animation.playhouse.from.left,
+        playhouseToLeft: animation.playhouse.to.left,
+      });
       nativePort.postMessage({
         ...flattenBounds("contextCurrent", animation.context.current),
         ...flattenBounds("contextFrom", animation.context.from),
@@ -295,6 +301,8 @@ chrome.windows.onCreated.addListener((window) => {
   connectNativeHost();
 });
 chrome.windows.onRemoved.addListener((windowId) => {
+  clearTimeout(geometrySaveTimers.get(windowId));
+  geometrySaveTimers.delete(windowId);
   windowTrace.chromeWindowRemoved(windowId);
   controller.handleWindowClosed(windowId)
     .then((state) => {
@@ -307,16 +315,16 @@ chrome.windows.onBoundsChanged.addListener((window) => {
     controller.logSystemGeometrySaveSkipped(window.id);
     return;
   }
-  clearTimeout(geometrySaveTimer);
-  geometrySaveTimer = setTimeout(async () => {
-    geometrySaveTimer = null;
+  clearTimeout(geometrySaveTimers.get(window.id));
+  geometrySaveTimers.set(window.id, setTimeout(async () => {
+    geometrySaveTimers.delete(window.id);
     try {
       const state = await controller.rememberVisibleBounds(window.id);
       if (state) reportDrawerState(state);
     } catch (error) {
       console.error("Carnival layout save failed", error);
     }
-  }, GEOMETRY_SAVE_DELAY_MS);
+  }, GEOMETRY_SAVE_DELAY_MS));
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   windowTrace.tabEvent("CHROME_TAB_ON_UPDATED", { ...tab, id: tabId }, changeInfo);

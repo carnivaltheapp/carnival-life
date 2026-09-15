@@ -714,7 +714,7 @@ test("cold native startup adopts the resolving Chrome window and creates only Au
       exit() {},
     },
   });
-  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const workArea = { height: 900, left: 100, top: 0, width: 1600 };
   const summon = workspace.summon(workArea, null, {
     allowColdStartPlayhouseAdoption: true,
     coldStartCandidateWindowIds: [startupWindow.id],
@@ -736,6 +736,18 @@ test("cold native startup adopts the resolving Chrome window and creates only Au
   assert.equal(chrome.getTabs(startupWindow.id).some(({ id }) => id === unrelatedTab.id), true);
   assert.equal(chrome.calls.updateWindow.some(({ id }) => id === unrelatedWindow.id), false);
   assert.ok(traceEvents.some(({ event }) => event === "PLAYHOUSE_ADOPTED"));
+  assert.equal(chrome.getWindow(startupWindow.id).left, workArea.left);
+  assert.equal(state.phSession.geometry.left, workArea.left);
+
+  const retracted = await workspace.retract();
+  assert.equal(retracted.phSession.geometry.left, workArea.left);
+  assert.equal(chrome.calls.createWindow.length, 1);
+
+  const warmChrome = fakeChrome();
+  const warmWorkspace = controller(warmChrome);
+  const warm = await warmWorkspace.summon(workArea, "display-1");
+
+  assert.equal(warm.phSession.geometry.left, state.phSession.geometry.left);
 });
 
 test("warm startup never waits for or adopts an unrelated loading window", async () => {
@@ -1023,6 +1035,25 @@ test("PlayHouse resize persists independently without changing Aux", async () =>
 
   assert.equal(saved.playhouseBounds.width, 700);
   assert.deepEqual(saved.contextBounds, opened.contextBounds);
+});
+
+test("a PlayHouse-only bounds event persists its corrected X when Aux is temporarily offscreen", async () => {
+  const chrome = fakeChrome();
+  const { workspace } = diagnosticController(chrome, { geometrySettleMs: 0 });
+  const workArea = { height: 900, left: 100, top: 20, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  const priorAux = opened.auxSession.geometry;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  chrome.resizeWindow(opened.playhouseWindowId, { left: 145 });
+  chrome.resizeWindow(opened.contextWindowId, { left: -1800 });
+
+  const saved = await workspace.rememberVisibleBounds(opened.playhouseWindowId);
+
+  assert.deepEqual(saved.phSession.geometry, {
+    left: 145,
+    width: opened.phSession.geometry.width,
+  });
+  assert.deepEqual(saved.auxSession.geometry, priorAux);
 });
 
 test("Aux resize persists independently without changing PlayHouse", async () => {
@@ -1362,6 +1393,32 @@ test("retract captures the last visible role-specific horizontal geometry before
 
   assert.deepEqual(retracted.phSession.geometry, { left: 75, width: 760 });
   assert.deepEqual(retracted.auxSession.geometry, { left: 910, width: 620 });
+});
+
+test("manual PlayHouse correction is the canonical retract and summon X without cycle drift", async () => {
+  const chrome = fakeChrome();
+  const animations = [];
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { warn() {} },
+    nativeAnimate: async (animation) => {
+      animations.push(animation);
+      return true;
+    },
+  });
+  const workArea = { height: 900, left: 100, top: 20, width: 1700 };
+  const opened = await workspace.summon(workArea, "display-1");
+  const correctedLeft = 175;
+  chrome.resizeWindow(opened.playhouseWindowId, { left: correctedLeft });
+  await workspace.rememberVisibleBounds(opened.playhouseWindowId);
+
+  for (let cycle = 0; cycle < 3; cycle += 1) {
+    const retracted = await workspace.retract();
+    assert.equal(retracted.phSession.geometry.left, correctedLeft);
+    const reopened = await workspace.summon(workArea, "display-1");
+    assert.equal(reopened.phSession.geometry.left, correctedLeft);
+    assert.equal(animations.at(-2).playhouse.from.left, correctedLeft);
+    assert.equal(animations.at(-1).playhouse.to.left, correctedLeft);
+  }
 });
 
 test("native offscreen bounds are not persisted over the saved visible geometry", async () => {
