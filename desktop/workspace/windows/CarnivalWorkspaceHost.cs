@@ -14,7 +14,7 @@ using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
-    private const string HostMarker = "DRAWER-HOST-15";
+    private const string HostMarker = "DRAWER-HOST-16";
     private const string BranchRoot = @"C:\Google Drive";
     private const int FcsmInfoTip = 0x4;
     private const uint FcsRead = 0x1;
@@ -1431,6 +1431,8 @@ internal static class CarnivalWorkspaceHost
     {
         var requestId = 0;
         var durationMs = 0;
+        var workAreaLeft = 0;
+        var workAreaTop = 0;
         var playhouseCurrent = ReadBounds(json, "playhouseCurrent");
         var playhouseFrom = ReadBounds(json, "playhouseFrom");
         var playhouseTo = ReadBounds(json, "playhouseTo");
@@ -1438,6 +1440,8 @@ internal static class CarnivalWorkspaceHost
         var contextFrom = ReadBounds(json, "contextFrom");
         var contextTo = ReadBounds(json, "contextTo");
         var valid = TryReadInteger(json, "requestId", out requestId) &&
+                    TryReadInteger(json, "workAreaLeft", out workAreaLeft) &&
+                    TryReadInteger(json, "workAreaTop", out workAreaTop) &&
                     TryReadInteger(json, "durationMs", out durationMs) && durationMs >= 50 && durationMs <= 1000 &&
                     ValidBounds(playhouseCurrent) && ValidBounds(contextCurrent) &&
                     ValidBounds(playhouseFrom) && ValidBounds(playhouseTo) &&
@@ -1445,7 +1449,7 @@ internal static class CarnivalWorkspaceHost
         var easeIn = Regex.IsMatch(json, "\\\"easing\\\"\\s*:\\s*\\\"in\\\"");
         WriteDiagnostic(easeIn ? "retract animation started" : "opening animation started");
         var success = valid && AnimateChromeWindows(playhouseCurrent, playhouseFrom, playhouseTo,
-            contextCurrent, contextFrom, contextTo, durationMs, easeIn);
+            contextCurrent, contextFrom, contextTo, workAreaLeft, workAreaTop, durationMs, easeIn);
         WriteDiagnostic(string.Format(CultureInfo.InvariantCulture, "{0} animation {1}",
             easeIn ? "retract" : "opening", success ? "complete" : "failed"));
         SendToChrome(string.Format(CultureInfo.InvariantCulture,
@@ -1482,7 +1486,7 @@ internal static class CarnivalWorkspaceHost
 
     private static bool AnimateChromeWindows(WindowBounds playhouseCurrent, WindowBounds playhouseFrom,
         WindowBounds playhouseTo, WindowBounds contextCurrent, WindowBounds contextFrom,
-        WindowBounds contextTo, int durationMs, bool easeIn)
+        WindowBounds contextTo, int workAreaLeft, int workAreaTop, int durationMs, bool easeIn)
     {
         var windows = EnumerateChromeWindows();
         var playhouse = ClosestWindow(windows, new[] { playhouseCurrent, playhouseFrom, playhouseTo }, IntPtr.Zero);
@@ -1492,13 +1496,30 @@ internal static class CarnivalWorkspaceHost
             WriteDiagnostic("native animation could not map both Chrome HWNDs");
             return false;
         }
+        int verifiedWorkAreaLeft;
+        int verifiedWorkAreaTop;
+        if (TryNormalizeWorkAreaOrigin(workAreaLeft, workAreaTop,
+            out verifiedWorkAreaLeft, out verifiedWorkAreaTop))
+        {
+            if (verifiedWorkAreaLeft != workAreaLeft || verifiedWorkAreaTop != workAreaTop)
+                WriteDiagnostic("PH_ANCHOR_INVARIANT_VIOLATION requested work-area origin normalized by Windows");
+            workAreaLeft = verifiedWorkAreaLeft;
+            workAreaTop = verifiedWorkAreaTop;
+        }
+        if (playhouseCurrent.Left != workAreaLeft || playhouseCurrent.Top != workAreaTop ||
+            playhouseFrom.Left != workAreaLeft || playhouseFrom.Top != workAreaTop ||
+            playhouseTo.Left != workAreaLeft || playhouseTo.Top != workAreaTop)
+            WriteDiagnostic("PH_ANCHOR_INVARIANT_VIOLATION native request normalized to work-area origin");
+        playhouseCurrent = AnchoredPlayhouse(playhouseCurrent, workAreaLeft, workAreaTop);
+        playhouseTo = AnchoredPlayhouse(playhouseTo, workAreaLeft, workAreaTop);
         var frameCount = Math.Max(2, (int)Math.Round(durationMs * AnimationFramesPerSecond / 1000.0));
         var stopwatch = Stopwatch.StartNew();
         for (var frame = 1; frame <= frameCount; frame += 1)
         {
             var progress = frame / (double)frameCount;
             var eased = easeIn ? progress * progress * progress : 1.0 - Math.Pow(1.0 - progress, 3.0);
-            if (!MovePair(playhouse, Interpolate(playhouseCurrent, playhouseTo, eased),
+            if (!MovePair(playhouse, AnchoredPlayhouse(
+                    Interpolate(playhouseCurrent, playhouseTo, eased), workAreaLeft, workAreaTop),
                 context, Interpolate(contextCurrent, contextTo, eased))) return false;
             var wait = (frame * durationMs / frameCount) - (int)stopwatch.ElapsedMilliseconds;
             if (wait > 0) Thread.Sleep(wait);
@@ -1514,6 +1535,33 @@ internal static class CarnivalWorkspaceHost
         }
         if (!easeIn && !ActivateWorkspace(playhouse, context))
             WriteDiagnostic("opening complete but foreground activation failed");
+        return true;
+    }
+
+    private static WindowBounds AnchoredPlayhouse(WindowBounds bounds, int workAreaLeft, int workAreaTop)
+    {
+        return new WindowBounds
+        {
+            Height = bounds.Height,
+            Left = workAreaLeft,
+            Top = workAreaTop,
+            Width = bounds.Width,
+        };
+    }
+
+    private static bool TryNormalizeWorkAreaOrigin(int requestedLeft, int requestedTop,
+        out int workAreaLeft, out int workAreaTop)
+    {
+        var monitor = MonitorFromPoint(new Point { X = requestedLeft, Y = requestedTop }, MonitorDefaultToNearest);
+        var info = new MonitorInfo { Size = Marshal.SizeOf(typeof(MonitorInfo)) };
+        if (monitor == IntPtr.Zero || !GetMonitorInfo(monitor, ref info))
+        {
+            workAreaLeft = requestedLeft;
+            workAreaTop = requestedTop;
+            return false;
+        }
+        workAreaLeft = info.Work.Left;
+        workAreaTop = info.Work.Top;
         return true;
     }
 
@@ -1647,20 +1695,18 @@ internal static class CarnivalWorkspaceHost
             "settled Offset Point must be exactly 100px beyond Aux right");
         AssertSelfTest(IsPointerOnOrNearAux(new Point { X = 1505, Y = 450 }, aux),
             "Aux edge interaction must be detected");
-        var phVisible = new WindowBounds { Height = 1200, Left = 299, Top = 0, Width = 861 };
-        var phHidden = new WindowBounds { Height = 1200, Left = -1621, Top = 0, Width = 861 };
+        var phVisible = new WindowBounds { Height = 1200, Left = 0, Top = 0, Width = 861 };
         var auxVisible = new WindowBounds { Height = 1200, Left = 849, Top = 0, Width = 945 };
         var auxHidden = new WindowBounds { Height = 1200, Left = -1071, Top = 0, Width = 945 };
         var earlyEaseOut = 1.0 - Math.Pow(1.0 - (3.0 / 27.0), 3.0);
-        AssertSelfTest(Interpolate(phHidden, phVisible, earlyEaseOut).Left == -1049 &&
-            Interpolate(auxHidden, auxVisible, earlyEaseOut).Left == -499,
-            "observed negative positions are valid early hidden-to-visible frames");
-        AssertSelfTest(Interpolate(phVisible, phVisible, earlyEaseOut).Left == 299 &&
-            Interpolate(auxVisible, auxVisible, earlyEaseOut).Left == 849,
-            "already-visible cold-start windows must not jump to synthetic hidden bounds");
-        AssertSelfTest(Interpolate(phHidden, phVisible, 1.0).Left == phVisible.Left &&
+        AssertSelfTest(AnchoredPlayhouse(phVisible, 0, 0).Left == 0 &&
+            AnchoredPlayhouse(phVisible, 0, 0).Top == 0,
+            "PlayHouse must remain anchored at the active work-area origin");
+        AssertSelfTest(AnchoredPlayhouse(phVisible, -1920, 0).Left == -1920,
+            "PlayHouse anchoring must support monitors left of the primary display");
+        AssertSelfTest(Interpolate(auxHidden, auxVisible, earlyEaseOut).Left == -499 &&
             Interpolate(auxHidden, auxVisible, 1.0).Left == auxVisible.Left,
-            "native animation must land on the requested pair geometry");
+            "Aux alone may translate from hidden to visible geometry");
         AssertSelfTest(!ShouldEnterRetract(true, true, 1600,
             1800, 100, 2000, 0, 900),
             "retract must be suppressed while Aux is manipulated");
@@ -1695,7 +1741,7 @@ internal static class CarnivalWorkspaceHost
         {
             try { if (Directory.Exists(branchRoot)) Directory.Delete(branchRoot, true); } catch { }
         }
-        Console.WriteLine("Carnival Windows independent geometry self-test passed.");
+        Console.WriteLine("Carnival Windows anchored PlayHouse geometry self-test passed.");
     }
 
     private static void AssertSelfTest(bool condition, string message)

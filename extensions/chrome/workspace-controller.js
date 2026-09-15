@@ -94,6 +94,18 @@ function geometryFromBounds(value) {
   return bounds ? { left: bounds.left, width: bounds.width } : null;
 }
 
+// PLAYHOUSE POSITION INVARIANT: X/Y always equal the active monitor work-area origin.
+// Carnival may retain/change only the PlayHouse width (and full-work-area height).
+export function getAnchoredPlayhouseGeometry(workArea, width) {
+  if (!validWorkArea(workArea)) throw new Error("A valid monitor work area is required.");
+  return {
+    height: workArea.height,
+    left: workArea.left,
+    top: workArea.top,
+    width: Math.max(320, Math.min(Number.isInteger(width) ? width : 320, workArea.width)),
+  };
+}
+
 function legacySession(state, role) {
   const isPh = role === "ph";
   const geometry = storedGeometry(state[`${role}Session`]?.geometry) ?? geometryFromBounds(
@@ -117,6 +129,11 @@ function normalizedWorkspaceState(raw) {
     ? raw.auxActiveTabId : raw.contextTabId ?? null;
   const auxRoleTabIds = Object.hasOwn(raw, "auxRoleTabIds")
     ? raw.auxRoleTabIds : raw.contextRoleTabIds ?? {};
+  const phSession = legacySession(raw, "ph");
+  const anchoredPhSession = validWorkArea(raw.workArea) && phSession.geometry
+    ? { ...phSession, geometry: { ...phSession.geometry, left: raw.workArea.left } }
+    : phSession;
+  const storedPlayhouseBounds = storedBounds(raw.playhouseBounds);
   return {
     ...raw,
     auxActiveTabId,
@@ -127,8 +144,11 @@ function normalizedWorkspaceState(raw) {
     contextTabId: auxActiveTabId,
     contextWindowId: auxWindowId,
     phPrimaryTabId,
-    phSession: legacySession(raw, "ph"),
+    phSession: anchoredPhSession,
     phWindowId,
+    ...(validWorkArea(raw.workArea) && storedPlayhouseBounds ? {
+      playhouseBounds: getAnchoredPlayhouseGeometry(raw.workArea, storedPlayhouseBounds.width),
+    } : {}),
     playhouseTabId: phPrimaryTabId,
     playhouseWindowId: phWindowId,
   };
@@ -169,12 +189,7 @@ export function canonicalWorkspaceLayout(prior, workArea) {
   );
   if (!phGeometry || !auxGeometry) return fallback;
   const priorWorkArea = validWorkArea(prior.workArea) ? prior.workArea : workArea;
-  const playhouse = {
-    height: priorWorkArea.height,
-    left: phGeometry.left,
-    top: priorWorkArea.top,
-    width: phGeometry.width,
-  };
+  const playhouse = getAnchoredPlayhouseGeometry(workArea, phGeometry.width);
   const context = {
     height: priorWorkArea.height,
     left: auxGeometry.left,
@@ -183,7 +198,7 @@ export function canonicalWorkspaceLayout(prior, workArea) {
   };
   return {
     context: restoreWindowBounds(context, prior.workArea, workArea),
-    playhouse: restoreWindowBounds(playhouse, prior.workArea, workArea),
+    playhouse,
   };
 }
 
@@ -558,9 +573,12 @@ export class CarnivalWorkspaceController {
         tab = adopted.tab;
         this.windowTrace?.emit("workspace-controller", "PH_GEOMETRY_ADOPT_TARGET", {
           actualLeft: storedBounds(window)?.left ?? null,
+          actualTop: storedBounds(window)?.top ?? null,
           persistedLeft: storedGeometry(prior.phSession.geometry)?.left ?? null,
           reason: "cold-start-playhouse-adopted",
           targetLeft: bounds.left,
+          targetTop: bounds.top,
+          targetWidth: bounds.width,
         });
         this.windowTrace?.emit("workspace-controller", "PLAYHOUSE_ADOPTED", {
           phPrimaryTabId: tab.id,
@@ -659,7 +677,22 @@ export class CarnivalWorkspaceController {
     }
   }
 
-  async animate(playhouseWindowId, contextWindowId, current, layout, startOffset, endOffset, easing, durationMs) {
+  async animate(playhouseWindowId, contextWindowId, current, layout, workArea,
+    startOffset, endOffset, easing, durationMs) {
+    const anchoredPlayhouse = getAnchoredPlayhouseGeometry(workArea, layout.playhouse.width);
+    if (layout.playhouse.left !== anchoredPlayhouse.left || layout.playhouse.top !== anchoredPlayhouse.top) {
+      this.windowTrace?.emit("workspace-controller", "PH_ANCHOR_INVARIANT_VIOLATION", {
+        actualLeft: current.playhouse.left,
+        actualTop: current.playhouse.top,
+        reason: "animation-request-normalized",
+        targetLeft: layout.playhouse.left,
+        targetTop: layout.playhouse.top,
+        targetWidth: layout.playhouse.width,
+        workAreaLeft: workArea.left,
+        workAreaTop: workArea.top,
+      });
+    }
+    const anchoredLayout = { ...layout, playhouse: anchoredPlayhouse };
     this.movingWindowIds.add(playhouseWindowId);
     this.movingWindowIds.add(contextWindowId);
     try {
@@ -667,24 +700,25 @@ export class CarnivalWorkspaceController {
         contextWindowId,
         context: {
           current: current.context,
-          from: shifted(layout.context, startOffset),
-          to: shifted(layout.context, endOffset),
+          from: shifted(anchoredLayout.context, startOffset),
+          to: shifted(anchoredLayout.context, endOffset),
         },
         durationMs,
         easing: easing === easeInCubic ? "in" : "out",
         playhouseWindowId,
         playhouse: {
-          current: current.playhouse,
-          from: shifted(layout.playhouse, startOffset),
-          to: shifted(layout.playhouse, endOffset),
+          current: anchoredLayout.playhouse,
+          from: anchoredLayout.playhouse,
+          to: anchoredLayout.playhouse,
         },
+        workArea,
       })) return true;
       this.logger.warn("Carnival native animation unavailable; using visible fallback");
       await Promise.all([
         this.updateWindow(playhouseWindowId,
-          { ...layout.playhouse, focused: false, state: "normal" }, "animation-visible-fallback-playhouse"),
+          { ...anchoredLayout.playhouse, focused: false, state: "normal" }, "animation-visible-fallback-playhouse"),
         this.updateWindow(contextWindowId,
-          { ...layout.context, focused: false, state: "normal" }, "animation-visible-fallback-aux"),
+          { ...anchoredLayout.context, focused: false, state: "normal" }, "animation-visible-fallback-aux"),
       ]);
       return endOffset === 0;
     } finally {
@@ -846,6 +880,24 @@ export class CarnivalWorkspaceController {
       context: currentBounds(context.window, layout.context),
       playhouse: currentBounds(playhouse.window, layout.playhouse),
     };
+    const actualPlayhouse = storedBounds(playhouse.window);
+    if (actualPlayhouse?.left !== layout.playhouse.left || actualPlayhouse?.top !== layout.playhouse.top) {
+      this.windowTrace?.emit("workspace-controller", "PH_ANCHOR_CORRECTED", {
+        actualLeft: actualPlayhouse?.left ?? null,
+        actualTop: actualPlayhouse?.top ?? null,
+        reason: startup.allowColdStartPlayhouseAdoption ? "cold-start-adoption" : "summon",
+        targetLeft: layout.playhouse.left,
+        targetTop: layout.playhouse.top,
+        targetWidth: layout.playhouse.width,
+        workAreaLeft: workArea.left,
+        workAreaTop: workArea.top,
+      });
+    }
+    if (!compareAnimationLanding(actualPlayhouse, layout.playhouse).landed) {
+      await this.updateWindow(playhouse.window.id,
+        { ...layout.playhouse, focused: false, state: "normal" }, "anchor-playhouse-before-summon");
+    }
+    current.playhouse = layout.playhouse;
     const openingState = {
       ...prior,
       auxActiveTabId: context.tab.id,
@@ -883,6 +935,7 @@ export class CarnivalWorkspaceController {
         context.window.id,
         current,
         layout,
+        workArea,
         hiddenOffset,
         0,
         easeOutCubic,
@@ -923,12 +976,31 @@ export class CarnivalWorkspaceController {
       return retracted;
     }
     const persistedLayout = canonicalWorkspaceLayout(state, state.workArea);
-    const playhouseVisible = actualRestingBounds(playhouseWindow, state.workArea);
+    const playhouseActual = storedBounds(playhouseWindow);
+    const playhouseVisible = playhouseActual
+      ? getAnchoredPlayhouseGeometry(state.workArea, playhouseActual.width)
+      : null;
     const contextVisible = actualRestingBounds(contextWindow, state.workArea);
     const layout = {
       context: contextVisible ?? persistedLayout.context,
       playhouse: playhouseVisible ?? persistedLayout.playhouse,
     };
+    if (playhouseActual?.left !== layout.playhouse.left || playhouseActual?.top !== layout.playhouse.top) {
+      this.windowTrace?.emit("workspace-controller", "PH_ANCHOR_CORRECTED", {
+        actualLeft: playhouseActual?.left ?? null,
+        actualTop: playhouseActual?.top ?? null,
+        reason: "before-retract",
+        targetLeft: layout.playhouse.left,
+        targetTop: layout.playhouse.top,
+        targetWidth: layout.playhouse.width,
+        workAreaLeft: state.workArea.left,
+        workAreaTop: state.workArea.top,
+      });
+    }
+    if (!compareAnimationLanding(playhouseActual, layout.playhouse).landed) {
+      await this.updateWindow(playhouseWindow.id,
+        { ...layout.playhouse, focused: false, state: "normal" }, "anchor-playhouse-before-retract");
+    }
     const visibleState = {
       ...state,
       auxSession: { ...state.auxSession, geometry: geometryFromBounds(layout.context) },
@@ -958,6 +1030,7 @@ export class CarnivalWorkspaceController {
       contextWindow.id,
       current,
       layout,
+      state.workArea,
       0,
       -state.workArea.width,
       easeInCubic,
@@ -1091,18 +1164,37 @@ export class CarnivalWorkspaceController {
     ]);
     const playhouseActual = storedBounds(playhouseWindow);
     const contextActual = storedBounds(contextWindow);
-    const playhouse = actualRestingBounds(playhouseWindow, state.workArea);
+    const playhouse = playhouseActual
+      ? getAnchoredPlayhouseGeometry(state.workArea, playhouseActual.width)
+      : null;
     const context = actualRestingBounds(contextWindow, state.workArea);
     const capturePlayhouse = changedRole !== "context";
     const captureContext = changedRole !== "playhouse";
     if ((capturePlayhouse && !playhouse) || (captureContext && !context)) return null;
     if (capturePlayhouse) {
       this.windowTrace?.emit("workspace-controller", "PH_GEOMETRY_ACTUAL", {
-        actualLeft: playhouse.left,
+        actualLeft: playhouseActual.left,
+        actualTop: playhouseActual.top,
         persistedLeft: storedGeometry(state.phSession.geometry)?.left ?? null,
         reason: "manual-bounds-change",
-        targetLeft: playhouse.left,
+        targetLeft: state.workArea.left,
+        targetTop: state.workArea.top,
+        targetWidth: playhouse.width,
+        workAreaLeft: state.workArea.left,
+        workAreaTop: state.workArea.top,
       });
+      if (playhouseActual.left !== playhouse.left || playhouseActual.top !== playhouse.top) {
+        this.windowTrace?.emit("workspace-controller", "PH_ANCHOR_CORRECTED", {
+          actualLeft: playhouseActual.left,
+          actualTop: playhouseActual.top,
+          reason: "manual-bounds-change",
+          targetLeft: playhouse.left,
+          targetTop: playhouse.top,
+          targetWidth: playhouse.width,
+          workAreaLeft: state.workArea.left,
+          workAreaTop: state.workArea.top,
+        });
+      }
     }
     const nextState = await this.updateState((currentState) => {
       if (this.transitioning || currentState.drawerState !== "open" ||
@@ -1123,10 +1215,11 @@ export class CarnivalWorkspaceController {
     if (!nextState) return null;
     const verticalUpdates = [];
     if (changedRole !== "context" &&
-      (playhouseActual.top !== playhouse.top || playhouseActual.height !== playhouse.height)) {
+      (playhouseActual.left !== playhouse.left || playhouseActual.top !== playhouse.top ||
+        playhouseActual.height !== playhouse.height)) {
       verticalUpdates.push(this.updateWindow(state.phWindowId, {
-        focused: false, height: playhouse.height, state: "normal", top: playhouse.top,
-      }, "normalize-playhouse-height"));
+        ...playhouse, focused: false, state: "normal",
+      }, "normalize-playhouse-anchor"));
     }
     if (changedRole !== "playhouse" &&
       (contextActual.top !== context.top || contextActual.height !== context.height)) {
@@ -1137,12 +1230,17 @@ export class CarnivalWorkspaceController {
     await Promise.all(verticalUpdates);
     if (capturePlayhouse) {
       this.windowTrace?.emit("workspace-controller", "PH_GEOMETRY_MANUAL_CHANGE", {
-        actualLeft: playhouse.left,
+        actualLeft: playhouseActual.left,
+        actualTop: playhouseActual.top,
         persistedLeft: storedGeometry(state.phSession.geometry)?.left ?? null,
         reason: "manual-bounds-change-saved",
-        targetLeft: playhouse.left,
+        targetLeft: state.workArea.left,
+        targetTop: state.workArea.top,
+        targetWidth: playhouse.width,
+        workAreaLeft: state.workArea.left,
+        workAreaTop: state.workArea.top,
       });
-      this.logger.info?.("PH_SESSION_SAVED", { width: playhouse.width, x: playhouse.left });
+      this.logger.info?.("PH_SESSION_SAVED", { width: playhouse.width, x: state.workArea.left });
     }
     if (captureContext) {
       this.logger.info?.("AUX_SESSION_SAVED", { width: context.width, x: context.left });

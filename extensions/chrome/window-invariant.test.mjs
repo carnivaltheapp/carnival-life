@@ -47,3 +47,19 @@ test("native foreground APIs remain isolated from resident companion work", () =
     /(?:BringWindowToTop|SetForegroundWindow|SetWindowPos|ShowWindowAsync)\s*\(/,
   );
 });
+
+test("PlayHouse animation stays anchored in both extension and native contracts", () => {
+  const controller = readFileSync(new URL("./workspace-controller.js", import.meta.url), "utf8");
+  const background = readFileSync(new URL("./background.js", import.meta.url), "utf8");
+  const nativeHost = readFileSync(
+    new URL("../../desktop/workspace/windows/CarnivalWorkspaceHost.cs", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(controller, /shifted\([^\n]*playhouse/i);
+  assert.match(controller, /from: anchoredLayout\.playhouse/);
+  assert.match(background, /workAreaLeft: animation\.workArea\.left/);
+  assert.match(background, /workAreaTop: animation\.workArea\.top/);
+  assert.match(nativeHost, /AnchoredPlayhouse\(\s*Interpolate\(playhouseCurrent, playhouseTo, eased\)/);
+  assert.match(nativeHost, /PH_ANCHOR_INVARIANT_VIOLATION/);
+});

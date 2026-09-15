@@ -13,7 +13,7 @@ import {
 } from "./gmail-tab-metadata.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
-const NATIVE_HOST_VERSION = "DRAWER-HOST-15";
+const NATIVE_HOST_VERSION = "DRAWER-HOST-16";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
@@ -181,6 +181,8 @@ async function animateWindowsNatively(animation) {
         ...flattenBounds("playhouseTo", animation.playhouse.to),
         requestId,
         type: "animateWindows",
+        workAreaLeft: animation.workArea.left,
+        workAreaTop: animation.workArea.top,
       });
     } catch (error) {
       clearTimeout(timeout);
