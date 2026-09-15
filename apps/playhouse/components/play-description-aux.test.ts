@@ -5,6 +5,7 @@ vi.mock("../app/tree-of-life/actions", () => ({
 }));
 
 import type { PlayListItem } from "../domain/play";
+import { GoogleDriveHierarchyResolver } from "../lib/google/drive";
 import {
   createDescriptionClickController,
   routePlayDescriptionAux,
@@ -133,6 +134,32 @@ describe("Play Description Aux routing", () => {
       "https://app.slack.com/client/T1/C1",
       "https://mail.google.com/mail/u/0/#all/FM1",
     ]);
+  });
+
+  it("routes the exact hierarchically resolved BFLX folder through the Drive Hot Tab", async () => {
+    const destinations: string[] = [];
+    const folders = new Map([
+      ["root/Blue Field Law", [{ id: "BFL" }]],
+      ["BFL/Automation", [{ id: "AUTO" }]],
+      ["AUTO/BFLX", [{ id: "BFLX123" }]],
+    ]);
+    const resolver = new GoogleDriveHierarchyResolver("token", async (input) => {
+      const query = new URL(String(input)).searchParams.get("q") ?? "";
+      const parent = /'([^']+)' in parents/.exec(query)?.[1];
+      const name = /name = '([^']+)'/.exec(query)?.[1];
+      return new Response(JSON.stringify({ files: folders.get(`${parent}/${name}`) ?? [] }));
+    });
+    await routePlayDescriptionAux(
+      play({ branch: "Blue Field Law\\Automation\\BFLX" }),
+      null,
+      async (url) => { destinations.push(url); },
+      undefined,
+      async (branch) => {
+        const result = await resolver.resolve(branch);
+        return result.status === "resolved" ? result.folders.at(-1)?.webUrl ?? null : null;
+      },
+    );
+    expect(destinations).toEqual(["https://drive.google.com/drive/folders/BFLX123"]);
   });
 
   it("leaves Drive unchanged for absent and unresolved Branches", async () => {

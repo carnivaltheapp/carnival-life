@@ -14,6 +14,7 @@ import type { CalendarSettingsAccount } from "../domain/calendar-settings";
 import { CalendarSettings } from "./calendar-settings";
 import { SlackConnectionSettings } from "./slack-connection-settings";
 import { DesktopCompanionSettings } from "./desktop-companion-settings";
+import { DriveFolderSettings } from "./drive-folder-settings";
 
 const GRID_FONT_SIZE_EVENT = "playhouse-grid-font-size-change";
 
@@ -73,7 +74,7 @@ export function GridSettings({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [section, setSection] = useState<"general" | "calendars" | "companion" | "slack">("general");
+  const [section, setSection] = useState<"general" | "calendars" | "companion" | "drive" | "slack">("general");
 
   useEffect(() => {
     if (!open) return;
@@ -135,6 +136,13 @@ export function GridSettings({
               Calendars
             </button>
             <button
+              aria-current={section === "drive" ? "page" : undefined}
+              onClick={() => setSection("drive")}
+              type="button"
+            >
+              Drive Folders
+            </button>
+            <button
               aria-current={section === "slack" ? "page" : undefined}
               onClick={() => setSection("slack")}
               type="button"
@@ -171,6 +179,8 @@ export function GridSettings({
               <CalendarSettings accounts={calendarAccounts} error={calendarSettingsError} />
             ) : section === "companion" ? (
               <DesktopCompanionSettings />
+            ) : section === "drive" ? (
+              <DriveFolderSettings accounts={calendarAccounts} />
             ) : (
               <SlackConnectionSettings />
             )}

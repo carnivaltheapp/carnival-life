@@ -8,10 +8,19 @@ Enabled APIs:
 - Google Calendar API
 - Gmail API
 - Google People API
+- Google Drive API
 
 Google Auth Platform/OAuth application configuration has been initialized. Final Web OAuth client origins and redirect URIs should be created only after the actual local and Vercel application callback URLs are known.
 
 The preferred long-term administrative identity is a `carnivaltheapp.com` Google Workspace account rather than a personal/public Gmail or Blue Field Law identity.
+
+## Google Drive Folder Identity
+
+Tree of Life Branch paths resolve to Google Drive folders through the Drive API using
+the metadata-only `drive.metadata.readonly` scope. Resolution walks the complete path
+under an explicitly identified Drive root; it never selects a global folder-name match.
+Exact non-secret folder IDs and derived web URLs may be cached on owner-scoped Tree of
+Life records. Existing users must reconnect Google after this scope is introduced.
 
 ## Authentication and Connected Accounts
 

@@ -129,6 +129,39 @@ export class MongoTreeOfLifeRepository {
     )).matchedCount === 1;
   }
 
+  async cacheDriveFolderIdentities(ownerUserId: string, folders: Array<{
+    folderId: string;
+    relativePath: string;
+    webUrl: string;
+  }>) {
+    if (!folders.length) return 0;
+    const now = new Date();
+    const result = await (await this.collection()).bulkWrite(folders.map((folder) => ({
+      updateOne: {
+        filter: {
+          active: true,
+          owner_user_id: ownerUserId,
+          relative_path: folder.relativePath,
+        },
+        update: { $set: {
+          drive_folder_id: folder.folderId,
+          drive_web_url: folder.webUrl,
+          updated_at: now,
+        } },
+      },
+    })), { ordered: false });
+    return result.modifiedCount;
+  }
+
+  async listDriveResolutionPaths(ownerUserId: string, branchesOnly = true) {
+    const documents = await (await this.collection()).find({
+      active: true,
+      owner_user_id: ownerUserId,
+      ...(branchesOnly ? { $or: [{ is_branch: true }, { selectable: true }] } : {}),
+    }, { projection: { _id: 0, relative_path: 1 } }).sort({ depth: 1, relative_path: 1 }).toArray();
+    return documents.map((document) => document.relative_path);
+  }
+
   async searchFoldersForOwner(ownerUserId: string, query: string) {
     const normalized = query.trim().toLocaleLowerCase();
     const folders = await this.listAllFoldersForOwner(ownerUserId);

@@ -196,4 +196,57 @@ describe("Mongo Tree of Life repository", () => {
       }) },
     );
   });
+
+  it("caches resolved ancestors with owner scope and without upserts", async () => {
+    const { collection, repository } = repositoryWith({
+      bulkWrite: vi.fn().mockResolvedValue({ modifiedCount: 2 }),
+    });
+    await expect(repository.cacheDriveFolderIdentities("owner-a", [
+      { folderId: "BFL", relativePath: "Blue Field Law", webUrl: "https://drive.google.com/drive/folders/BFL" },
+      { folderId: "AUTO", relativePath: "Blue Field Law/Automation", webUrl: "https://drive.google.com/drive/folders/AUTO" },
+    ])).resolves.toBe(2);
+    const writes = vi.mocked(collection.bulkWrite).mock.calls[0][0];
+    expect(writes).toHaveLength(2);
+    expect(writes[0]).toMatchObject({ updateOne: {
+      filter: { active: true, owner_user_id: "owner-a", relative_path: "Blue Field Law" },
+      update: { $set: {
+        drive_folder_id: "BFL",
+        drive_web_url: "https://drive.google.com/drive/folders/BFL",
+      } },
+    } });
+    expect((writes[0] as { updateOne: { upsert?: boolean } }).updateOne.upsert).toBeUndefined();
+  });
+
+  it("preserves cached Drive identity through folder rename and move updates", async () => {
+    const documents = [{
+      active: true,
+      created_at: new Date(),
+      depth: 2,
+      drive_folder_id: "BFLX123",
+      drive_web_url: "https://drive.google.com/drive/folders/BFLX123",
+      is_branch: true,
+      name: "BFLX",
+      owner_user_id: "owner-a",
+      parent_relative_path: "Blue Field Law/Automation",
+      relative_path: "Blue Field Law/Automation/BFLX",
+      selectable: true,
+      updated_at: new Date(),
+    }];
+    const { collection, repository } = repositoryWith({
+      bulkWrite: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
+      find: vi.fn(() => ({ toArray: vi.fn().mockResolvedValue(documents) })),
+    });
+    await repository.applyFolderEvent("owner-a", {
+      kind: "folder_renamed",
+      oldRelativePath: "Blue Field Law/Automation/BFLX",
+      relativePath: "Blue Field Law/Automation/BFLX Extension",
+    });
+    const update = vi.mocked(collection.bulkWrite).mock.calls[0][0][0] as unknown as {
+      updateOne: { update: { $set: Record<string, unknown> } };
+    };
+    expect(update.updateOne.update.$set.relative_path)
+      .toBe("Blue Field Law/Automation/BFLX Extension");
+    expect(update.updateOne.update.$set).not.toHaveProperty("drive_folder_id");
+    expect(update.updateOne.update.$set).not.toHaveProperty("drive_web_url");
+  });
 });

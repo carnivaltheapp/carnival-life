@@ -1456,6 +1456,26 @@ h1 {
   text-decoration-color: currentColor;
 }
 
+.driveFolderSettings {
+  display: grid;
+  gap: 8px;
+}
+
+.driveFolderSettings p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.driveFolderSettings form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+}
+
+.driveFolderSettings select {
+  min-width: 0;
+}
+
 .desktopCompanionSettings,
 .desktopCompanionSettings > span {
   display: grid;

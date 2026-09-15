@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-HOT-TABS-DRIVE-96
+          P3-DRIVE-RESOLVER-97
         </small>
       </body>
     </html>
