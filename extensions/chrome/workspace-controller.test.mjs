@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   CarnivalWorkspaceController,
+  compareAnimationLanding,
   DEFAULT_CONTEXT_URL,
   PLAYHOUSE_URL,
   defaultWorkspaceLayout,
@@ -671,6 +672,18 @@ test("opening in Aux restores a minimized or offscreen Aux and focuses it", asyn
   assert.deepEqual(chrome.calls.updateWindow.at(-1), {
     id: initial.contextWindowId,
     options: { focused: true },
+  });
+});
+
+test("native animation landing comparison accepts frame tolerance and rejects translated endpoints", () => {
+  const target = { height: 1200, left: 299, top: 0, width: 861 };
+  assert.deepEqual(compareAnimationLanding({ ...target, left: 300 }, target), {
+    landed: true,
+    leftDelta: 1,
+  });
+  assert.deepEqual(compareAnimationLanding({ ...target, left: -1049 }, target), {
+    landed: false,
+    leftDelta: -1348,
   });
 });
 
@@ -1402,6 +1415,8 @@ test("manual PlayHouse correction is the canonical retract and summon X without 
     logger: { warn() {} },
     nativeAnimate: async (animation) => {
       animations.push(animation);
+      chrome.resizeWindow(animation.playhouseWindowId, animation.playhouse.to);
+      chrome.resizeWindow(animation.contextWindowId, animation.context.to);
       return true;
     },
   });
@@ -1446,6 +1461,8 @@ test("native open and retract animations move both windows with one shared offse
     logger: { warn() {} },
     nativeAnimate: async (animation) => {
       animations.push(animation);
+      chrome.resizeWindow(animation.playhouseWindowId, animation.playhouse.to);
+      chrome.resizeWindow(animation.contextWindowId, animation.context.to);
       return true;
     },
   });
@@ -1501,11 +1518,13 @@ test("Windows native animation receives the same paired geometry for summon and 
   });
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
 
-  await workspace.summon(workArea, "display-1");
+  const opened = await workspace.summon(workArea, "display-1");
   await workspace.retract();
 
   assert.equal(animations.length, 2);
   assert.equal(animations[0].durationMs, 450);
+  assert.equal(animations[0].playhouseWindowId, opened.playhouseWindowId);
+  assert.equal(animations[0].contextWindowId, opened.contextWindowId);
   assert.equal(animations[0].easing, "out");
   assert.deepEqual(animations[0].playhouse.current, { height: 900, left: 0, top: 0, width: 900 });
   assert.deepEqual(animations[0].playhouse.from, { height: 900, left: -1600, top: 0, width: 900 });
@@ -1561,6 +1580,8 @@ test("fresh windows use visible Chrome bounds before native animation handoff", 
   assert.equal(chrome.calls.createWindow.some(({ left }) => left < workArea.left), false);
   assert.equal(animations.length, 1);
   assert.ok(animations[0].playhouse.from.left < workArea.left);
+  assert.deepEqual(animations[0].playhouse.current, animations[0].playhouse.to);
+  assert.deepEqual(animations[0].context.current, animations[0].context.to);
 });
 
 test("native opening failure falls back to final visible bounds without offscreen Chrome updates", async () => {
@@ -1581,7 +1602,7 @@ test("native opening failure falls back to final visible bounds without offscree
   );
 });
 
-test("native retraction failure leaves the visible workspace logically open", async () => {
+test("native retraction failure restores the visible workspace and leaves it logically open", async () => {
   const chrome = fakeChrome();
   let fail = false;
   const workspace = new CarnivalWorkspaceController(chrome, {
@@ -1596,5 +1617,8 @@ test("native retraction failure leaves the visible workspace logically open", as
   const state = await workspace.retract();
 
   assert.equal(state.drawerState, "open");
-  assert.equal(chrome.calls.updateWindow.some(({ options }) => Number.isInteger(options.left)), false);
+  assert.deepEqual(
+    chrome.calls.updateWindow.filter(({ options }) => Number.isInteger(options.left)).map(({ options }) => options.left),
+    [0, 900],
+  );
 });

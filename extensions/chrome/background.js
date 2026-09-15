@@ -1,4 +1,8 @@
-import { CarnivalWorkspaceController, validWorkArea } from "./workspace-controller.js";
+import {
+  CarnivalWorkspaceController,
+  compareAnimationLanding,
+  validWorkArea,
+} from "./workspace-controller.js";
 import { createWorkspaceActions } from "./workspace-summon.js";
 import { isOpenInAuxMessage, routeOpenInAuxMessage } from "./aux-routing.js";
 import { createWindowTrace } from "./window-trace.js";
@@ -9,7 +13,7 @@ import {
 } from "./gmail-tab-metadata.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
-const NATIVE_HOST_VERSION = "DRAWER-HOST-14";
+const NATIVE_HOST_VERSION = "DRAWER-HOST-15";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
@@ -115,12 +119,49 @@ async function animateWindowsNatively(animation) {
     const timeout = setTimeout(() => {
       nativeAnimationRequests.delete(requestId);
       console.warn("Carnival: native animation timed out; using extension fallback");
+      windowTrace.emit("background", "ANIMATION_FALLBACK_CORRECTION_REQUIRED", {
+        action: animation.easing === "out" ? "open" : "retract",
+        reason: "native-host-timeout",
+      });
       resolve(false);
-    }, 1500);
-    nativeAnimationRequests.set(requestId, (ok) => {
+    }, 5000);
+    nativeAnimationRequests.set(requestId, async (ok) => {
       clearTimeout(timeout);
       console.info(`Carnival: native animation ${ok ? "complete" : "rejected"}`);
-      resolve(ok);
+      if (!ok) {
+        windowTrace.emit("background", "ANIMATION_FALLBACK_CORRECTION_REQUIRED", {
+          action: animation.easing === "out" ? "open" : "retract",
+          reason: "native-host-rejected",
+        });
+        resolve(false);
+        return;
+      }
+      let contextActual = null;
+      let playhouseActual = null;
+      try {
+        [contextActual, playhouseActual] = await Promise.all([
+          chrome.windows.get(animation.contextWindowId),
+          chrome.windows.get(animation.playhouseWindowId),
+        ]);
+      } catch {}
+      const contextLanding = compareAnimationLanding(contextActual, animation.context.to);
+      const playhouseLanding = compareAnimationLanding(playhouseActual, animation.playhouse.to);
+      windowTrace.emit("background", "NATIVE_ANIMATION_FINAL_BOUNDS", {
+        auxActualLeft: contextActual?.left ?? null,
+        auxDelta: contextLanding.leftDelta,
+        auxRequestedLeft: animation.context.to.left,
+        phActualLeft: playhouseActual?.left ?? null,
+        phDelta: playhouseLanding.leftDelta,
+        phRequestedLeft: animation.playhouse.to.left,
+      });
+      const landed = contextLanding.landed && playhouseLanding.landed;
+      windowTrace.emit("background", landed
+        ? "ANIMATION_LANDED_CORRECTLY"
+        : "ANIMATION_FALLBACK_CORRECTION_REQUIRED", {
+        action: animation.easing === "out" ? "open" : "retract",
+        reason: landed ? "verified-final-bounds" : "final-bounds-mismatch",
+      });
+      resolve(landed);
     });
     try {
       windowTrace.emit("background", "NATIVE_ANIMATION_GEOMETRY", {
@@ -145,6 +186,10 @@ async function animateWindowsNatively(animation) {
       clearTimeout(timeout);
       nativeAnimationRequests.delete(requestId);
       console.warn("Carnival: native animation request failed; using visible fallback", error);
+      windowTrace.emit("background", "ANIMATION_FALLBACK_CORRECTION_REQUIRED", {
+        action: animation.easing === "out" ? "open" : "retract",
+        reason: "native-request-failed",
+      });
       resolve(false);
     }
   });

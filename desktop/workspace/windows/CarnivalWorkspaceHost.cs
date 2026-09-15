@@ -14,7 +14,7 @@ using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
-    private const string HostMarker = "DRAWER-HOST-14";
+    private const string HostMarker = "DRAWER-HOST-15";
     private const string BranchRoot = @"C:\Google Drive";
     private const int FcsmInfoTip = 0x4;
     private const uint FcsRead = 0x1;
@@ -1492,21 +1492,39 @@ internal static class CarnivalWorkspaceHost
             WriteDiagnostic("native animation could not map both Chrome HWNDs");
             return false;
         }
-        if (!MovePair(playhouse, playhouseFrom, context, contextFrom)) return false;
         var frameCount = Math.Max(2, (int)Math.Round(durationMs * AnimationFramesPerSecond / 1000.0));
         var stopwatch = Stopwatch.StartNew();
         for (var frame = 1; frame <= frameCount; frame += 1)
         {
             var progress = frame / (double)frameCount;
             var eased = easeIn ? progress * progress * progress : 1.0 - Math.Pow(1.0 - progress, 3.0);
-            if (!MovePair(playhouse, Interpolate(playhouseFrom, playhouseTo, eased),
-                context, Interpolate(contextFrom, contextTo, eased))) return false;
+            if (!MovePair(playhouse, Interpolate(playhouseCurrent, playhouseTo, eased),
+                context, Interpolate(contextCurrent, contextTo, eased))) return false;
             var wait = (frame * durationMs / frameCount) - (int)stopwatch.ElapsedMilliseconds;
             if (wait > 0) Thread.Sleep(wait);
+        }
+        if (!BoundsMatch(playhouse, playhouseTo) || !BoundsMatch(context, contextTo))
+        {
+            if (!MovePair(playhouse, playhouseTo, context, contextTo) ||
+                !BoundsMatch(playhouse, playhouseTo) || !BoundsMatch(context, contextTo))
+            {
+                WriteDiagnostic("native animation final bounds mismatch");
+                return false;
+            }
         }
         if (!easeIn && !ActivateWorkspace(playhouse, context))
             WriteDiagnostic("opening complete but foreground activation failed");
         return true;
+    }
+
+    private static bool BoundsMatch(IntPtr window, WindowBounds expected)
+    {
+        Rect actual;
+        if (!GetWindowRect(window, out actual)) return false;
+        return Math.Abs(actual.Left - expected.Left) <= 2 &&
+            Math.Abs(actual.Top - expected.Top) <= 2 &&
+            Math.Abs((actual.Right - actual.Left) - expected.Width) <= 2 &&
+            Math.Abs((actual.Bottom - actual.Top) - expected.Height) <= 2;
     }
 
     private static bool ActivateMappedChromeWindows(WindowBounds playhouseBounds, WindowBounds contextBounds)
@@ -1629,6 +1647,20 @@ internal static class CarnivalWorkspaceHost
             "settled Offset Point must be exactly 100px beyond Aux right");
         AssertSelfTest(IsPointerOnOrNearAux(new Point { X = 1505, Y = 450 }, aux),
             "Aux edge interaction must be detected");
+        var phVisible = new WindowBounds { Height = 1200, Left = 299, Top = 0, Width = 861 };
+        var phHidden = new WindowBounds { Height = 1200, Left = -1621, Top = 0, Width = 861 };
+        var auxVisible = new WindowBounds { Height = 1200, Left = 849, Top = 0, Width = 945 };
+        var auxHidden = new WindowBounds { Height = 1200, Left = -1071, Top = 0, Width = 945 };
+        var earlyEaseOut = 1.0 - Math.Pow(1.0 - (3.0 / 27.0), 3.0);
+        AssertSelfTest(Interpolate(phHidden, phVisible, earlyEaseOut).Left == -1049 &&
+            Interpolate(auxHidden, auxVisible, earlyEaseOut).Left == -499,
+            "observed negative positions are valid early hidden-to-visible frames");
+        AssertSelfTest(Interpolate(phVisible, phVisible, earlyEaseOut).Left == 299 &&
+            Interpolate(auxVisible, auxVisible, earlyEaseOut).Left == 849,
+            "already-visible cold-start windows must not jump to synthetic hidden bounds");
+        AssertSelfTest(Interpolate(phHidden, phVisible, 1.0).Left == phVisible.Left &&
+            Interpolate(auxHidden, auxVisible, 1.0).Left == auxVisible.Left,
+            "native animation must land on the requested pair geometry");
         AssertSelfTest(!ShouldEnterRetract(true, true, 1600,
             1800, 100, 2000, 0, 900),
             "retract must be suppressed while Aux is manipulated");

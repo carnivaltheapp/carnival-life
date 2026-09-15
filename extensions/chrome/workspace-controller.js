@@ -196,6 +196,22 @@ function actualRestingBounds(window, workArea) {
   return { ...bounds, height: workArea.height, top: workArea.top };
 }
 
+export function compareAnimationLanding(actualValue, targetValue, tolerance = 2) {
+  const actual = storedBounds(actualValue);
+  const target = storedBounds(targetValue);
+  if (!actual || !target) return { landed: false, leftDelta: null };
+  const deltas = {
+    height: actual.height - target.height,
+    left: actual.left - target.left,
+    top: actual.top - target.top,
+    width: actual.width - target.width,
+  };
+  return {
+    landed: Object.values(deltas).every((delta) => Math.abs(delta) <= tolerance),
+    leftDelta: deltas.left,
+  };
+}
+
 export function effectiveRetractThreshold(rightEdge, monitorRight) {
   return Math.min(rightEdge + RETRACT_DISTANCE_PX, monitorRight - 1);
 }
@@ -648,6 +664,7 @@ export class CarnivalWorkspaceController {
     this.movingWindowIds.add(contextWindowId);
     try {
       if (this.nativeAnimate && await this.nativeAnimate({
+        contextWindowId,
         context: {
           current: current.context,
           from: shifted(layout.context, startOffset),
@@ -655,6 +672,7 @@ export class CarnivalWorkspaceController {
         },
         durationMs,
         easing: easing === easeInCubic ? "in" : "out",
+        playhouseWindowId,
         playhouse: {
           current: current.playhouse,
           from: shifted(layout.playhouse, startOffset),
@@ -662,14 +680,13 @@ export class CarnivalWorkspaceController {
         },
       })) return true;
       this.logger.warn("Carnival native animation unavailable; using visible fallback");
-      if (endOffset !== 0) return false;
       await Promise.all([
         this.updateWindow(playhouseWindowId,
           { ...layout.playhouse, focused: false, state: "normal" }, "animation-visible-fallback-playhouse"),
         this.updateWindow(contextWindowId,
           { ...layout.context, focused: false, state: "normal" }, "animation-visible-fallback-aux"),
       ]);
-      return true;
+      return endOffset === 0;
     } finally {
       this.movingWindowIds.delete(playhouseWindowId);
       this.movingWindowIds.delete(contextWindowId);
