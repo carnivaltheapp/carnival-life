@@ -75,6 +75,11 @@ const windowTrace = createWindowTrace({
     hostVersion: NATIVE_HOST_VERSION,
   }),
 });
+globalThis.dumpCarnivalWindowTrace = () => windowTrace.dump();
+globalThis.clearCarnivalWindowTrace = () => windowTrace.clear();
+windowTrace.workerLoaded().catch((error) => {
+  console.error("Carnival window lifecycle trace failed", error);
+});
 
 function scheduleTabSave(windowId, reason) {
   if (!Number.isInteger(windowId)) return;
@@ -267,8 +272,14 @@ function connectNativeHost() {
   }
 }
 
-chrome.runtime.onInstalled.addListener(connectNativeHost);
-chrome.runtime.onStartup.addListener(connectNativeHost);
+chrome.runtime.onInstalled.addListener((details) => {
+  windowTrace.runtimeInstalled(details?.reason);
+  connectNativeHost();
+});
+chrome.runtime.onStartup.addListener(() => {
+  windowTrace.runtimeStartup();
+  connectNativeHost();
+});
 chrome.alarms.onAlarm.addListener(({ name }) => {
   if (name === RECONNECT_ALARM) {
     immediateNativeReconnectUsed = false;
@@ -574,7 +585,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (!isOpenInAuxMessage(message)) return false;
-  routeOpenInAuxMessage({ controller, currentWorkArea, message, reportDrawerState })
+  windowTrace.start("PlayHouse page")
+    .then(() => {
+      windowTrace.workspaceStartRequest("PlayHouse page");
+      return routeOpenInAuxMessage({ controller, currentWorkArea, message, reportDrawerState });
+    })
     .then(() => sendResponse({ ok: true }))
     .catch((error) => sendResponse({ error: error.message, ok: false }));
   return true;

@@ -10,6 +10,7 @@ export function createWorkspaceActions({
 
   async function summon({ monitorId, workArea }, source) {
     await windowTrace?.start(source);
+    windowTrace?.workspaceStartRequest(source);
     windowTrace?.enter("workspace", {
       initializationAlreadyRunning: Boolean(summonPromise),
       reason: source,

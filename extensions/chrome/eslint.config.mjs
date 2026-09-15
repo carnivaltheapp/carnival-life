@@ -13,6 +13,7 @@ export default [
         crypto: "readonly",
         decodeURIComponent: "readonly",
         document: "readonly",
+        globalThis: "readonly",
         setTimeout: "readonly",
         Map: "readonly",
         Set: "readonly",
