@@ -45,7 +45,7 @@ async function dropThroughBullseye(
   const transfer = await page.evaluateHandle(() => new DataTransfer());
   await source.dispatchEvent("dragstart", { dataTransfer: transfer });
   await expect(source).toHaveAttribute("data-dragging", "true");
-  const bullseye = page.getByRole("button", { name: "Bullseye drag actions" });
+  const bullseye = page.getByRole("button", { name: /Show (Baskets|Calendar)/ });
   const bullseyeBox = await bullseye.boundingBox();
   expect(bullseyeBox).not.toBeNull();
   await source.dispatchEvent("drag", {
@@ -453,7 +453,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-EXTENSION-MESSAGING-94", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-BASKET-NAV-95", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');
@@ -537,7 +537,7 @@ test("Bullseye changes selected Plays and replaces the right-click menu", async 
   const second = playRow(auth.page, "Bulk Change Two");
   await first.locator(".playSelectControl").click();
   await second.locator(".playSelectControl").click();
-  await auth.page.getByRole("button", { name: "Bullseye drag actions" }).hover();
+  await auth.page.getByRole("button", { name: /Show (Baskets|Calendar)/ }).hover();
   await expect(auth.page.getByRole("menu", { name: "Bullseye categories" })).toHaveCount(0);
   await first.click({ button: "right" });
   await expect(auth.page.getByRole("menu", { name: "Bulk Play actions" })).toHaveCount(0);
@@ -601,6 +601,51 @@ test("Bullseye changes selected Plays and replaces the right-click menu", async 
       .in("title", ["Bulk Trash One", "Bulk Trash Two"]);
     return data?.map(({ status }) => status);
   }).toEqual(["trash", "trash"]);
+});
+
+test("Bullseye toggles Calendar and Basket browsing without mutating Plays", async ({ auth }) => {
+  await auth.page.goto("/");
+  await createPlay(auth.page, "Browse Backlog Play");
+  const edit = await openEditPlay(auth.page, "Browse Backlog Play");
+  await edit.form.locator('select[name="placementKind"]').selectOption("basket");
+  await edit.form.locator('select[name="basketId"]').selectOption({ label: "Backlog" });
+  await edit.form.getByRole("button", { name: "Save changes" }).click();
+  await expect(playRow(auth.page, "Browse Backlog Play")).toHaveCount(0);
+
+  const before = await auth.user
+    .from("plays")
+    .select("basket_id, play_type, scheduled_date, status")
+    .eq("owner_user_id", auth.userId)
+    .eq("title", "Browse Backlog Play")
+    .single();
+  expect(before.error).toBeNull();
+
+  await expect(auth.page.getByLabel("Calendar destinations")).toBeVisible();
+  await expect(auth.page.getByLabel("Basket destinations")).toHaveCount(0);
+  await auth.page.getByRole("button", { name: "Show Baskets" }).click();
+  await expect(auth.page.getByLabel("Calendar destinations")).toHaveCount(0);
+  await expect(auth.page.getByLabel("Basket destinations")).toBeVisible();
+
+  await auth.page.getByRole("link", { name: "Backlog", exact: true }).click();
+  await expect(auth.page.getByRole("heading", { name: "Backlog", exact: true })).toBeVisible();
+  await expect(playRow(auth.page, "Browse Backlog Play")).toBeVisible();
+  await expect(auth.page.getByRole("link", { name: "Backlog", exact: true }))
+    .toHaveAttribute("aria-current", "page");
+
+  await auth.page.getByRole("button", { name: "Show Calendar" }).click();
+  await expect(auth.page.getByLabel("Calendar destinations")).toBeVisible();
+  await expect(auth.page.getByLabel("Basket destinations")).toHaveCount(0);
+  await auth.page.getByRole("button", { name: "Show Baskets" }).click();
+  await expect(auth.page.getByLabel("Basket destinations")).toBeVisible();
+
+  const after = await auth.user
+    .from("plays")
+    .select("basket_id, play_type, scheduled_date, status")
+    .eq("owner_user_id", auth.userId)
+    .eq("title", "Browse Backlog Play")
+    .single();
+  expect(after.error).toBeNull();
+  expect(after.data).toEqual(before.data);
 });
 
 test("Edit updates title and URL while preserving Duration and Place", async ({ auth }) => {

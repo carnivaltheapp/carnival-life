@@ -51,6 +51,10 @@ import {
 } from "../domain/gmail-row-create";
 import type { SelectedView } from "../lib/playhouse/data";
 import {
+  destinationNavigationModeForView,
+  toggleDestinationNavigationMode,
+} from "../domain/destination-navigation";
+import {
   displayBranch,
   playRowLeadingLabel,
   usesDateLeadingColumn,
@@ -260,6 +264,24 @@ function PlayhouseShellView({
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [bullseyeOpen, setBullseyeOpen] = useState(false);
   const [bullseyeCategory, setBullseyeCategory] = useState<BullseyeCategory>("calendar");
+  const destinationViewKey = selectedView.kind === "basket"
+    ? `basket:${selectedView.basket.id}`
+    : selectedView.kind === "all"
+      ? "all"
+      : `calendar:${selectedView.key}:${selectedView.startDate}`;
+  const [destinationNavigation, setDestinationNavigation] = useState(() => ({
+    mode: destinationNavigationModeForView(selectedView.kind),
+    viewKey: destinationViewKey,
+  }));
+  if (destinationNavigation.viewKey !== destinationViewKey) {
+    setDestinationNavigation({
+      mode: destinationNavigationModeForView(selectedView.kind),
+      viewKey: destinationViewKey,
+    });
+  }
+  const destinationNavigationMode = destinationNavigation.viewKey === destinationViewKey
+    ? destinationNavigation.mode
+    : destinationNavigationModeForView(selectedView.kind);
   const processedGmailRowCreatesRef = useRef(new Set<string>());
   const gmailCorrelationIdRef = useRef<string | null>(null);
   const gmailDropTargetRef = useRef<string | null>(null);
@@ -392,6 +414,9 @@ function PlayhouseShellView({
   }, [eligiblePlayIds]);
   const eligibleVisibleIds = visibleIds.filter((id) => eligiblePlayIds.has(id));
   const sidebarDates = rollingCalendarDates(todayDate);
+  const activeDestinationCategory = bullseyeOpen && draggedIds.length
+    ? bullseyeCategory
+    : destinationNavigationMode;
   const showDateInLeadingColumn = Boolean(searchQuery) || usesDateLeadingColumn(selectedView);
   const defaultPlacement =
     selectedView.kind === "basket"
@@ -1124,8 +1149,17 @@ function PlayhouseShellView({
             <div className="bullseyeSwitcher">
               <button
                 aria-expanded={bullseyeOpen}
-                aria-label="Bullseye drag actions"
+                aria-label={destinationNavigationMode === "calendar"
+                  ? "Show Baskets"
+                  : "Show Calendar"}
                 className="bullseyeControl"
+                onClick={() => {
+                  if (draggedIds.length || bullseyeOpen) return;
+                  setDestinationNavigation((current) => ({
+                    ...current,
+                    mode: toggleDestinationNavigationMode(current.mode),
+                  }));
+                }}
                 onDragEnter={() => {
                   if (!draggedIds.length) return;
                   setBullseyeOpen(true);
@@ -1203,7 +1237,7 @@ function PlayhouseShellView({
                 </div>
               ) : null}
             </div>
-            {bullseyeCategory === "calendar" ? (
+            {activeDestinationCategory === "calendar" ? (
               <div
                 aria-label="Calendar destinations"
                 className="navItems"
@@ -1314,7 +1348,7 @@ function PlayhouseShellView({
                   );
                 })}
               </div>
-            ) : bullseyeCategory === "baskets" ? (
+            ) : activeDestinationCategory === "baskets" ? (
               <div
                 aria-label="Basket destinations"
                 className="navItems bullseyeOptions"
@@ -1348,7 +1382,7 @@ function PlayhouseShellView({
                   <p className="navEmpty">No Baskets available</p>
                 ) : null}
               </div>
-            ) : bullseyeCategory === "rank" ? (
+            ) : activeDestinationCategory === "rank" ? (
               <div aria-label="Rank destinations" className="navItems bullseyeOptions">
                 <button
                   className="destinationLink"
