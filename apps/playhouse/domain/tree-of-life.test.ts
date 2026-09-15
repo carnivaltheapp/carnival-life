@@ -80,6 +80,33 @@ describe("Tree of Life hierarchy", () => {
     }]);
   });
 
+  it("keeps all 15 Elastic Teams children in the folder navigator without exposing ordinary folders in the Branch picker", () => {
+    const branchNames = new Set(["0-Recruiting", "1-Customers", "Marketing", "Operations"]);
+    const names = [
+      "0-Recruiting", "1-Customers", "2-Providers", "3-Affiliates", "5-Partners",
+      "Access", "Docs", "Elastic AI", "ElasticList", "LLC", "Marketing", "Old",
+      "Operations", "Players", "SuperDrive",
+    ];
+    const records = parseFolderImage([
+      { isBranch: false, name: "Elastic Teams", relativePath: "Elastic Teams" },
+      ...names.map((name) => ({
+        isBranch: branchNames.has(name),
+        name,
+        relativePath: `Elastic Teams/${name}`,
+      })),
+    ]);
+    const folders = buildFolderTree(records);
+    const elasticTeams = folders.find((folder) => folder.name === "Elastic Teams");
+
+    expect(elasticTeams?.children.map((folder) => folder.name)).toEqual(names);
+    expect(searchFolderTree(folders, "superdrive")).toEqual([
+      expect.objectContaining({ isBranch: false, relativePath: "Elastic Teams/SuperDrive" }),
+    ]);
+    expect(branchTreeFromFolders(folders)[0]?.children.map((folder) => folder.name)).toEqual([
+      "0-Recruiting", "1-Customers", "Marketing", "Operations",
+    ]);
+  });
+
   it("rejects root-prefixed, traversing, and duplicate folder paths", () => {
     expect(() => parseFolderImage([{ name: "Blue", relativePath: "C:/Google Drive/Blue" }])).toThrow();
     expect(() => parseFolderImage([{ name: "Blue", relativePath: "../Blue" }])).toThrow();

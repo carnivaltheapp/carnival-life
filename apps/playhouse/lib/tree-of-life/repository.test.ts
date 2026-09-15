@@ -47,6 +47,43 @@ describe("Mongo Tree of Life repository", () => {
     expect(sort).toHaveBeenCalledWith({ relative_path: 1 });
   });
 
+  it("returns ordinary leaf folders from the all-folder path while keeping the Branch path filtered", async () => {
+    const branchNames = new Set(["0-Recruiting", "1-Customers", "Marketing", "Operations"]);
+    const names = [
+      "0-Recruiting", "1-Customers", "2-Providers", "3-Affiliates", "5-Partners",
+      "Access", "Docs", "Elastic AI", "ElasticList", "LLC", "Marketing", "Old",
+      "Operations", "Players", "SuperDrive",
+    ];
+    const documents = ["Elastic Teams", ...names].map((name, index) => ({
+      active: true,
+      created_at: new Date(),
+      depth: index ? 1 : 0,
+      is_branch: index ? branchNames.has(name) : false,
+      name,
+      owner_user_id: "owner-a",
+      parent_relative_path: index ? "Elastic Teams" : null,
+      relative_path: index ? `Elastic Teams/${name}` : name,
+      selectable: index ? branchNames.has(name) : false,
+      updated_at: new Date(),
+    }));
+    const toArray = vi.fn().mockResolvedValue(documents);
+    const sort = vi.fn(() => ({ toArray }));
+    const { repository } = repositoryWith({ find: vi.fn(() => ({ sort })) });
+
+    const folders = await repository.getFolderTreeForOwner("owner-a");
+    const branches = await repository.getBranchTreeForOwner("owner-a");
+
+    expect(folders[0]?.children).toHaveLength(15);
+    expect(folders[0]?.children).toContainEqual(expect.objectContaining({
+      children: [],
+      isBranch: false,
+      name: "SuperDrive",
+    }));
+    expect(branches[0]?.children.map((branch) => branch.name)).toEqual([
+      "0-Recruiting", "1-Customers", "Marketing", "Operations",
+    ]);
+  });
+
   it("bootstraps an empty owner with owner/path upserts", async () => {
     const { collection, repository } = repositoryWith({
       bulkWrite: vi.fn().mockResolvedValue({ acknowledged: true }),

@@ -5,7 +5,7 @@ test("unauthenticated screen and build stamp render", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "Carnival PlayHouse" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign in with Google" })).toBeVisible();
-  await expect(page.getByTestId("version-stamp")).toHaveText("P3-DETAIL-BRANCH-80");
+  await expect(page.getByTestId("version-stamp")).toHaveText("P3-ALL-FOLDERS-81");
 });
 
 test("disposable authenticated session loads the PlayHouse shell", async ({ auth }) => {

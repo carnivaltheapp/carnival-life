@@ -5,6 +5,7 @@ import test from "node:test";
 const host = readFileSync(new URL("./CarnivalWorkspaceHost.cs", import.meta.url), "utf8");
 
 test("resident polls authenticated folder commands and acknowledges verified creation", () => {
+  assert.match(host, /ServicePointManager\.SecurityProtocol = SecurityProtocolType\.Tls12;/);
   assert.match(host, /CompanionRequest\("\/commands", "GET", credential, null\)/);
   assert.match(host, /Directory\.CreateDirectory\(target\)/);
   assert.match(host, /folder_already_exists/);

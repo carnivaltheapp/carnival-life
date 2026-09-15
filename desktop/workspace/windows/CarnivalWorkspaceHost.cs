@@ -14,7 +14,7 @@ using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
-    private const string HostMarker = "DRAWER-HOST-13";
+    private const string HostMarker = "DRAWER-HOST-14";
     private const string BranchRoot = @"C:\Google Drive";
     private const int FcsmInfoTip = 0x4;
     private const uint FcsRead = 0x1;
@@ -257,6 +257,7 @@ internal static class CarnivalWorkspaceHost
 
     private static string CompanionRequest(string path, string method, string credential, string body)
     {
+        ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
         var request = (HttpWebRequest)WebRequest.Create(CompanionApiBase + path);
         request.Method = method;
         request.ContentType = "application/json";
