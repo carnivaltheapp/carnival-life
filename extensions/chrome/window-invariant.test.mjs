@@ -48,7 +48,7 @@ test("native foreground APIs remain isolated from resident companion work", () =
   );
 });
 
-test("PlayHouse animation stays anchored in both extension and native contracts", () => {
+test("PlayHouse resting geometry is anchored while Drawer animation may move the pair", () => {
   const controller = readFileSync(new URL("./workspace-controller.js", import.meta.url), "utf8");
   const background = readFileSync(new URL("./background.js", import.meta.url), "utf8");
   const nativeHost = readFileSync(
@@ -56,10 +56,14 @@ test("PlayHouse animation stays anchored in both extension and native contracts"
     "utf8",
   );
 
-  assert.doesNotMatch(controller, /shifted\([^\n]*playhouse/i);
-  assert.match(controller, /from: anchoredLayout\.playhouse/);
+  assert.match(controller, /canonicalRetractedWorkspaceLayout/);
+  assert.match(controller, /playhouse:\s*shifted\(visibleLayout\.playhouse, -workArea\.width\)/);
+  assert.match(controller, /getAnchoredPlayhouseGeometry\(workArea, layout\.playhouse\.width\)/);
+  assert.match(controller, /playhouseBounds:\s*getAnchoredPlayhouseGeometry/);
+  assert.match(background, /action: animation\.action/);
   assert.match(background, /workAreaLeft: animation\.workArea\.left/);
   assert.match(background, /workAreaTop: animation\.workArea\.top/);
-  assert.match(nativeHost, /AnchoredPlayhouse\(\s*Interpolate\(playhouseCurrent, playhouseTo, eased\)/);
-  assert.match(nativeHost, /PH_ANCHOR_INVARIANT_VIOLATION/);
+  assert.match(nativeHost, /PH_VISIBLE_ANCHOR_INVARIANT_VIOLATION/);
+  assert.match(nativeHost, /MovePair\(playhouse, Interpolate\(playhouseCurrent, playhouseTo, eased\)/);
+  assert.doesNotMatch(nativeHost, /AnchoredVisiblePlayhouse\(\s*Interpolate/);
 });

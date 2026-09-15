@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   CarnivalWorkspaceController,
+  canonicalRetractedWorkspaceLayout,
   compareAnimationLanding,
   DEFAULT_CONTEXT_URL,
   PLAYHOUSE_URL,
@@ -1441,6 +1442,8 @@ test("manual PlayHouse movement is discarded across repeated retract and summon 
     const reopened = await workspace.summon(workArea, "display-1");
     assert.equal(reopened.phSession.geometry.left, workArea.left);
     assert.equal(animations.at(-2).playhouse.from.left, workArea.left);
+    assert.equal(animations.at(-2).playhouse.to.left, workArea.left - workArea.width);
+    assert.equal(animations.at(-1).playhouse.from.left, workArea.left - workArea.width);
     assert.equal(animations.at(-1).playhouse.to.left, workArea.left);
   }
 });
@@ -1463,7 +1466,7 @@ test("native offscreen bounds are not persisted over the saved visible geometry"
   assert.deepEqual((await workspace.state()).playhouseBounds, visible.playhouseBounds);
 });
 
-test("native open and retract animations move only Aux and reuse both windows", async () => {
+test("first retract and repeated native cycles move both windows and reuse the pair", async () => {
   const chrome = fakeChrome();
   const animations = [];
   const workspace = new CarnivalWorkspaceController(chrome, {
@@ -1480,21 +1483,37 @@ test("native open and retract animations move only Aux and reuse both windows", 
   const createdCount = chrome.calls.createWindow.length;
 
   const retracted = await workspace.retract();
-  const reopened = await workspace.summon(workArea, "display-1");
-
   assert.equal(retracted.drawerState, "retracted");
+  assert.equal(chrome.getWindow(opened.playhouseWindowId).left, -1600);
+  assert.equal(chrome.getWindow(opened.contextWindowId).left, -700);
+
+  let reopened;
+  for (let cycle = 0; cycle < 3; cycle += 1) {
+    reopened = await workspace.summon(workArea, "display-1");
+    assert.equal(chrome.getWindow(opened.playhouseWindowId).left, 0);
+    assert.equal(chrome.getWindow(opened.contextWindowId).left, 900);
+    if (cycle < 2) {
+      const cycleRetracted = await workspace.retract();
+      assert.equal(cycleRetracted.drawerState, "retracted");
+      assert.equal(chrome.getWindow(opened.playhouseWindowId).left, -1600);
+      assert.equal(chrome.getWindow(opened.contextWindowId).left, -700);
+    }
+  }
+
   assert.equal(reopened.drawerState, "open");
   assert.equal(reopened.playhouseWindowId, opened.playhouseWindowId);
   assert.equal(reopened.contextWindowId, opened.contextWindowId);
   assert.equal(chrome.calls.createWindow.length, createdCount);
 
-  assert.equal(animations.length, 3);
-  for (const animation of animations) {
-    assert.equal(animation.playhouse.from.left, workArea.left);
-    assert.equal(animation.playhouse.to.left, workArea.left);
+  assert.equal(animations.length, 7);
+  assert.equal(animations[0].action, "open");
+  for (const animation of animations.slice(1)) {
+    const retracting = animation.action === "retract";
+    assert.equal(animation.playhouse.from.left, retracting ? 0 : -1600);
+    assert.equal(animation.playhouse.to.left, retracting ? -1600 : 0);
+    assert.equal(animation.context.from.left, retracting ? 900 : -700);
+    assert.equal(animation.context.to.left, retracting ? -700 : 900);
   }
-  assert.notEqual(animations[1].context.from.left, animations[1].context.to.left);
-  assert.notEqual(animations[2].context.from.left, animations[2].context.to.left);
 });
 
 test("an open workspace uses native foreground activation without changing bounds", async () => {
@@ -1520,7 +1539,7 @@ test("an open workspace uses native foreground activation without changing bound
   assert.equal((await workspace.state()).playhouseWindowId, opened.playhouseWindowId);
 });
 
-test("Windows native animation receives anchored PlayHouse and movable Aux geometry", async () => {
+test("Windows native animation receives direction-aware geometry for both windows", async () => {
   const chrome = fakeChrome();
   const animations = [];
   const workspace = new CarnivalWorkspaceController(chrome, {
@@ -1538,22 +1557,24 @@ test("Windows native animation receives anchored PlayHouse and movable Aux geome
   assert.equal(animations[0].durationMs, 450);
   assert.equal(animations[0].playhouseWindowId, opened.playhouseWindowId);
   assert.equal(animations[0].contextWindowId, opened.contextWindowId);
+  assert.equal(animations[0].action, "open");
   assert.equal(animations[0].easing, "out");
   assert.deepEqual(animations[0].playhouse.current, { height: 900, left: 0, top: 0, width: 900 });
-  assert.deepEqual(animations[0].playhouse.from, { height: 900, left: 0, top: 0, width: 900 });
+  assert.deepEqual(animations[0].playhouse.from, { height: 900, left: -1600, top: 0, width: 900 });
   assert.deepEqual(animations[0].playhouse.to, { height: 900, left: 0, top: 0, width: 900 });
   assert.equal(animations[0].context.from.left, -700);
+  assert.equal(animations[1].action, "retract");
   assert.equal(animations[1].easing, "in");
   assert.equal(animations[1].durationMs, 400);
   assert.deepEqual(animations[1].playhouse.from, animations[0].playhouse.to);
-  assert.deepEqual(animations[1].playhouse.to, animations[0].playhouse.to);
+  assert.deepEqual(animations[1].playhouse.to, animations[0].playhouse.from);
   assert.deepEqual(animations[0].workArea, workArea);
   assert.equal(chrome.calls.updateWindow.filter(({ options }) => (
     Object.keys(options).length === 1 && Number.isInteger(options.left)
   )).length, 0);
 });
 
-test("retracted native summon never sends offscreen bounds through the Chrome windows API", async () => {
+test("retracted native summon hands off offscreen animation bounds without Chrome window updates", async () => {
   const chrome = fakeChrome();
   const animations = [];
   const workspace = new CarnivalWorkspaceController(chrome, {
@@ -1572,7 +1593,7 @@ test("retracted native summon never sends offscreen bounds through the Chrome wi
 
   assert.equal(reopened.drawerState, "open");
   assert.equal(animations.at(-1).easing, "out");
-  assert.equal(animations.at(-1).playhouse.from.left, workArea.left);
+  assert.equal(animations.at(-1).playhouse.from.left, workArea.left - workArea.width);
   assert.ok(animations.at(-1).context.from.left < workArea.left);
   assert.equal(chrome.calls.updateWindow.some(({ options }) => options.left < workArea.left), false);
 });
@@ -1594,9 +1615,22 @@ test("fresh windows use visible Chrome bounds before native animation handoff", 
   assert.equal(chrome.calls.createWindow.length, 2);
   assert.equal(chrome.calls.createWindow.some(({ left }) => left < workArea.left), false);
   assert.equal(animations.length, 1);
-  assert.equal(animations[0].playhouse.from.left, workArea.left);
+  assert.equal(animations[0].playhouse.from.left, workArea.left - workArea.width);
   assert.deepEqual(animations[0].playhouse.current, animations[0].playhouse.to);
   assert.deepEqual(animations[0].context.current, animations[0].context.to);
+});
+
+test("canonical retracted geometry shifts the complete visible pair without changing dimensions", () => {
+  const workArea = { height: 900, left: 100, top: 20, width: 1600 };
+  const visible = {
+    playhouse: { height: 900, left: 100, top: 20, width: 900 },
+    context: { height: 900, left: 1000, top: 20, width: 600 },
+  };
+
+  assert.deepEqual(canonicalRetractedWorkspaceLayout(visible, workArea), {
+    playhouse: { height: 900, left: -1500, top: 20, width: 900 },
+    context: { height: 900, left: -600, top: 20, width: 600 },
+  });
 });
 
 test("native opening failure falls back to final visible bounds without offscreen Chrome updates", async () => {

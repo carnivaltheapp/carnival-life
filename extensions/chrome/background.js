@@ -13,7 +13,7 @@ import {
 } from "./gmail-tab-metadata.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
-const NATIVE_HOST_VERSION = "DRAWER-HOST-16";
+const NATIVE_HOST_VERSION = "DRAWER-HOST-17";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
@@ -114,13 +114,13 @@ function flattenBounds(prefix, bounds) {
 async function animateWindowsNatively(animation) {
   if (!nativePort || !nativeAnimationAvailable) return false;
   const requestId = ++nativeAnimationRequestId;
-  console.info(`Carnival: sending native ${animation.easing === "out" ? "open" : "retract"} animation`);
+  console.info(`Carnival: sending native ${animation.action} animation`);
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
       nativeAnimationRequests.delete(requestId);
       console.warn("Carnival: native animation timed out; using extension fallback");
       windowTrace.emit("background", "ANIMATION_FALLBACK_CORRECTION_REQUIRED", {
-        action: animation.easing === "out" ? "open" : "retract",
+        action: animation.action,
         reason: "native-host-timeout",
       });
       resolve(false);
@@ -130,7 +130,7 @@ async function animateWindowsNatively(animation) {
       console.info(`Carnival: native animation ${ok ? "complete" : "rejected"}`);
       if (!ok) {
         windowTrace.emit("background", "ANIMATION_FALLBACK_CORRECTION_REQUIRED", {
-          action: animation.easing === "out" ? "open" : "retract",
+          action: animation.action,
           reason: "native-host-rejected",
         });
         resolve(false);
@@ -158,19 +158,20 @@ async function animateWindowsNatively(animation) {
       windowTrace.emit("background", landed
         ? "ANIMATION_LANDED_CORRECTLY"
         : "ANIMATION_FALLBACK_CORRECTION_REQUIRED", {
-        action: animation.easing === "out" ? "open" : "retract",
+        action: animation.action,
         reason: landed ? "verified-final-bounds" : "final-bounds-mismatch",
       });
       resolve(landed);
     });
     try {
       windowTrace.emit("background", "NATIVE_ANIMATION_GEOMETRY", {
-        action: animation.easing === "out" ? "open" : "retract",
+        action: animation.action,
         playhouseCurrentLeft: animation.playhouse.current.left,
         playhouseFromLeft: animation.playhouse.from.left,
         playhouseToLeft: animation.playhouse.to.left,
       });
       nativePort.postMessage({
+        action: animation.action,
         ...flattenBounds("contextCurrent", animation.context.current),
         ...flattenBounds("contextFrom", animation.context.from),
         ...flattenBounds("contextTo", animation.context.to),
@@ -189,7 +190,7 @@ async function animateWindowsNatively(animation) {
       nativeAnimationRequests.delete(requestId);
       console.warn("Carnival: native animation request failed; using visible fallback", error);
       windowTrace.emit("background", "ANIMATION_FALLBACK_CORRECTION_REQUIRED", {
-        action: animation.easing === "out" ? "open" : "retract",
+        action: animation.action,
         reason: "native-request-failed",
       });
       resolve(false);

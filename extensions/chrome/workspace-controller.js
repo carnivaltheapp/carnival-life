@@ -235,16 +235,16 @@ function shifted(bounds, offset) {
   return { ...bounds, left: bounds.left + offset };
 }
 
+export function canonicalRetractedWorkspaceLayout(visibleLayout, workArea) {
+  if (!validWorkArea(workArea)) throw new Error("A valid monitor work area is required.");
+  return {
+    context: shifted(visibleLayout.context, -workArea.width),
+    playhouse: shifted(visibleLayout.playhouse, -workArea.width),
+  };
+}
+
 function currentBounds(window, fallback) {
   return storedBounds(window) ?? fallback;
-}
-
-function easeOutCubic(progress) {
-  return 1 - ((1 - progress) ** 3);
-}
-
-function easeInCubic(progress) {
-  return progress ** 3;
 }
 
 async function existingWindow(chromeApi, windowId) {
@@ -677,8 +677,7 @@ export class CarnivalWorkspaceController {
     }
   }
 
-  async animate(playhouseWindowId, contextWindowId, current, layout, workArea,
-    startOffset, endOffset, easing, durationMs) {
+  async animate(playhouseWindowId, contextWindowId, current, layout, workArea, action, durationMs) {
     const anchoredPlayhouse = getAnchoredPlayhouseGeometry(workArea, layout.playhouse.width);
     if (layout.playhouse.left !== anchoredPlayhouse.left || layout.playhouse.top !== anchoredPlayhouse.top) {
       this.windowTrace?.emit("workspace-controller", "PH_ANCHOR_INVARIANT_VIOLATION", {
@@ -693,26 +692,45 @@ export class CarnivalWorkspaceController {
       });
     }
     const anchoredLayout = { ...layout, playhouse: anchoredPlayhouse };
+    const retractedLayout = canonicalRetractedWorkspaceLayout(anchoredLayout, workArea);
+    const from = action === "open" ? retractedLayout : anchoredLayout;
+    const to = action === "open" ? anchoredLayout : retractedLayout;
+    this.windowTrace?.emit("workspace-controller", "WORKSPACE_ANIMATION_START", {
+      action,
+      auxActualStartLeft: current.context.left,
+      auxTargetLeft: to.context.left,
+      drawerState: action === "open" ? "opening" : "retracting",
+      phActualStartLeft: current.playhouse.left,
+      phTargetLeft: to.playhouse.left,
+    });
     this.movingWindowIds.add(playhouseWindowId);
     this.movingWindowIds.add(contextWindowId);
     try {
       if (this.nativeAnimate && await this.nativeAnimate({
+        action,
         contextWindowId,
         context: {
           current: current.context,
-          from: shifted(anchoredLayout.context, startOffset),
-          to: shifted(anchoredLayout.context, endOffset),
+          from: from.context,
+          to: to.context,
         },
         durationMs,
-        easing: easing === easeInCubic ? "in" : "out",
+        easing: action === "retract" ? "in" : "out",
         playhouseWindowId,
         playhouse: {
-          current: anchoredLayout.playhouse,
-          from: anchoredLayout.playhouse,
-          to: anchoredLayout.playhouse,
+          current: current.playhouse,
+          from: from.playhouse,
+          to: to.playhouse,
         },
         workArea,
-      })) return true;
+      })) {
+        this.windowTrace?.emit("workspace-controller", "WORKSPACE_ANIMATION_COMPLETE", {
+          action,
+          auxTargetLeft: to.context.left,
+          phTargetLeft: to.playhouse.left,
+        });
+        return true;
+      }
       this.logger.warn("Carnival native animation unavailable; using visible fallback");
       await Promise.all([
         this.updateWindow(playhouseWindowId,
@@ -720,7 +738,20 @@ export class CarnivalWorkspaceController {
         this.updateWindow(contextWindowId,
           { ...anchoredLayout.context, focused: false, state: "normal" }, "animation-visible-fallback-aux"),
       ]);
-      return endOffset === 0;
+      if (action === "retract") {
+        this.windowTrace?.emit("workspace-controller", "WORKSPACE_ANIMATION_FAILED", {
+          action,
+          auxTargetLeft: to.context.left,
+          phTargetLeft: to.playhouse.left,
+        });
+      }
+      this.windowTrace?.emit("workspace-controller", "WORKSPACE_PAIR_RESTORED", {
+        action,
+        auxTargetLeft: anchoredLayout.context.left,
+        phTargetLeft: anchoredLayout.playhouse.left,
+        restoredState: "open",
+      });
+      return action === "open";
     } finally {
       this.movingWindowIds.delete(playhouseWindowId);
       this.movingWindowIds.delete(contextWindowId);
@@ -863,7 +894,6 @@ export class CarnivalWorkspaceController {
     const repairingOneSide = Boolean(knownPlayhouse) !== Boolean(knownContext);
     const shouldAnimate = !repairingOneSide &&
       (prior.drawerState !== "open" || !knownPlayhouse || !knownContext);
-    const hiddenOffset = -workArea.width;
     const positionExisting = !shouldAnimate || !this.nativeAnimate;
     const playhouse = await this.findPlayhouse(
       prior,
@@ -881,7 +911,9 @@ export class CarnivalWorkspaceController {
       playhouse: currentBounds(playhouse.window, layout.playhouse),
     };
     const actualPlayhouse = storedBounds(playhouse.window);
-    if (actualPlayhouse?.left !== layout.playhouse.left || actualPlayhouse?.top !== layout.playhouse.top) {
+    const anchorBeforeOpen = !shouldAnimate || !knownPlayhouse;
+    if (anchorBeforeOpen &&
+      (actualPlayhouse?.left !== layout.playhouse.left || actualPlayhouse?.top !== layout.playhouse.top)) {
       this.windowTrace?.emit("workspace-controller", "PH_ANCHOR_CORRECTED", {
         actualLeft: actualPlayhouse?.left ?? null,
         actualTop: actualPlayhouse?.top ?? null,
@@ -893,11 +925,11 @@ export class CarnivalWorkspaceController {
         workAreaTop: workArea.top,
       });
     }
-    if (!compareAnimationLanding(actualPlayhouse, layout.playhouse).landed) {
+    if (anchorBeforeOpen && !compareAnimationLanding(actualPlayhouse, layout.playhouse).landed) {
       await this.updateWindow(playhouse.window.id,
         { ...layout.playhouse, focused: false, state: "normal" }, "anchor-playhouse-before-summon");
+      current.playhouse = layout.playhouse;
     }
-    current.playhouse = layout.playhouse;
     const openingState = {
       ...prior,
       auxActiveTabId: context.tab.id,
@@ -936,9 +968,7 @@ export class CarnivalWorkspaceController {
         current,
         layout,
         workArea,
-        hiddenOffset,
-        0,
-        easeOutCubic,
+        "open",
         OPEN_ANIMATION_MS,
       );
     }
@@ -1031,9 +1061,7 @@ export class CarnivalWorkspaceController {
       current,
       layout,
       state.workArea,
-      0,
-      -state.workArea.width,
-      easeInCubic,
+      "retract",
       CLOSE_ANIMATION_MS,
     );
     if (!retractedSuccessfully) {
