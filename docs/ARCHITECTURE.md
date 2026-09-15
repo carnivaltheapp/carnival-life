@@ -1,5 +1,7 @@
 # Carnival Life Architecture
 
+Files marked `"use server"` are server-action entrypoints and may export only async server functions. Shared runtime constants, configuration, schemas, classes, and core logic belong in ordinary modules; type-only exports are erased and remain safe.
+
 ## 1. Vision
 
 Carnival Life is a modular suite of applications centered on Plays: things a person wants or needs to do, experience, remember, delegate or coordinate.

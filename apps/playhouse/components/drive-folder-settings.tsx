@@ -2,11 +2,9 @@
 
 import { useActionState } from "react";
 
-import {
-  backfillTreeOfLifeDriveFolders,
-  INITIAL_DRIVE_BACKFILL_STATE,
-} from "../app/tree-of-life/actions";
+import { backfillTreeOfLifeDriveFolders } from "../app/tree-of-life/actions";
 import type { CalendarSettingsAccount } from "../domain/calendar-settings";
+import { INITIAL_DRIVE_BACKFILL_STATE } from "../domain/drive-backfill";
 
 export function DriveFolderSettings({ accounts }: { accounts: CalendarSettingsAccount[] }) {
   const [state, action, pending] = useActionState(
