@@ -2,6 +2,7 @@ import "server-only";
 
 import type { Collection } from "mongodb";
 
+import { exactDriveFolderUrl, type DriveFolderIdentity } from "../../domain/tree-of-life-drive";
 import {
   branchTreeSummary,
   branchTreeFromFolders,
@@ -21,6 +22,8 @@ type TreeOfLifeDocument = {
   relative_path: string;
   parent_relative_path: string | null;
   depth: number;
+  drive_folder_id?: string | null;
+  drive_web_url?: string | null;
   selectable: boolean;
   is_branch?: boolean;
   active: boolean;
@@ -94,6 +97,36 @@ export class MongoTreeOfLifeRepository {
 
   async getFolderTreeForOwner(ownerUserId: string) {
     return buildFolderTree(await this.listAllFoldersForOwner(ownerUserId));
+  }
+
+  async resolveDriveFolderForOwner(ownerUserId: string, relativePath: string) {
+    const record = parseFolderImage([{ name: relativePath.replaceAll("\\", "/").split("/").at(-1), relativePath }])[0];
+    const document = await (await this.collection()).findOne(
+      { active: true, owner_user_id: ownerUserId, relative_path: record.relativePath },
+      { projection: { _id: 0, drive_folder_id: 1, drive_web_url: 1 } },
+    );
+    return document ? exactDriveFolderUrl({
+      driveFolderId: document.drive_folder_id,
+      driveWebUrl: document.drive_web_url,
+    }) : null;
+  }
+
+  async setDriveFolderIdentity(
+    ownerUserId: string,
+    relativePath: string,
+    identity: DriveFolderIdentity,
+  ) {
+    const record = parseFolderImage([{ name: relativePath.replaceAll("\\", "/").split("/").at(-1), relativePath }])[0];
+    const url = exactDriveFolderUrl(identity);
+    if (!url) throw new Error("An exact Google Drive folder identity is required.");
+    return (await (await this.collection()).updateOne(
+      { active: true, owner_user_id: ownerUserId, relative_path: record.relativePath },
+      { $set: {
+        drive_folder_id: identity.driveFolderId?.trim() || null,
+        drive_web_url: url,
+        updated_at: new Date(),
+      } },
+    )).matchedCount === 1;
   }
 
   async searchFoldersForOwner(ownerUserId: string, query: string) {

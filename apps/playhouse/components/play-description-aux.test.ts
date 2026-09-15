@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("../app/tree-of-life/actions", () => ({
+  resolveTreeOfLifeDriveDestination: vi.fn(async () => null),
+}));
+
 import type { PlayListItem } from "../domain/play";
 import {
   createDescriptionClickController,
@@ -108,6 +112,44 @@ describe("Play Description Aux routing", () => {
       "https://app.slack.com/client/T1/C1",
       "https://mail.google.com/mail/u/0/#all/FM1",
     ]);
+  });
+
+  it("routes exact Drive identity before URL, Slack, and Gmail", async () => {
+    const events: string[] = [];
+    await routePlayDescriptionAux(
+      play({
+        branch: "Blue Field Law\\Automation\\BFLX",
+        gmailThreadId: "FM1",
+        url: "https://example.com",
+      }),
+      "https://app.slack.com/client/T1/C1",
+      async (url) => { events.push(url); },
+      async (url) => { events.push(url); },
+      async () => "https://drive.google.com/drive/folders/ABC123",
+    );
+    expect(events).toEqual([
+      "https://drive.google.com/drive/folders/ABC123",
+      "https://example.com",
+      "https://app.slack.com/client/T1/C1",
+      "https://mail.google.com/mail/u/0/#all/FM1",
+    ]);
+  });
+
+  it("leaves Drive unchanged for absent and unresolved Branches", async () => {
+    const route = vi.fn(async () => undefined);
+    const resolveDrive = vi.fn(async () => null);
+    await routePlayDescriptionAux(play(), null, route, undefined, resolveDrive);
+    expect(resolveDrive).not.toHaveBeenCalled();
+
+    await routePlayDescriptionAux(
+      play({ branch: "Blue Field Law\\Missing" }),
+      null,
+      route,
+      undefined,
+      resolveDrive,
+    );
+    expect(resolveDrive).toHaveBeenCalledWith("Blue Field Law\\Missing");
+    expect(route).not.toHaveBeenCalled();
   });
 });
 

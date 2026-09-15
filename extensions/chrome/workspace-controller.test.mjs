@@ -678,6 +678,49 @@ test("opening in Aux restores a minimized or offscreen Aux and focuses it", asyn
   });
 });
 
+test("Drive routing reuses one Carnival role tab without touching windows or unrelated Drive tabs", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const initial = await workspace.summon(workArea, "display-1");
+  const unrelatedWindow = await chrome.windows.create({
+    focused: false,
+    height: 700,
+    left: 1700,
+    state: "normal",
+    top: 0,
+    url: "https://drive.google.com/drive/folders/UNRELATED",
+    width: 900,
+  });
+  const unrelatedDrive = chrome.getTabs(unrelatedWindow.id)[0];
+  chrome.calls.createWindow.length = 0;
+  chrome.calls.createTab.length = 0;
+  chrome.calls.updateWindow.length = 0;
+
+  await workspace.openCarnivalContext(
+    "https://drive.google.com/drive/folders/ABC123",
+    workArea,
+    "display-1",
+  );
+  const afterFirst = await workspace.state();
+  await workspace.openCarnivalContext(
+    "https://drive.google.com/drive/folders/XYZ789",
+    workArea,
+    "display-1",
+  );
+  const afterSecond = await workspace.state();
+
+  assert.equal(chrome.calls.createWindow.length, 0);
+  assert.equal(chrome.calls.createTab.length, 1);
+  assert.equal(chrome.calls.updateWindow.length, 0);
+  assert.equal(afterFirst.auxRoleTabIds.drive, afterSecond.auxRoleTabIds.drive);
+  assert.equal(chrome.getTab(afterSecond.auxRoleTabIds.drive).url,
+    "https://drive.google.com/drive/folders/XYZ789");
+  assert.equal(chrome.getTab(unrelatedDrive.id).url,
+    "https://drive.google.com/drive/folders/UNRELATED");
+  assert.equal(chrome.getWindow(initial.playhouseWindowId).left, workArea.left);
+});
+
 test("PlayHouse geometry is anchored on primary and left-side monitor work areas while width varies", () => {
   assert.deepEqual(getAnchoredPlayhouseGeometry(
     { height: 1200, left: 0, top: 0, width: 1920 }, 861,

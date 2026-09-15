@@ -153,5 +153,47 @@ describe("Mongo Tree of Life repository", () => {
     } });
     expect((write as unknown as { updateOne: { update: { $set: object } } }).updateOne.update.$set)
       .not.toHaveProperty("is_branch");
+    expect((write as unknown as { updateOne: { update: { $set: object } } }).updateOne.update.$set)
+      .not.toHaveProperty("drive_folder_id");
+  });
+
+  it("resolves an exact Drive folder by owner and full relative path", async () => {
+    const { collection, repository } = repositoryWith({
+      findOne: vi.fn().mockResolvedValue({ drive_folder_id: "ABC123" }),
+    });
+    await expect(repository.resolveDriveFolderForOwner(
+      "owner-a",
+      "Blue Field Law\\Automation\\BFLX",
+    )).resolves.toBe("https://drive.google.com/drive/folders/ABC123");
+    expect(collection.findOne).toHaveBeenCalledWith(
+      {
+        active: true,
+        owner_user_id: "owner-a",
+        relative_path: "Blue Field Law/Automation/BFLX",
+      },
+      { projection: { _id: 0, drive_folder_id: 1, drive_web_url: 1 } },
+    );
+  });
+
+  it("stores only validated non-secret Drive identity on an existing owner folder", async () => {
+    const { collection, repository } = repositoryWith({
+      updateOne: vi.fn().mockResolvedValue({ matchedCount: 1 }),
+    });
+    await expect(repository.setDriveFolderIdentity(
+      "owner-a",
+      "Blue Field Law/Automation/BFLX",
+      { driveFolderId: "ABC123" },
+    )).resolves.toBe(true);
+    expect(collection.updateOne).toHaveBeenCalledWith(
+      {
+        active: true,
+        owner_user_id: "owner-a",
+        relative_path: "Blue Field Law/Automation/BFLX",
+      },
+      { $set: expect.objectContaining({
+        drive_folder_id: "ABC123",
+        drive_web_url: "https://drive.google.com/drive/folders/ABC123",
+      }) },
+    );
   });
 });

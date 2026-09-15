@@ -52,6 +52,25 @@ export async function loadTreeOfLifeFolders(): Promise<{
   }
 }
 
+export async function resolveTreeOfLifeDriveDestination(relativePath: string) {
+  const ownerUserId = await authenticatedOwnerId();
+  if (!ownerUserId) return null;
+  try {
+    const url = await new MongoTreeOfLifeRepository()
+      .resolveDriveFolderForOwner(ownerUserId, relativePath);
+    console.info(url ? "HOT_TAB_DRIVE_RESOLVED" : "HOT_TAB_DRIVE_UNRESOLVED", {
+      relativePath,
+    });
+    return url;
+  } catch (error) {
+    console.warn("HOT_TAB_DRIVE_UNRESOLVED", {
+      message: error instanceof Error ? error.message : "Unknown error",
+      relativePath,
+    });
+    return null;
+  }
+}
+
 export async function bootstrapTreeOfLife(tree: unknown): Promise<BranchTreeResult & {
   branchCount?: number;
   topLevelCount?: number;

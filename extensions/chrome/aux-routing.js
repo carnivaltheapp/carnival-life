@@ -14,14 +14,27 @@ export async function routeOpenInAuxMessage({
   reportDrawerState,
 }) {
   logger.info?.("Carnival: openInAux received", routeLogLabel(message.url));
+  const role = auxRoleForUrl(message.url);
+  logger.info?.("HOT_TAB_ROUTE_START", {
+    hostname: routeHostname(message.url),
+    role,
+  });
   const { monitorId, workArea } = await currentWorkArea();
   await controller.openCarnivalContext(
     message.url,
     workArea,
     monitorId,
-    auxRoleForUrl(message.url),
+    role,
   );
   reportDrawerState(await controller.state());
+}
+
+function routeHostname(value) {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return "invalid-url";
+  }
 }
 
 function routeLogLabel(value) {

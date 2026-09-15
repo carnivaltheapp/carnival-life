@@ -1,4 +1,5 @@
 import type { PlayListItem } from "../domain/play";
+import { resolveTreeOfLifeDriveDestination } from "../app/tree-of-life/actions";
 import { gmailThreadUrl, usablePlayUrl } from "../domain/play-display";
 import { openInAuxAndWait } from "../lib/desktop/open-in-aux";
 import { openSlackInAux } from "../lib/desktop/open-slack-in-aux";
@@ -8,7 +9,27 @@ export async function routePlayDescriptionAux(
   slackUrl: string | null = null,
   route: (url: string) => Promise<unknown> = openInAuxAndWait,
   routeSlack: (url: string) => Promise<unknown> = openSlackInAux,
+  resolveDrive: (branch: string) => Promise<string | null> = resolveTreeOfLifeDriveDestination,
 ) {
+  console.info("HOT_TAB_ROUTE_START", { playId: play.id });
+  if (play.branch) {
+    let driveUrl: string | null = null;
+    try {
+      driveUrl = await resolveDrive(play.branch);
+    } catch {
+      // The controlled unresolved diagnostic below covers lookup failures.
+    }
+    if (driveUrl) {
+      try {
+        await route(driveUrl);
+        console.info("HOT_TAB_NAVIGATED", { hostname: "drive.google.com", role: "drive" });
+      } catch {
+        // Routing remains best-effort; the other Hot Tabs still get their chance.
+      }
+    } else {
+      console.info("HOT_TAB_DRIVE_UNRESOLVED", { relativePath: play.branch });
+    }
+  }
   const url = usablePlayUrl(play.url);
   if (url) {
     try {

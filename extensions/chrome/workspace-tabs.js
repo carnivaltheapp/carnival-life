@@ -1,10 +1,18 @@
 export const AUX_ROLE_URLS = {
   calendar: "https://calendar.google.com/calendar/u/0/r",
   contacts: "https://contacts.google.com/",
+  drive: "https://drive.google.com/drive/my-drive",
   gmail: "https://mail.google.com/mail/u/0/#inbox",
   misc: "https://www.google.com/",
   slack: "https://app.slack.com/",
 };
+
+export const HOT_TAB_ROLES = Object.freeze({
+  drive: "drive",
+  gmail: "gmail",
+  slack: "slack",
+  url: "misc",
+});
 
 const AUX_ROLES = new Set(Object.keys(AUX_ROLE_URLS));
 
@@ -80,6 +88,7 @@ export function auxRoleForUrl(value) {
   try {
     const host = new URL(value).hostname;
     if (host === "mail.google.com") return "gmail";
+    if (host === "drive.google.com") return "drive";
     if (isGoogleContactsUrl(value)) return "contacts";
     if (isSlackUrl(value)) return "slack";
     return "misc";

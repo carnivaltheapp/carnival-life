@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   AUX_ROLE_URLS,
+  HOT_TAB_ROLES,
   auxRoleForUrl,
   defaultAuxTabs,
   isGoogleContactsUrl,
@@ -20,6 +21,29 @@ test("fresh Aux defines Calendar, Gmail, and Misc role tabs in order", () => {
       { pinned: false, role: "gmail", url: AUX_ROLE_URLS.gmail },
       { pinned: false, role: "misc", url: AUX_ROLE_URLS.misc },
     ],
+  });
+});
+
+test("Hot Tabs have canonical durable roles while URL retains the compatible Misc role", () => {
+  assert.deepEqual(HOT_TAB_ROLES, {
+    drive: "drive",
+    gmail: "gmail",
+    slack: "slack",
+    url: "misc",
+  });
+});
+
+test("a saved Drive role remains identifiable after Aux restoration", () => {
+  assert.deepEqual(validSavedTabs({
+    activeIndex: 0,
+    tabs: [{ role: "drive", url: "https://drive.google.com/drive/folders/ABC123" }],
+  }, "context"), {
+    activeIndex: 0,
+    tabs: [{
+      pinned: false,
+      role: "drive",
+      url: "https://drive.google.com/drive/folders/ABC123",
+    }],
   });
 });
 
@@ -68,9 +92,10 @@ test("saved definitions reject transient or privileged URLs", () => {
   });
 });
 
-test("Aux routing selects durable Gmail and Contacts roles and Misc otherwise", () => {
+test("Aux routing selects durable Drive, Gmail, and Contacts roles and Misc otherwise", () => {
   assert.equal(auxRoleForUrl("https://mail.google.com/mail/u/2/#all/thread"), "gmail");
   assert.equal(auxRoleForUrl("https://contacts.google.com/person/c123"), "contacts");
+  assert.equal(auxRoleForUrl("https://drive.google.com/drive/folders/ABC123"), "drive");
   assert.equal(auxRoleForUrl("https://app.slack.com/client/T1/C1"), "slack");
   assert.equal(auxRoleForUrl("https://example.com/play"), "misc");
   assert.equal(auxRoleForUrl("chrome://settings"), null);

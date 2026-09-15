@@ -1,5 +1,6 @@
 import {
   AUX_ROLE_URLS,
+  HOT_TAB_ROLES,
   auxRoleForUrl,
   defaultAuxTabs,
   defaultPlayhouseTabs,
@@ -621,7 +622,7 @@ export class CarnivalWorkspaceController {
     }
   }
 
-  async findContext(prior, bounds, positionExisting = true) {
+  async findContext(prior, bounds, positionExisting = true, updateExisting = true) {
     this.windowTrace?.enter("aux", {
       reason: "find-or-create-aux",
       savedWindowId: prior.auxWindowId,
@@ -647,9 +648,11 @@ export class CarnivalWorkspaceController {
         window: restored.window,
       };
     } else {
-      await this.updateWindow(window.id, positionExisting
-        ? { ...bounds, focused: false, state: "normal" }
-        : { focused: false, state: "normal" }, "find-aux-existing");
+      if (updateExisting) {
+        await this.updateWindow(window.id, positionExisting
+          ? { ...bounds, focused: false, state: "normal" }
+          : { focused: false, state: "normal" }, "find-aux-existing");
+      }
       let tabs = await this.tabsInWindow(window.id);
       const roles = { ...(prior.auxRoleTabIds ?? {}) };
       if (!prior.auxSession.tabs) {
@@ -1078,8 +1081,8 @@ export class CarnivalWorkspaceController {
     if (!isAllowedContextUrl(url)) throw new Error("Carnival context URLs must use HTTP or HTTPS.");
     if (!validWorkArea(workArea)) throw new Error("A valid monitor work area is required.");
     const role = requestedRole ?? auxRoleForUrl(url);
-    if (role !== "contacts" && role !== "gmail" && role !== "misc" && role !== "slack") {
-      throw new Error("Carnival context navigation requires a Contacts, Gmail, Slack, or Misc role.");
+    if (role !== "contacts" && role !== "drive" && role !== "gmail" && role !== "misc" && role !== "slack") {
+      throw new Error("Carnival context navigation requires a Contacts, Drive, Gmail, Slack, or Misc role.");
     }
 
     this.logger.info?.("Carnival: resolving Aux context window");
@@ -1092,6 +1095,7 @@ export class CarnivalWorkspaceController {
       prior,
       layout.context,
       restoreContext,
+      role !== "drive" || restoreContext,
     );
     const contextWindow = context.window;
     if (context.restore) {
@@ -1137,12 +1141,20 @@ export class CarnivalWorkspaceController {
       ? "GMAIL_ROLE_NAVIGATED"
       : role === "contacts"
         ? "CONTACTS_ROLE_NAVIGATED"
-        : role === "slack" ? "SLACK_ROLE_NAVIGATED" : "MISC_ROLE_NAVIGATED";
+        : role === "slack" ? "SLACK_ROLE_NAVIGATED"
+          : role === "drive" ? "DRIVE_ROLE_NAVIGATED" : "MISC_ROLE_NAVIGATED";
     this.logger.info?.(navigatedEvent, {
       host: new URL(url).hostname,
       path: new URL(url).pathname,
       tabId: roleTab.id,
     });
+    if (Object.values(HOT_TAB_ROLES).includes(role)) {
+      this.logger.info?.("HOT_TAB_NAVIGATED", {
+        host: new URL(url).hostname,
+        role,
+        tabId: roleTab.id,
+      });
+    }
     const tabs = await this.tabsInWindow(contextWindow.id);
     const contextTabs = snapshotTabs(tabs, roleIds);
     const contextBounds = restoreContext
@@ -1168,7 +1180,9 @@ export class CarnivalWorkspaceController {
       monitorId,
       workArea,
     });
-    await this.updateWindow(contextWindow.id, { focused: true }, "route-aux-tab");
+    if (role !== "drive") {
+      await this.updateWindow(contextWindow.id, { focused: true }, "route-aux-tab");
+    }
   }
 
   async rememberVisibleBounds(changedWindowId = null) {
