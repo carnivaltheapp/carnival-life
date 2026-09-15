@@ -1,5 +1,10 @@
 # Carnival Desktop Workspace
 
+Feature and content scripts must not call `chrome.runtime.sendMessage` directly; use the
+Carnival safe extension messaging layer. Page-world code must not use privileged extension APIs.
+The headless Chromium gate exercises live PlayHouse/Gmail messaging and a true extension reload;
+Aux routing itself remains unit-tested because it intentionally reparents the browser test windows.
+
 This slice coordinates two ordinary Chrome windows:
 
 - left: [Carnival PlayHouse](https://carnival-playhouse.vercel.app/)

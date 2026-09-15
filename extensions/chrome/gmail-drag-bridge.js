@@ -5,6 +5,25 @@ const STAR_VISIBLE_GMAIL_THREAD = "starVisibleGmailThread";
 const UNSTAR_GMAIL_THREAD = "unstarGmailThread";
 const UNSTAR_VISIBLE_GMAIL_THREAD = "unstarVisibleGmailThread";
 
+const gmailExtensionMessaging = globalThis.CarnivalExtensionMessaging;
+
+function sendGmailExtensionMessage(message) {
+  if (gmailExtensionMessaging?.send) return gmailExtensionMessaging.send(message);
+  return Promise.resolve({
+    code: "EXTENSION_CONTEXT_UNAVAILABLE",
+    message: "Carnival extension was reloaded. Refresh PlayHouse.",
+    ok: false,
+  });
+}
+
+function bridgeHandlerFailure() {
+  return {
+    code: "BRIDGE_HANDLER_FAILED",
+    message: "Carnival extension response could not be processed.",
+    ok: false,
+  };
+}
+
 function parseGmailUrl(value) {
   try {
     const url = new URL(value.trim());
@@ -166,7 +185,7 @@ if (window.location.hostname === "mail.google.com") {
     event.preventDefault();
     event.stopImmediatePropagation();
     const correlationId = crypto.randomUUID();
-    const dispatchAttachment = (response) => {
+    const dispatchAttachment = (response, messagingFailure = null) => {
       const returnedThreadRef = response?.threadRef ?? response?.returnedThreadRef ?? null;
       const subject = response?.subject ?? response?.gmailSubject ?? null;
       const participants = response?.participants ?? response?.gmailParticipants ?? null;
@@ -189,7 +208,13 @@ if (window.location.hostname === "mail.google.com") {
           targetPlayId: playId,
         });
         window.dispatchEvent(new CustomEvent("carnival:gmail-row-create-metadata-failed", {
-          detail: JSON.stringify({ correlationId, reason, targetPlayId: playId }),
+          detail: JSON.stringify({
+            code: messagingFailure?.code,
+            correlationId,
+            message: messagingFailure?.message,
+            reason,
+            targetPlayId: playId,
+          }),
         }));
         return;
       }
@@ -213,15 +238,20 @@ if (window.location.hostname === "mail.google.com") {
       gmailThreadRef: transferredAttachment.threadRef,
       targetPlayId: playId,
     });
-    chrome.runtime.sendMessage({
+    sendGmailExtensionMessage({
       accountIndex: transferredAttachment.accountIndex,
       canonicalUrl: transferredAttachment.canonicalUrl,
       correlationId,
       threadRef: transferredAttachment.threadRef,
       type: GET_GMAIL_THREAD_PARTICIPANTS,
-    }).then((response) => {
-      dispatchAttachment(response);
-    }).catch(() => dispatchAttachment(null));
+    }).then((result) => {
+      if (!result.ok) {
+        gmailExtensionMessaging?.reportFailureOnce?.("Gmail metadata unavailable", result);
+        dispatchAttachment(null, result);
+        return;
+      }
+      dispatchAttachment(result.response);
+    }).catch(() => dispatchAttachment(null, bridgeHandlerFailure()));
   }, true);
 
   window.addEventListener("carnival:gmail-star-thread", (event) => {
@@ -232,21 +262,19 @@ if (window.location.hostname === "mail.google.com") {
     } catch {
       return;
     }
-    chrome.runtime.sendMessage({ ...request, type: STAR_GMAIL_THREAD })
-      .then((response) => window.dispatchEvent(new CustomEvent(
+    sendGmailExtensionMessage({ ...request, type: STAR_GMAIL_THREAD })
+      .then((result) => window.dispatchEvent(new CustomEvent(
         "carnival:gmail-star-result",
-        { detail: JSON.stringify({ ...response, correlationId: request.correlationId }) },
-      )))
-      .catch(() => window.dispatchEvent(new CustomEvent(
-        "carnival:gmail-star-result",
-        {
-          detail: JSON.stringify({
-            correlationId: request.correlationId,
-            ok: false,
-            reason: "extension_request_failed",
-          }),
-        },
-      )));
+        { detail: JSON.stringify(result.ok
+          ? { ...result.response, correlationId: request.correlationId }
+          : { ...result, correlationId: request.correlationId, reason: result.code }) },
+      ))).catch(() => window.dispatchEvent(new CustomEvent("carnival:gmail-star-result", {
+        detail: JSON.stringify({
+          ...bridgeHandlerFailure(),
+          correlationId: request.correlationId,
+          reason: "BRIDGE_HANDLER_FAILED",
+        }),
+      })));
   });
 
   window.addEventListener("carnival:gmail-unstar-thread", (event) => {
@@ -257,14 +285,18 @@ if (window.location.hostname === "mail.google.com") {
     } catch {
       return;
     }
-    chrome.runtime.sendMessage({ ...request, type: UNSTAR_GMAIL_THREAD })
-      .then((response) => window.dispatchEvent(new CustomEvent(
+    sendGmailExtensionMessage({ ...request, type: UNSTAR_GMAIL_THREAD })
+      .then((result) => window.dispatchEvent(new CustomEvent(
         "carnival:gmail-unstar-result",
-        { detail: JSON.stringify({ ...request, ...response }) },
-      )))
-      .catch(() => window.dispatchEvent(new CustomEvent(
-        "carnival:gmail-unstar-result",
-        { detail: JSON.stringify({ ...request, ok: false, reason: "extension_request_failed" }) },
-      )));
+        { detail: JSON.stringify(result.ok
+          ? { ...request, ...result.response }
+          : { ...request, ...result, reason: result.code }) },
+      ))).catch(() => window.dispatchEvent(new CustomEvent("carnival:gmail-unstar-result", {
+        detail: JSON.stringify({
+          ...request,
+          ...bridgeHandlerFailure(),
+          reason: "BRIDGE_HANDLER_FAILED",
+        }),
+      })));
   });
 }

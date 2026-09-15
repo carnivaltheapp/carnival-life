@@ -4,6 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 const bridgeSource = await readFile(new URL("./gmail-drag-bridge.js", import.meta.url), "utf8");
+const messagingSource = await readFile(new URL("./extension-messaging.js", import.meta.url), "utf8");
 
 function dataTransfer(initial = {}) {
   const values = new Map(Object.entries(initial));
@@ -25,7 +26,7 @@ function playhouseContext(sendMessage) {
   class TestCustomEvent {
     constructor(type, init) { this.type = type; this.detail = init.detail; }
   }
-  vm.runInNewContext(bridgeSource, {
+  vm.runInNewContext(`${messagingSource}\n${bridgeSource}`, {
     CustomEvent: TestCustomEvent,
     Element: TestElement,
     URL,
@@ -85,7 +86,7 @@ test("Gmail content script returns latest visible participants without page-drag
     querySelector: () => from,
     querySelectorAll: () => [from, kayla],
   };
-  vm.runInNewContext(bridgeSource, {
+  vm.runInNewContext(`${messagingSource}\n${bridgeSource}`, {
     URL,
     chrome: {
       runtime: { onMessage: { addListener: (listener) => { metadataListener = listener; } } },
@@ -145,7 +146,7 @@ test("Gmail content script stars only the exact open thread without navigation",
     hostname: "mail.google.com",
     href: "https://mail.google.com/mail/u/2/#all/FMexact",
   };
-  vm.runInNewContext(bridgeSource, {
+  vm.runInNewContext(`${messagingSource}\n${bridgeSource}`, {
     URL,
     chrome: {
       runtime: { onMessage: { addListener: (listener) => { metadataListener = listener; } } },
@@ -194,7 +195,7 @@ test("Gmail content script unstars only the exact open thread without navigation
     hostname: "mail.google.com",
     href: "https://mail.google.com/mail/u/2/#all/FMexact",
   };
-  vm.runInNewContext(bridgeSource, {
+  vm.runInNewContext(`${messagingSource}\n${bridgeSource}`, {
     URL,
     chrome: {
       runtime: { onMessage: { addListener: (listener) => { metadataListener = listener; } } },
@@ -356,6 +357,34 @@ test("PlayHouse requests exact-thread unstar and preserves lifecycle context", a
   });
 });
 
+test("unstar returns a controlled stale-context failure without throwing", async () => {
+  const context = playhouseContext(() => {
+    throw new Error("Extension context invalidated.");
+  });
+  assert.doesNotThrow(() => context.windowEvent("carnival:gmail-unstar-thread", JSON.stringify({
+    accountIndex: 2,
+    action: "trash",
+    correlationId: "correlation-1",
+    playId: "play-1",
+    threadRef: "FMexact",
+  })));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(context.dispatched().type, "carnival:gmail-unstar-result");
+  assert.deepEqual(JSON.parse(context.dispatched().detail), {
+    accountIndex: 2,
+    action: "trash",
+    code: "EXTENSION_CONTEXT_UNAVAILABLE",
+    correlationId: "correlation-1",
+    message: "Carnival extension was reloaded. Refresh PlayHouse.",
+    ok: false,
+    playId: "play-1",
+    reason: "EXTENSION_CONTEXT_UNAVAILABLE",
+    threadRef: "FMexact",
+  });
+});
+
 test("metadata failure emits no create event or malformed Play request", async () => {
   const context = playhouseContext(async () => {
     throw new Error("matching Gmail tab unavailable");
@@ -369,7 +398,9 @@ test("metadata failure emits no create event or malformed Play request", async (
 
   assert.equal(context.dispatched().type, "carnival:gmail-row-create-metadata-failed");
   assert.deepEqual(JSON.parse(context.dispatched().detail), {
+    code: "RUNTIME_MESSAGE_FAILED",
     correlationId: "correlation-1",
+    message: "matching Gmail tab unavailable",
     reason: "thread_mismatch",
     targetPlayId: "play-1",
   });

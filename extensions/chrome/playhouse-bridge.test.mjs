@@ -4,6 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 const bridgeSource = await readFile(new URL("./playhouse-bridge.js", import.meta.url), "utf8");
+const messagingSource = await readFile(new URL("./extension-messaging.js", import.meta.url), "utf8");
 const backgroundSource = await readFile(new URL("./background.js", import.meta.url), "utf8");
 
 test("manifest injects the Aux bridge on the production PlayHouse origin", async () => {
@@ -25,7 +26,7 @@ test("content script receives the page request and forwards canonical openInAux"
     location: { origin: "https://carnival-playhouse.vercel.app" },
     postMessage(message, origin) { pageMessages.push({ message, origin }); },
   };
-  vm.runInNewContext(bridgeSource, {
+  vm.runInNewContext(`${messagingSource}\n${bridgeSource}`, {
     chrome: {
       runtime: {
         async sendMessage(message) {
@@ -91,7 +92,7 @@ test("stale content script reports unavailable runtime without an uncaught excep
     location: { origin: "https://carnival-playhouse.vercel.app" },
     postMessage(message, origin) { pageMessages.push({ message, origin }); },
   };
-  vm.runInNewContext(bridgeSource, {
+  vm.runInNewContext(`${messagingSource}\n${bridgeSource}`, {
     console: {
       info(...values) { logs.push(["info", ...values]); },
       warn(...values) { logs.push(["warn", ...values]); },
@@ -113,11 +114,14 @@ test("stale content script reports unavailable runtime without an uncaught excep
   await Promise.resolve();
 
   assert.equal(logs.some((entry) => (
-    entry[0] === "warn" && entry[1] === "Carnival Aux routing unavailable" &&
-    entry[2]?.reason === "runtime_unavailable"
+    entry[0] === "warn" &&
+    entry[1] === "Carnival Aux routing unavailable: Carnival extension was reloaded. Refresh PlayHouse." &&
+    entry[2]?.code === "EXTENSION_CONTEXT_UNAVAILABLE"
   )), true);
   assert.deepEqual(JSON.parse(JSON.stringify(pageMessages)), [{
     message: {
+      code: "EXTENSION_CONTEXT_UNAVAILABLE",
+      message: "Carnival extension was reloaded. Refresh PlayHouse.",
       ok: false,
       requestId: "stale-bridge-1",
       source: "carnival-playhouse-bridge",
@@ -136,7 +140,7 @@ test("invalidated extension context returns a controlled bridge failure", async 
     location: { origin: "https://carnival-playhouse.vercel.app" },
     postMessage(message) { pageMessages.push(message); },
   };
-  vm.runInNewContext(bridgeSource, {
+  vm.runInNewContext(`${messagingSource}\n${bridgeSource}`, {
     chrome: {
       runtime: {
         sendMessage() { throw new Error("Extension context invalidated."); },
@@ -162,10 +166,11 @@ test("invalidated extension context returns a controlled bridge failure", async 
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.equal(logs.some(([event, details]) => (
-    event === "Carnival Aux routing unavailable" &&
-    details.reason === "extension_context_invalidated"
+    event === "Carnival Aux routing unavailable: Carnival extension was reloaded. Refresh PlayHouse." &&
+    details.code === "EXTENSION_CONTEXT_UNAVAILABLE"
   )), true);
   assert.equal(pageMessages[0].ok, false);
+  assert.equal(pageMessages[0].code, "EXTENSION_CONTEXT_UNAVAILABLE");
 });
 
 test("content script forwards one compact local Branch hierarchy response", async () => {
@@ -179,7 +184,7 @@ test("content script forwards one compact local Branch hierarchy response", asyn
     postMessage(message, origin) { pageMessages.push({ message, origin }); },
   };
   const branches = [{ children: [], name: "Carnival", relativePath: "Carnival", selectable: true }];
-  vm.runInNewContext(bridgeSource, {
+  vm.runInNewContext(`${messagingSource}\n${bridgeSource}`, {
     chrome: { runtime: { async sendMessage(message) { runtimeMessages.push(message); return { branches, ok: true }; } } },
     console: {
       error(...values) { logs.push(["error", ...values]); },

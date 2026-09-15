@@ -11,6 +11,7 @@ test("extension manifest references existing isolated-world scripts", async () =
   await access(new URL(manifest.background.service_worker, directory));
   for (const definition of manifest.content_scripts) {
     assert.notEqual(definition.world, "MAIN");
+    assert.equal(definition.js[0], "extension-messaging.js");
     for (const script of definition.js) await access(new URL(script, directory));
   }
 });

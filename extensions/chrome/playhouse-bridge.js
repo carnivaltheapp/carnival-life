@@ -10,25 +10,19 @@ const BRIDGE_HEALTH_RESULT_TYPE = "carnivalBridgeHealthResult";
 console.info("Carnival Aux bridge content script loaded");
 console.info("BRANCH_TREE_BRIDGE_READY");
 
-async function sendExtensionMessage(message) {
-  try {
-    const runtime = globalThis.chrome?.runtime;
-    if (typeof runtime?.sendMessage !== "function") {
-      return { bridgeFailure: "runtime_unavailable", ok: false };
-    }
-    const response = await runtime.sendMessage(message);
-    return response ?? { bridgeFailure: "missing_response", ok: false };
-  } catch (error) {
-    const invalidated = String(error?.message ?? error).includes("Extension context invalidated");
-    return {
-      bridgeFailure: invalidated ? "extension_context_invalidated" : "runtime_message_failed",
-      ok: false,
-    };
-  }
+const playhouseExtensionMessaging = globalThis.CarnivalExtensionMessaging;
+
+function sendPlayhouseExtensionMessage(message) {
+  if (playhouseExtensionMessaging?.send) return playhouseExtensionMessaging.send(message);
+  return Promise.resolve({
+    code: "EXTENSION_CONTEXT_UNAVAILABLE",
+    message: "Carnival extension was reloaded. Refresh PlayHouse.",
+    ok: false,
+  });
 }
 
-function logBridgeFailure(event, response) {
-  console.warn(event, { reason: response?.bridgeFailure ?? response?.error ?? "request_failed" });
+function logBridgeFailure(event, result) {
+  playhouseExtensionMessaging?.reportFailureOnce?.(event, result);
 }
 
 window.addEventListener("message", (event) => {
@@ -37,9 +31,10 @@ window.addEventListener("message", (event) => {
 
   if (event.data?.type === GET_LOCAL_BRANCHES_MESSAGE_TYPE) {
     console.info("BRANCH_TREE_EXTENSION_RECEIVED");
-    sendExtensionMessage({ type: GET_LOCAL_BRANCHES_MESSAGE_TYPE }).then((response) => {
-      if (response.bridgeFailure) {
-        logBridgeFailure("BRANCH_TREE_FAILED", response);
+    sendPlayhouseExtensionMessage({ type: GET_LOCAL_BRANCHES_MESSAGE_TYPE }).then((result) => {
+      const response = result.response;
+      if (!result.ok) {
+        logBridgeFailure("BRANCH_TREE_FAILED", result);
       } else {
         console[response?.ok ? "info" : "warn"](
           response?.ok ? "BRANCH_TREE_DELIVERED" : "BRANCH_TREE_FAILED",
@@ -48,6 +43,8 @@ window.addEventListener("message", (event) => {
       }
       window.postMessage({
         branches: response?.ok && Array.isArray(response.branches) ? response.branches : [],
+        code: result.ok ? undefined : result.code,
+        message: result.ok ? undefined : result.message,
         ok: response?.ok === true,
         requestId: event.data.requestId,
         source: OPEN_IN_AUX_RESULT_SOURCE,
@@ -66,8 +63,11 @@ window.addEventListener("message", (event) => {
     return;
   }
   if (event.data?.type === BRIDGE_HEALTH_MESSAGE_TYPE) {
-    sendExtensionMessage({ type: BRIDGE_HEALTH_MESSAGE_TYPE }).then((response) => {
+    sendPlayhouseExtensionMessage({ type: BRIDGE_HEALTH_MESSAGE_TYPE }).then((result) => {
+      const response = result.response;
       window.postMessage({
+        code: result.ok ? undefined : result.code,
+        message: result.ok ? undefined : result.message,
         ok: response?.ok === true,
         requestId: event.data.requestId,
         source: OPEN_IN_AUX_RESULT_SOURCE,
@@ -86,13 +86,20 @@ window.addEventListener("message", (event) => {
   if (event.data?.type !== OPEN_IN_AUX_MESSAGE_TYPE) return;
 
   console.info("Carnival Aux bridge request received");
-  sendExtensionMessage({
+  sendPlayhouseExtensionMessage({
     type: OPEN_IN_AUX_MESSAGE_TYPE,
     url: event.data.url,
-  }).then((response) => {
-    if (!response?.ok) {
-      logBridgeFailure("Carnival Aux routing unavailable", response);
+  }).then((result) => {
+    const response = result.response;
+    if (!result.ok || !response?.ok) {
+      logBridgeFailure("Carnival Aux routing unavailable", result.ok ? {
+        code: "EXTENSION_REQUEST_REJECTED",
+        message: response?.error ?? "Carnival extension request was rejected.",
+        ok: false,
+      } : result);
       if (event.data.requestId) window.postMessage({
+        code: result.ok ? "EXTENSION_REQUEST_REJECTED" : result.code,
+        message: result.ok ? (response?.error ?? "Carnival extension request was rejected.") : result.message,
         ok: false,
         requestId: event.data.requestId,
         source: OPEN_IN_AUX_RESULT_SOURCE,
