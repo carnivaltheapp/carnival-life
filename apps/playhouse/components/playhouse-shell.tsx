@@ -91,6 +91,7 @@ import { BrowserTimeZone } from "./browser-time-zone";
 import { useGridFontSizePreference } from "./grid-settings";
 import { requestGmailThreadUnstar } from "./gmail-thread-sync";
 import { PlayForm } from "./play-form";
+import { PlayHouseIcon } from "./playhouse-icon";
 import { PlaySearch } from "./play-search";
 import {
   DoneIcon,
@@ -1058,9 +1059,7 @@ function PlayhouseShellView({
       <header className="appHeader">
         <div className="headerBrandArea">
           <Link className="brand" href="/?view=today" aria-label="Carnival PlayHouse home">
-            <span className="brandMark" aria-hidden="true">
-              C
-            </span>
+            <PlayHouseIcon />
             <span>
               <strong>Carnival</strong>
               <small>PlayHouse</small>
@@ -1074,6 +1073,7 @@ function PlayhouseShellView({
             {playCountLabel}
           </span>
         </div>
+        <h1 className="headerDetailTitle">Details</h1>
         <div className="headerActions">
           <PlaySearch initialQuery={searchQuery} />
           <label className="branchFilter">

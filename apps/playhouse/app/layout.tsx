@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description: "The Carnival Life application for managing Plays.",
   manifest: "/manifest.webmanifest",
   icons: {
-    icon: "/icons/carnival-mark.svg",
+    icon: "/icons/playhouse-theater.jpg",
   },
 };
 
@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-ALL-FOLDERS-81
+          P3-DETAIL-BRAND-82
         </small>
       </body>
     </html>

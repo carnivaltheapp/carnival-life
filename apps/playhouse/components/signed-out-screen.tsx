@@ -1,4 +1,5 @@
 import { GoogleSignInButton } from "./google-sign-in-button";
+import { PlayHouseIcon } from "./playhouse-icon";
 
 export function SignedOutScreen({
   authError,
@@ -11,9 +12,7 @@ export function SignedOutScreen({
     <main className="authPage">
       <header className="authHeader">
         <span className="brand" aria-label="Carnival PlayHouse">
-          <span className="brandMark" aria-hidden="true">
-            C
-          </span>
+          <PlayHouseIcon />
           <span>
             <strong>Carnival</strong>
             <small>PlayHouse</small>

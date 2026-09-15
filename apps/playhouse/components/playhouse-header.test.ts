@@ -1,7 +1,11 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const shell = readFileSync(new URL("./playhouse-shell.tsx", import.meta.url), "utf8");
+const icon = readFileSync(new URL("./playhouse-icon.tsx", import.meta.url), "utf8");
+const signedOut = readFileSync(new URL("./signed-out-screen.tsx", import.meta.url), "utf8");
+const manifest = readFileSync(new URL("../app/manifest.ts", import.meta.url), "utf8");
+const layout = readFileSync(new URL("../app/layout.tsx", import.meta.url), "utf8");
 const dataLoader = readFileSync(new URL("../lib/playhouse/data.ts", import.meta.url), "utf8");
 const stylesheet = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 
@@ -32,5 +36,32 @@ describe("PlayHouse crown and Branch filter", () => {
       /branchOptions: playBranchOptions\(result\.plays\)[\s\S]*?plays: searchQuery[\s\S]*?searchPlays\(result\.plays/,
     );
     expect(shell).toContain("validSelectedBranch(branchFilter.selected, branchOptions)");
+  });
+
+  it("uses the supplied PlayHouse theater artwork across header, sign-in, manifest, and favicon branding", () => {
+    expect(icon).toContain('src="/icons/playhouse-theater.jpg"');
+    expect(shell).toContain("<PlayHouseIcon />");
+    expect(signedOut).toContain("<PlayHouseIcon />");
+    expect(manifest).toContain('src: "/icons/playhouse-theater.jpg"');
+    expect(layout).toContain('icon: "/icons/playhouse-theater.jpg"');
+    expect(statSync(new URL("../public/icons/playhouse-theater.jpg", import.meta.url)).size).toBeGreaterThan(0);
+    expect([shell, signedOut, manifest, layout].join("\n")).not.toContain("carnival-mark.svg");
+  });
+
+  it("centers a Details-only header mode while preserving all normal header controls", () => {
+    expect(shell).toContain('<h1 className="headerDetailTitle">Details</h1>');
+    expect(stylesheet).toMatch(/\.headerDetailTitle\s*\{[\s\S]*?left: 50%;[\s\S]*?transform: translate\(-50%, -50%\);/);
+    expect(stylesheet).toMatch(/\.workspace:has\(\.editDisclosure\[open\]\) \.headerDetailTitle\s*\{[\s\S]*?display: block;/);
+    expect(stylesheet).toMatch(/\.workspace:has\(\.editDisclosure\[open\]\) \.headerPlayCount,[\s\S]*?\.headerActions\s*\{[\s\S]*?display: none;/);
+    expect(shell).toContain('data-testid="play-count"');
+    expect(shell).toContain("<PlaySearch");
+    expect(shell).toContain('aria-label="Show Branch"');
+    expect(shell).toContain("<PlayForm");
+    expect(shell).toContain("<AccountMenu");
+  });
+
+  it("keeps the Detail title centered on mobile without horizontal brand competition", () => {
+    expect(stylesheet).toMatch(/@media \(max-width: 540px\)[\s\S]*?\.workspace:has\(\.editDisclosure\[open\]\) \.brand > span:last-child\s*\{[\s\S]*?display: none;/);
+    expect(stylesheet).toMatch(/\.appHeader\s*\{[\s\S]*?position: relative;/);
   });
 });

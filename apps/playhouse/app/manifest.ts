@@ -11,10 +11,10 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#6d3ff2",
     icons: [
       {
-        src: "/icons/carnival-mark.svg",
-        sizes: "any",
-        type: "image/svg+xml",
-        purpose: "maskable",
+        src: "/icons/playhouse-theater.jpg",
+        sizes: "315x315",
+        type: "image/jpeg",
+        purpose: "any",
       },
     ],
   };
