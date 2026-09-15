@@ -1,6 +1,7 @@
 import { CarnivalWorkspaceController, validWorkArea } from "./workspace-controller.js";
 import { createWorkspaceActions } from "./workspace-summon.js";
 import { isOpenInAuxMessage, routeOpenInAuxMessage } from "./aux-routing.js";
+import { createWindowTrace } from "./window-trace.js";
 import {
   requestVisibleGmailMetadata,
   selectGmailMetadataTab,
@@ -65,6 +66,15 @@ const diagnosticLogger = {
   info(event, details) { recordDiagnostic("info", event, details); },
   warn(event, details) { recordDiagnostic("warn", event, details); },
 };
+
+const windowTrace = createWindowTrace({
+  chromeApi: chrome,
+  getNativeState: () => ({
+    animationAvailable: nativeAnimationAvailable,
+    connected: Boolean(nativePort),
+    hostVersion: NATIVE_HOST_VERSION,
+  }),
+});
 
 function scheduleTabSave(windowId, reason) {
   if (!Number.isInteger(windowId)) return;
@@ -148,6 +158,7 @@ const controller = new CarnivalWorkspaceController(chrome, {
   logger: diagnosticLogger,
   nativeActivate: activateWindowsNatively,
   nativeAnimate: animateWindowsNatively,
+  windowTrace,
 });
 
 function reportDrawerState(state) {
@@ -189,6 +200,7 @@ const workspaceActions = createWorkspaceActions({
   controller,
   reportDrawerState,
   validWorkArea,
+  windowTrace,
 });
 
 function connectNativeHost() {
@@ -198,6 +210,9 @@ function connectNativeHost() {
     nativePort = port;
     port.onMessage.addListener((message) => {
       console.info(`Carnival native message: ${message?.type ?? "unknown"}`);
+      windowTrace.emit("background", "NATIVE_HOST_MESSAGE", {
+        messageType: message?.type ?? "unknown",
+      });
       if (message?.type === "hostReady") {
         immediateNativeReconnectUsed = false;
         nativeAnimationAvailable = message.version === NATIVE_HOST_VERSION && message.nativeWindowAnimation === true;
@@ -264,8 +279,12 @@ chrome.action.onClicked.addListener(async () => {
   const display = await currentWorkArea();
   await workspaceActions.summon(display, "toolbar");
 });
-chrome.windows.onCreated.addListener(connectNativeHost);
+chrome.windows.onCreated.addListener((window) => {
+  windowTrace.chromeWindowCreated(window);
+  connectNativeHost();
+});
 chrome.windows.onRemoved.addListener((windowId) => {
+  windowTrace.chromeWindowRemoved(windowId);
   controller.handleWindowClosed(windowId)
     .then((state) => {
       if (state) reportDrawerState(state);
@@ -289,6 +308,7 @@ chrome.windows.onBoundsChanged.addListener((window) => {
   }, GEOMETRY_SAVE_DELAY_MS);
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  windowTrace.tabEvent("CHROME_TAB_ON_UPDATED", { ...tab, id: tabId }, changeInfo);
   if (changeInfo.url || changeInfo.pinned !== undefined || changeInfo.status === "complete") {
     const reason = changeInfo.url
       ? "tab-url-updated"
@@ -296,7 +316,10 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     scheduleTabSave(tab.windowId, reason);
   }
 });
-chrome.tabs.onCreated.addListener((tab) => scheduleTabSave(tab.windowId, "tab-created"));
+chrome.tabs.onCreated.addListener((tab) => {
+  windowTrace.tabEvent("CHROME_TAB_ON_CREATED", tab);
+  scheduleTabSave(tab.windowId, "tab-created");
+});
 chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
   if (removeInfo.isWindowClosing) {
     controller.logClosingTabSaveSkipped(removeInfo.windowId)

@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-WINDOW-RESTORE-85
+          P3-WINDOW-TRACE-86
         </small>
       </body>
     </html>

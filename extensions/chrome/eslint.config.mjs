@@ -15,6 +15,7 @@ export default [
         document: "readonly",
         setTimeout: "readonly",
         Map: "readonly",
+        Set: "readonly",
         window: "readonly",
       },
       sourceType: "module",

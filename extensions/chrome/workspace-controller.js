@@ -247,6 +247,7 @@ export class CarnivalWorkspaceController {
   constructor(chromeApi, options = {}) {
     this.chrome = chromeApi;
     this.logger = options.logger ?? console;
+    this.windowTrace = options.windowTrace ?? null;
     this.nativeActivate = options.nativeActivate ?? null;
     this.nativeAnimate = options.nativeAnimate ?? null;
     this.movingWindowIds = new Set();
@@ -329,6 +330,11 @@ export class CarnivalWorkspaceController {
       .sort((left, right) => (left.index ?? 0) - (right.index ?? 0));
   }
 
+  async updateWindow(windowId, options, reason) {
+    await this.windowTrace?.beforeUpdate(windowId, options, reason);
+    return this.chrome.windows.update(windowId, options);
+  }
+
   async createWindowFromTabs(bounds, savedTabs, kind, sessionCycle = null) {
     let definitions = validSavedTabs(savedTabs, kind) ??
       (kind === "playhouse" ? defaultPlayhouseTabs(PLAYHOUSE_URL) : defaultAuxTabs());
@@ -347,14 +353,23 @@ export class CarnivalWorkspaceController {
       sessionCycle,
     });
     let window;
+    let traceCallId = null;
     try {
+      traceCallId = await this.windowTrace?.beforeCreate({
+        bounds,
+        kind,
+        reason: `restore-${kind}-window`,
+        urls: definitions.tabs.map((tab) => tab.url),
+      });
       window = await this.chrome.windows.create({
         ...bounds,
         focused: false,
         type: "normal",
         url: definitions.tabs.map((tab) => tab.url),
       });
+      this.windowTrace?.afterCreate(traceCallId, kind, window);
     } catch (error) {
+      this.windowTrace?.createFailed(traceCallId, kind, error);
       if (kind === "playhouse") this.phRestoreInProgress = false;
       else this.auxRestoreInProgress = false;
       throw error;
@@ -487,7 +502,14 @@ export class CarnivalWorkspaceController {
   }
 
   async findPlayhouse(prior, bounds, positionExisting = true) {
-    const window = await existingWindow(this.chrome, prior.phWindowId);
+    this.windowTrace?.enter("playhouse", {
+      reason: "find-or-create-playhouse",
+      savedWindowId: prior.phWindowId,
+      source: "workspace-controller",
+    });
+    try {
+      await this.windowTrace?.discovery("PLAYHOUSE", prior.phWindowId);
+      const window = await existingWindow(this.chrome, prior.phWindowId);
     let tab = await existingTab(this.chrome, prior.phPrimaryTabId);
     if (!window || tab?.windowId !== window.id) tab = null;
     if (!window) {
@@ -505,9 +527,9 @@ export class CarnivalWorkspaceController {
         window: restored.window,
       };
     } else {
-      await this.chrome.windows.update(window.id, positionExisting
+      await this.updateWindow(window.id, positionExisting
         ? { ...bounds, focused: false, state: "normal" }
-        : { focused: false, state: "normal" });
+        : { focused: false, state: "normal" }, "find-playhouse-existing");
       if (!tab) {
         tab = await this.chrome.tabs.create({ active: true, url: PLAYHOUSE_URL, windowId: window.id });
       }
@@ -518,10 +540,22 @@ export class CarnivalWorkspaceController {
       playhouseTabId: tab.id,
     });
     return { restore: null, tab, tabState: snapshot ?? defaultPlayhouseTabs(PLAYHOUSE_URL), window };
+    } finally {
+      this.windowTrace?.exit("playhouse", {
+        source: "workspace-controller",
+      });
+    }
   }
 
   async findContext(prior, bounds, positionExisting = true) {
-    const window = await existingWindow(this.chrome, prior.auxWindowId);
+    this.windowTrace?.enter("aux", {
+      reason: "find-or-create-aux",
+      savedWindowId: prior.auxWindowId,
+      source: "workspace-controller",
+    });
+    try {
+      await this.windowTrace?.discovery("AUX", prior.auxWindowId);
+      const window = await existingWindow(this.chrome, prior.auxWindowId);
     let tab = await existingTab(this.chrome, prior.auxActiveTabId);
     if (!window || tab?.windowId !== window.id) tab = null;
     if (!window) {
@@ -539,9 +573,9 @@ export class CarnivalWorkspaceController {
         window: restored.window,
       };
     } else {
-      await this.chrome.windows.update(window.id, positionExisting
+      await this.updateWindow(window.id, positionExisting
         ? { ...bounds, focused: false, state: "normal" }
-        : { focused: false, state: "normal" });
+        : { focused: false, state: "normal" }, "find-aux-existing");
       let tabs = await this.tabsInWindow(window.id);
       const roles = { ...(prior.auxRoleTabIds ?? {}) };
       if (!prior.auxSession.tabs) {
@@ -561,6 +595,11 @@ export class CarnivalWorkspaceController {
       const snapshot = snapshotTabs(tabs, roles);
       if (!tab?.id || !snapshot) throw new Error("Chrome could not identify the context tabs.");
       return { restore: null, roleTabIds: roles, tab, tabState: snapshot, window };
+    }
+    } finally {
+      this.windowTrace?.exit("aux", {
+        source: "workspace-controller",
+      });
     }
   }
 
@@ -585,8 +624,10 @@ export class CarnivalWorkspaceController {
       this.logger.warn("Carnival native animation unavailable; using visible fallback");
       if (endOffset !== 0) return false;
       await Promise.all([
-        this.chrome.windows.update(playhouseWindowId, { ...layout.playhouse, focused: false, state: "normal" }),
-        this.chrome.windows.update(contextWindowId, { ...layout.context, focused: false, state: "normal" }),
+        this.updateWindow(playhouseWindowId,
+          { ...layout.playhouse, focused: false, state: "normal" }, "animation-visible-fallback-playhouse"),
+        this.updateWindow(contextWindowId,
+          { ...layout.context, focused: false, state: "normal" }, "animation-visible-fallback-aux"),
       ]);
       return true;
     } finally {
@@ -620,8 +661,8 @@ export class CarnivalWorkspaceController {
       playhouse: currentBounds(playhouseWindow, state.playhouseBounds),
     };
     if (this.nativeActivate && await this.nativeActivate(bounds)) return state;
-    await this.chrome.windows.update(contextWindow.id, { focused: true });
-    await this.chrome.windows.update(playhouseWindow.id, { focused: true });
+    await this.updateWindow(contextWindow.id, { focused: true }, "activate-aux");
+    await this.updateWindow(playhouseWindow.id, { focused: true }, "activate-playhouse");
     return state;
   }
 
@@ -784,8 +825,8 @@ export class CarnivalWorkspaceController {
       sessionCycle: null,
     };
     await this.save(openState);
-    await this.chrome.windows.update(context.window.id, { focused: true });
-    await this.chrome.windows.update(playhouse.window.id, { focused: true });
+    await this.updateWindow(context.window.id, { focused: true }, "summon-aux");
+    await this.updateWindow(playhouse.window.id, { focused: true }, "summon-playhouse");
     await this.finalizeRestoredWindow("playhouse", playhouse.restore, prior.sessionCycle ?? null);
     await this.finalizeRestoredWindow("context", context.restore, prior.sessionCycle ?? null);
     return this.state();
@@ -945,7 +986,7 @@ export class CarnivalWorkspaceController {
       monitorId,
       workArea,
     });
-    await this.chrome.windows.update(contextWindow.id, { focused: true });
+    await this.updateWindow(contextWindow.id, { focused: true }, "route-aux-tab");
   }
 
   async rememberVisibleBounds(changedWindowId = null) {
@@ -998,15 +1039,15 @@ export class CarnivalWorkspaceController {
     const verticalUpdates = [];
     if (changedRole !== "context" &&
       (playhouseActual.top !== playhouse.top || playhouseActual.height !== playhouse.height)) {
-      verticalUpdates.push(this.chrome.windows.update(state.phWindowId, {
+      verticalUpdates.push(this.updateWindow(state.phWindowId, {
         focused: false, height: playhouse.height, state: "normal", top: playhouse.top,
-      }));
+      }, "normalize-playhouse-height"));
     }
     if (changedRole !== "playhouse" &&
       (contextActual.top !== context.top || contextActual.height !== context.height)) {
-      verticalUpdates.push(this.chrome.windows.update(state.auxWindowId, {
+      verticalUpdates.push(this.updateWindow(state.auxWindowId, {
         focused: false, height: context.height, state: "normal", top: context.top,
-      }));
+      }, "normalize-aux-height"));
     }
     await Promise.all(verticalUpdates);
     if (changedRole !== "context") {
