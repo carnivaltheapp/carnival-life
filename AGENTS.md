@@ -53,3 +53,7 @@ Use the legacy code only to answer questions about existing behavior, field sema
 ## Delivery
 
 Implement in the order defined in `docs/PHASES.md`. Each phase should have explicit acceptance tests and should be independently demonstrable before beginning the next phase.
+
+## Extension Runtime Gate
+
+Any change touching `extensions/chrome/**`, the PlayHouse/Aux bridge, the native messaging protocol, or the extension manifest must run `npm run test:extension:prepush` before commit or push. This gate includes the extension unit suite, manifest validation, service-worker and bridge integration, and a real Chromium launch with the unpacked extension. If the real-browser gate cannot run locally, explicitly report that limitation and do not claim real extension runtime validation passed.

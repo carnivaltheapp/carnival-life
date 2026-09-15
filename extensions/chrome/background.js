@@ -308,6 +308,10 @@ chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
 chrome.tabs.onActivated.addListener(({ windowId }) => scheduleTabSave(windowId, "tab-activated"));
 chrome.tabs.onMoved.addListener((_tabId, moveInfo) => scheduleTabSave(moveInfo.windowId, "tab-moved"));
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "carnivalBridgeHealth") {
+    sendResponse({ ok: true });
+    return false;
+  }
   if (message?.type === GET_LOCAL_BRANCHES) {
     recordDiagnostic("info", "BRANCH_TREE_EXTENSION_RECEIVED");
     if (branchHierarchyCache) {

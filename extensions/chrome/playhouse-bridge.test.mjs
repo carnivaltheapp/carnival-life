@@ -53,7 +53,7 @@ test("content script receives the page request and forwards canonical openInAux"
     data: { source: "carnival-playhouse", type: "openInAux", url: "https://example.com" },
     origin: pageWindow.location.origin,
   });
-  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.equal(messages.length, 1);
   assert.equal(messages[0].type, "openInAux");
@@ -70,8 +70,7 @@ test("content script receives the page request and forwards canonical openInAux"
     },
     origin: pageWindow.location.origin,
   });
-  await Promise.resolve();
-  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(JSON.parse(JSON.stringify(pageMessages)), [{
     message: {
       ok: true,
@@ -81,6 +80,92 @@ test("content script receives the page request and forwards canonical openInAux"
     },
     origin: pageWindow.location.origin,
   }]);
+});
+
+test("stale content script reports unavailable runtime without an uncaught exception", async () => {
+  let messageListener;
+  const logs = [];
+  const pageMessages = [];
+  const pageWindow = {
+    addEventListener(type, listener) { if (type === "message") messageListener = listener; },
+    location: { origin: "https://carnival-playhouse.vercel.app" },
+    postMessage(message, origin) { pageMessages.push({ message, origin }); },
+  };
+  vm.runInNewContext(bridgeSource, {
+    console: {
+      info(...values) { logs.push(["info", ...values]); },
+      warn(...values) { logs.push(["warn", ...values]); },
+    },
+    globalThis: {},
+    window: pageWindow,
+  });
+
+  assert.doesNotThrow(() => messageListener({
+    data: {
+      requestId: "stale-bridge-1",
+      source: "carnival-playhouse",
+      type: "openInAux",
+      url: "https://example.com",
+    },
+    origin: pageWindow.location.origin,
+  }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(logs.some((entry) => (
+    entry[0] === "warn" && entry[1] === "Carnival Aux routing unavailable" &&
+    entry[2]?.reason === "runtime_unavailable"
+  )), true);
+  assert.deepEqual(JSON.parse(JSON.stringify(pageMessages)), [{
+    message: {
+      ok: false,
+      requestId: "stale-bridge-1",
+      source: "carnival-playhouse-bridge",
+      type: "openInAuxResult",
+    },
+    origin: pageWindow.location.origin,
+  }]);
+});
+
+test("invalidated extension context returns a controlled bridge failure", async () => {
+  let messageListener;
+  const logs = [];
+  const pageMessages = [];
+  const pageWindow = {
+    addEventListener(type, listener) { if (type === "message") messageListener = listener; },
+    location: { origin: "https://carnival-playhouse.vercel.app" },
+    postMessage(message) { pageMessages.push(message); },
+  };
+  vm.runInNewContext(bridgeSource, {
+    chrome: {
+      runtime: {
+        sendMessage() { throw new Error("Extension context invalidated."); },
+      },
+    },
+    console: {
+      info() {},
+      warn(...values) { logs.push(values); },
+    },
+    Error,
+    window: pageWindow,
+  });
+
+  messageListener({
+    data: {
+      requestId: "invalidated-1",
+      source: "carnival-playhouse",
+      type: "openInAux",
+      url: "https://example.com",
+    },
+    origin: pageWindow.location.origin,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(logs.some(([event, details]) => (
+    event === "Carnival Aux routing unavailable" &&
+    details.reason === "extension_context_invalidated"
+  )), true);
+  assert.equal(pageMessages[0].ok, false);
 });
 
 test("content script forwards one compact local Branch hierarchy response", async () => {
@@ -108,7 +193,7 @@ test("content script forwards one compact local Branch hierarchy response", asyn
     data: { requestId: "branch-1", source: "carnival-playhouse", type: "getLocalBranches" },
     origin: pageWindow.location.origin,
   });
-  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.deepEqual(JSON.parse(JSON.stringify(runtimeMessages)), [{ type: "getLocalBranches" }]);
   assert.equal(logs.some((entry) => entry[1] === "BRANCH_TREE_EXTENSION_RECEIVED"), true);
