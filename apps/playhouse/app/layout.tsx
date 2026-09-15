@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-DETAIL-BRAND-82
+          P3-WINDOW-INVARIANT-83
         </small>
       </body>
     </html>

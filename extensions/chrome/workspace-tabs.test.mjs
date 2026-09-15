@@ -5,6 +5,7 @@ import {
   AUX_ROLE_URLS,
   auxRoleForUrl,
   defaultAuxTabs,
+  isAuxRoleUrl,
   isGoogleContactsUrl,
   isSlackUrl,
   isRestorableTabUrl,
@@ -74,6 +75,15 @@ test("Aux routing selects durable Gmail and Contacts roles and Misc otherwise", 
   assert.equal(auxRoleForUrl("https://app.slack.com/client/T1/C1"), "slack");
   assert.equal(auxRoleForUrl("https://example.com/play"), "misc");
   assert.equal(auxRoleForUrl("chrome://settings"), null);
+});
+
+test("managed Aux role URLs require the expected authoritative hostname", () => {
+  assert.equal(isAuxRoleUrl("https://calendar.google.com/calendar/u/0/r", "calendar"), true);
+  assert.equal(isAuxRoleUrl("https://mail.google.com/mail/u/0/#inbox", "gmail"), true);
+  assert.equal(isAuxRoleUrl("https://contacts.google.com/?hl=en", "contacts"), true);
+  assert.equal(isAuxRoleUrl("https://carnival.slack.com/archives/C1", "slack"), true);
+  assert.equal(isAuxRoleUrl("https://example.com/", "gmail"), false);
+  assert.equal(isAuxRoleUrl("https://example.com/", "misc"), false);
 });
 
 test("Slack matching accepts Slack hostnames only", () => {

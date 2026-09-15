@@ -88,6 +88,20 @@ export function auxRoleForUrl(value) {
   }
 }
 
+export function isAuxRoleUrl(value, role) {
+  if (!isRestorableTabUrl(value)) return false;
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    if (role === "calendar") return host === "calendar.google.com";
+    if (role === "contacts") return host === "contacts.google.com";
+    if (role === "gmail") return host === "mail.google.com";
+    if (role === "slack") return host === "slack.com" || host.endsWith(".slack.com");
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function isSlackUrl(value) {
   if (!isRestorableTabUrl(value)) return false;
   try {
