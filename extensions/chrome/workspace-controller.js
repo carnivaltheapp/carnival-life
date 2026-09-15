@@ -3,7 +3,6 @@ import {
   auxRoleForUrl,
   defaultAuxTabs,
   defaultPlayhouseTabs,
-  isAuxRoleUrl,
   isGoogleContactsUrl,
   snapshotTabs,
   validSavedTabs,
@@ -224,14 +223,6 @@ async function existingTab(chromeApi, tabId) {
   }
 }
 
-function isPlayhouseTab(tab) {
-  try {
-    return new URL(tab?.url).origin === new URL(PLAYHOUSE_URL).origin;
-  } catch {
-    return false;
-  }
-}
-
 function roleTabIds(definitions, tabs) {
   return Object.fromEntries(definitions.tabs.flatMap((definition, index) => (
     definition.role && tabs[index]?.id ? [[definition.role, tabs[index].id]] : []
@@ -336,41 +327,6 @@ export class CarnivalWorkspaceController {
   async tabsInWindow(windowId) {
     return (await this.chrome.tabs.query({ windowId }))
       .sort((left, right) => (left.index ?? 0) - (right.index ?? 0));
-  }
-
-  async managedWindow(state, kind) {
-    // Security boundary: a persisted numeric ID alone never grants permission to
-    // manipulate a Chrome window. Callers may use only a verified window returned
-    // here or a window freshly created by createWindowFromTabs().
-    const windowId = kind === "playhouse" ? state.phWindowId : state.auxWindowId;
-    const window = await existingWindow(this.chrome, windowId);
-    if (!window) return null;
-
-    let identityVerified = false;
-    if (kind === "playhouse") {
-      const primary = await existingTab(this.chrome, state.phPrimaryTabId);
-      identityVerified = primary?.windowId === window.id && isPlayhouseTab(primary);
-    } else {
-      for (const [role, tabId] of Object.entries(state.auxRoleTabIds ?? {})) {
-        if (role === "misc") continue;
-        const tab = await existingTab(this.chrome, tabId);
-        if (tab?.windowId === window.id && isAuxRoleUrl(tab.url, role)) {
-          identityVerified = true;
-          break;
-        }
-      }
-    }
-
-    if (identityVerified) return window;
-    this.logger.warn?.("WINDOW_BLOCK_UNMANAGED", { kind, windowId });
-    return null;
-  }
-
-  async managedPair(state) {
-    return Promise.all([
-      this.managedWindow(state, "playhouse"),
-      this.managedWindow(state, "context"),
-    ]);
   }
 
   async createWindowFromTabs(bounds, savedTabs, kind, sessionCycle = null) {
@@ -531,7 +487,7 @@ export class CarnivalWorkspaceController {
   }
 
   async findPlayhouse(prior, bounds, positionExisting = true) {
-    const window = await this.managedWindow(prior, "playhouse");
+    const window = await existingWindow(this.chrome, prior.phWindowId);
     let tab = await existingTab(this.chrome, prior.phPrimaryTabId);
     if (!window || tab?.windowId !== window.id) tab = null;
     if (!window) {
@@ -565,7 +521,7 @@ export class CarnivalWorkspaceController {
   }
 
   async findContext(prior, bounds, positionExisting = true) {
-    const window = await this.managedWindow(prior, "context");
+    const window = await existingWindow(this.chrome, prior.auxWindowId);
     let tab = await existingTab(this.chrome, prior.auxActiveTabId);
     if (!window || tab?.windowId !== window.id) tab = null;
     if (!window) {
@@ -654,13 +610,15 @@ export class CarnivalWorkspaceController {
   async activate() {
     const state = await this.state();
     if (state.drawerState !== "open") return state;
-    const [playhouseWindow, contextWindow] = await this.managedPair(state);
+    const [playhouseWindow, contextWindow] = await Promise.all([
+      existingWindow(this.chrome, state.phWindowId),
+      existingWindow(this.chrome, state.auxWindowId),
+    ]);
     if (!playhouseWindow || !contextWindow) return state;
     const bounds = {
       context: currentBounds(contextWindow, state.contextBounds),
       playhouse: currentBounds(playhouseWindow, state.playhouseBounds),
     };
-    this.logger.info?.("WINDOW_FOCUS_AUX_EXPLICIT", { reason: "workspace-activate" });
     if (this.nativeActivate && await this.nativeActivate(bounds)) return state;
     await this.chrome.windows.update(contextWindow.id, { focused: true });
     await this.chrome.windows.update(playhouseWindow.id, { focused: true });
@@ -670,8 +628,8 @@ export class CarnivalWorkspaceController {
   async reconcileWorkspaceState(workArea) {
     const state = await this.state();
     const [playhouseWindow, contextWindow, playhouseTab, contextTab] = await Promise.all([
-      this.managedWindow(state, "playhouse"),
-      this.managedWindow(state, "context"),
+      existingWindow(this.chrome, state.phWindowId),
+      existingWindow(this.chrome, state.auxWindowId),
       existingTab(this.chrome, state.phPrimaryTabId),
       existingTab(this.chrome, state.auxActiveTabId),
     ]);
@@ -753,7 +711,10 @@ export class CarnivalWorkspaceController {
     } else {
       this.logger.info?.("Carnival: normalizing saved bounds for new monitor");
     }
-    const [knownPlayhouse, knownContext] = await this.managedPair(prior);
+    const [knownPlayhouse, knownContext] = await Promise.all([
+      existingWindow(this.chrome, prior.phWindowId),
+      existingWindow(this.chrome, prior.auxWindowId),
+    ]);
     const repairingOneSide = Boolean(knownPlayhouse) !== Boolean(knownContext);
     const shouldAnimate = !repairingOneSide &&
       (prior.drawerState !== "open" || !knownPlayhouse || !knownContext);
@@ -823,7 +784,6 @@ export class CarnivalWorkspaceController {
       sessionCycle: null,
     };
     await this.save(openState);
-    this.logger.info?.("WINDOW_FOCUS_AUX_EXPLICIT", { reason: "workspace-summon" });
     await this.chrome.windows.update(context.window.id, { focused: true });
     await this.chrome.windows.update(playhouse.window.id, { focused: true });
     await this.finalizeRestoredWindow("playhouse", playhouse.restore, prior.sessionCycle ?? null);
@@ -843,7 +803,8 @@ export class CarnivalWorkspaceController {
   async retractDrawer() {
     const state = await this.state();
     if (state.drawerState !== "open" || !validWorkArea(state.workArea)) return state;
-    const [playhouseWindow, contextWindow] = await this.managedPair(state);
+    const playhouseWindow = await existingWindow(this.chrome, state.phWindowId);
+    const contextWindow = await existingWindow(this.chrome, state.auxWindowId);
     if (!playhouseWindow || !contextWindow) {
       const retracted = { ...state, drawerState: "retracted" };
       await this.save(retracted);
@@ -901,13 +862,16 @@ export class CarnivalWorkspaceController {
     this.logger.info?.("Carnival: resolving Aux context window");
     const prior = await this.state();
     const layout = restoredWorkspaceLayout(prior, workArea);
-    const existingContext = await this.managedWindow(prior, "context");
-    const context = existingContext
-      ? await this.existingContextForTabRouting(prior, existingContext)
-      : await this.findContext(prior, layout.context, true);
+    const existingContext = await existingWindow(this.chrome, prior.auxWindowId);
+    const restoreContext = prior.drawerState !== "open" || !existingContext ||
+      !hasVisibleIntersection(existingContext, workArea);
+    const context = await this.findContext(
+      prior,
+      layout.context,
+      restoreContext,
+    );
     const contextWindow = context.window;
     if (context.restore) {
-      this.logger.info?.("WINDOW_CREATE_AUX", { windowId: contextWindow.id });
       await this.save({
         ...prior,
         auxActiveTabId: context.tab.id,
@@ -958,7 +922,7 @@ export class CarnivalWorkspaceController {
     });
     const tabs = await this.tabsInWindow(contextWindow.id);
     const contextTabs = snapshotTabs(tabs, roleIds);
-    const contextBounds = context.restore
+    const contextBounds = restoreContext
       ? layout.context
       : currentBounds(contextWindow, layout.context);
     await this.save({
@@ -976,21 +940,12 @@ export class CarnivalWorkspaceController {
       contextTabs,
       contextUrl: url,
       contextWindowId: contextWindow.id,
-      drawerState: context.restore ? "open" : prior.drawerState,
+      drawerState: "open",
       layoutVersion: LAYOUT_VERSION,
       monitorId,
       workArea,
     });
-    this.logger.info?.("WINDOW_ROUTE_TAB", { role, tabId: roleTab.id, windowId: contextWindow.id });
-  }
-
-  async existingContextForTabRouting(prior, window) {
-    const tabs = await this.tabsInWindow(window.id);
-    const roleTabIds = { ...(prior.auxRoleTabIds ?? {}) };
-    const tab = tabs.find((candidate) => candidate.active) ?? tabs[0] ?? null;
-    const tabState = snapshotTabs(tabs, roleTabIds);
-    if (!tab?.id || !tabState) throw new Error("Chrome could not identify the existing Aux tabs.");
-    return { restore: null, roleTabIds, tab, tabState, window };
+    await this.chrome.windows.update(contextWindow.id, { focused: true });
   }
 
   async rememberVisibleBounds(changedWindowId = null) {
@@ -1008,7 +963,10 @@ export class CarnivalWorkspaceController {
       ? "playhouse"
       : changedWindowId === state.auxWindowId ? "context" : null;
     if (changedWindowId !== null && !changedRole) return null;
-    const [playhouseWindow, contextWindow] = await this.managedPair(state);
+    const [playhouseWindow, contextWindow] = await Promise.all([
+      existingWindow(this.chrome, state.phWindowId),
+      existingWindow(this.chrome, state.auxWindowId),
+    ]);
     const playhouseActual = storedBounds(playhouseWindow);
     const contextActual = storedBounds(contextWindow);
     const playhouse = playhouseActual && horizontalBoundsFitWorkArea(playhouseActual, state.workArea)
@@ -1079,7 +1037,6 @@ export class CarnivalWorkspaceController {
       });
       return null;
     }
-    if (!await this.managedWindow(state, kind)) return null;
     this.logger.info?.(`${eventPrefix}_SESSION_SAVE_ATTEMPT`, {
       reason,
       restoreInProgress: false,

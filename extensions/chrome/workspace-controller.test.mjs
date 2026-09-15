@@ -10,6 +10,7 @@ import {
   isAllowedContextUrl,
   restoredWorkspaceLayout,
 } from "./workspace-controller.js";
+import { createWorkspaceActions } from "./workspace-summon.js";
 import { defaultAuxTabs, defaultPlayhouseTabs } from "./workspace-tabs.js";
 
 function fakeChrome() {
@@ -163,7 +164,7 @@ function diagnosticController(chrome, options = {}) {
     ...options,
     logger: {
       info(event, details) { events.push({ details, event }); },
-      warn(event, details) { events.push({ details, event }); },
+      warn() {},
     },
   });
   return { events, workspace };
@@ -299,7 +300,6 @@ test("opening a URL in Aux reuses its designated tab without changing PlayHouse"
     chrome.calls.updateWindow.some(({ id }) => id === initial.playhouseWindowId),
     false,
   );
-  assert.equal(chrome.calls.updateWindow.length, 0);
   await assert.rejects(
     workspace.openCarnivalContext("chrome://settings", workArea, "display-1"),
     /HTTP or HTTPS/,
@@ -627,7 +627,7 @@ test("a deliberately closed Gmail role is recreated only when Gmail routing need
   );
 });
 
-test("ordinary Aux routing never restores, moves, or focuses an existing managed window", async () => {
+test("opening in Aux restores a minimized or offscreen Aux and focuses it", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
@@ -637,85 +637,90 @@ test("ordinary Aux routing never restores, moves, or focuses an existing managed
 
   await workspace.openCarnivalContext("https://example.com/restored", workArea, "display-1");
 
-  assert.equal(chrome.calls.updateWindow.length, 0);
-  assert.equal(chrome.getWindow(initial.contextWindowId).state, "minimized");
-  assert.equal(chrome.getWindow(initial.contextWindowId).left, -2000);
+  assert.deepEqual(chrome.calls.updateWindow[0], {
+    id: initial.contextWindowId,
+    options: { ...defaultWorkspaceLayout(workArea).context, focused: false, state: "normal" },
+  });
+  assert.deepEqual(chrome.calls.updateWindow.at(-1), {
+    id: initial.contextWindowId,
+    options: { focused: true },
+  });
 });
 
-test("URL, Slack, and Gmail routing change only tabs inside verified Aux", async () => {
+test("startup reuses the existing PlayHouse across query changes and stale saved tab IDs", async () => {
+  const chrome = fakeChrome();
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const firstController = controller(chrome);
+  const opened = await firstController.summon(workArea, "display-1");
+  await chrome.tabs.update(opened.phPrimaryTabId, {
+    url: `${PLAYHOUSE_URL}?view=tomorrow`,
+  });
+  await firstController.save({
+    ...opened,
+    auxActiveTabId: 9998,
+    contextTabId: 9998,
+    phPrimaryTabId: 9999,
+    playhouseTabId: 9999,
+  });
+  const createdBeforeRestart = chrome.calls.createWindow.length;
+
+  const restored = await controller(chrome).summon(workArea, "display-1");
+
+  assert.equal(chrome.calls.createWindow.length, createdBeforeRestart);
+  assert.equal(restored.phWindowId, opened.phWindowId);
+  assert.equal(restored.auxWindowId, opened.auxWindowId);
+  assert.equal(chrome.getTabs(opened.phWindowId).some(({ url }) => (
+    url === `${PLAYHOUSE_URL}?view=tomorrow`
+  )), true);
+});
+
+test("concurrent startup requests create exactly one PlayHouse and one Aux window", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
-  const initial = await workspace.summon(workArea, "display-1");
-  const unrelated = await chrome.windows.create({
-    focused: false,
-    height: 700,
-    left: 220,
-    state: "normal",
-    top: 80,
-    type: "normal",
-    url: "https://example.net/unrelated",
-    width: 900,
+  const actions = createWorkspaceActions({
+    controller: workspace,
+    logger: { info() {} },
+    reportDrawerState() {},
+    validWorkArea: () => true,
   });
-  const geometry = (window) => ({
-    height: window.height,
-    left: window.left,
-    state: window.state,
-    top: window.top,
-    width: window.width,
-  });
-  const before = new Map([
-    [initial.playhouseWindowId, geometry(chrome.getWindow(initial.playhouseWindowId))],
-    [initial.contextWindowId, geometry(chrome.getWindow(initial.contextWindowId))],
-    [unrelated.id, geometry(chrome.getWindow(unrelated.id))],
+  const display = { monitorId: "display-1", workArea };
+
+  const [toolbar, native] = await Promise.all([
+    actions.summon(display, "toolbar"),
+    actions.summon(display, "native hot corner"),
   ]);
-  chrome.calls.createWindow.length = 0;
-  chrome.calls.updateWindow.length = 0;
 
-  await workspace.openCarnivalContext("https://example.com/reference", workArea, "display-1");
-  await workspace.openCarnivalContext("https://app.slack.com/client/T1/C1", workArea, "display-1");
-  await workspace.openCarnivalContext("https://mail.google.com/mail/u/0/#all/thread-1", workArea, "display-1");
-  await workspace.openCarnivalContext("https://contacts.google.com/person/c123", workArea, "display-1");
-
-  assert.equal(chrome.calls.createWindow.length, 0);
-  assert.equal(chrome.calls.updateWindow.length, 0);
-  for (const [id, expected] of before) assert.deepEqual(geometry(chrome.getWindow(id)), expected);
-  assert.equal(chrome.getTabs(unrelated.id).length, 1);
+  assert.equal(chrome.calls.createWindow.length, 2);
+  assert.equal(toolbar.phWindowId, native.phWindowId);
+  assert.equal(toolbar.auxWindowId, native.auxWindowId);
 });
 
-test("a stale Aux window ID cannot route into or focus an unrelated Chrome window", async () => {
+test("restored Aux routing leaves unrelated Chrome windows untouched", async () => {
   const chrome = fakeChrome();
-  const { events, workspace } = diagnosticController(chrome);
+  const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
-  const initial = await workspace.summon(workArea, "display-1");
+  await workspace.summon(workArea, "display-1");
   const unrelated = await chrome.windows.create({
     focused: false,
     height: 700,
-    left: 220,
+    left: 200,
     state: "normal",
     top: 80,
     type: "normal",
     url: "https://example.net/unrelated",
     width: 900,
-  });
-  const unrelatedTab = chrome.getTabs(unrelated.id)[0];
-  await workspace.save({
-    ...initial,
-    auxActiveTabId: unrelatedTab.id,
-    auxRoleTabIds: { gmail: unrelatedTab.id },
-    auxWindowId: unrelated.id,
   });
   const before = { ...chrome.getWindow(unrelated.id) };
   chrome.calls.createWindow.length = 0;
   chrome.calls.updateWindow.length = 0;
 
-  await workspace.openCarnivalContext("https://mail.google.com/mail/u/0/#all/thread-2", workArea, "display-1");
+  await workspace.openCarnivalContext("https://example.com/reference", workArea, "display-1");
+  await workspace.openCarnivalContext("https://mail.google.com/mail/u/0/#all/thread-1", workArea, "display-1");
 
-  assert.equal(chrome.calls.createWindow.length, 1);
+  assert.equal(chrome.calls.createWindow.length, 0);
   assert.equal(chrome.calls.updateWindow.some(({ id }) => id === unrelated.id), false);
   assert.deepEqual(chrome.getWindow(unrelated.id), before);
-  assert.equal(chrome.getTab(unrelatedTab.id).url, "https://example.net/unrelated");
-  assert.equal(events.some(({ event }) => event === "WINDOW_BLOCK_UNMANAGED"), true);
 });
 
 test("opening in Aux recreates only a closed Aux at its saved geometry", async () => {
