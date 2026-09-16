@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { authenticateCompanionRequest } from "../../../../../../lib/companion/auth";
 import { MongoCompanionRepository } from "../../../../../../lib/companion/repository";
 import { MongoTreeOfLifeRepository } from "../../../../../../lib/tree-of-life/repository";
+import {
+  enqueueDriveIdentity,
+  processDriveIdentityQueue,
+} from "../../../../../../lib/google/drive-auto-reconciliation";
 
 export async function POST(
   request: Request,
@@ -28,6 +32,14 @@ export async function POST(
     if (command.is_branch) {
       await new MongoTreeOfLifeRepository().setBranchState(device.ownerUserId, payload.relativePath, true);
     }
+    try {
+      await enqueueDriveIdentity(device.ownerUserId, payload.relativePath, command.is_branch);
+      await processDriveIdentityQueue(device.ownerUserId);
+    } catch (error) {
+      console.warn("DRIVE_AUTO_RETRY", {
+        reason: error instanceof Error ? error.message : "automatic_drive_reconciliation_failed",
+      });
+    }
   }
   if (payload.ok && command.type === "set_branch_state" && command.relative_path) {
     await new MongoTreeOfLifeRepository().setBranchState(
@@ -35,6 +47,16 @@ export async function POST(
       command.relative_path,
       command.is_branch,
     );
+    if (command.is_branch) {
+      try {
+        await enqueueDriveIdentity(device.ownerUserId, command.relative_path, true);
+        await processDriveIdentityQueue(device.ownerUserId);
+      } catch (error) {
+        console.warn("DRIVE_AUTO_RETRY", {
+          reason: error instanceof Error ? error.message : "automatic_drive_reconciliation_failed",
+        });
+      }
+    }
   }
   await repository.completeFolderCommand(
     device.deviceId,

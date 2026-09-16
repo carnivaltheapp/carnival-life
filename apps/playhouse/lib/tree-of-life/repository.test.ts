@@ -300,4 +300,53 @@ describe("Mongo Tree of Life repository", () => {
     expect(update.updateOne.update.$set).not.toHaveProperty("drive_folder_id");
     expect(update.updateOne.update.$set).not.toHaveProperty("drive_web_url");
   });
+
+  it("preserves cached Drive identity when a folder moves", async () => {
+    const documents = [{
+      active: true,
+      created_at: new Date(),
+      depth: 2,
+      drive_folder_id: "BFLX123",
+      drive_web_url: "https://drive.google.com/drive/folders/BFLX123",
+      is_branch: true,
+      name: "BFLX",
+      owner_user_id: "owner-a",
+      parent_relative_path: "Blue Field Law/Automation",
+      relative_path: "Blue Field Law/Automation/BFLX",
+      selectable: true,
+      updated_at: new Date(),
+    }];
+    const { collection, repository } = repositoryWith({
+      bulkWrite: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
+      find: vi.fn(() => ({ toArray: vi.fn().mockResolvedValue(documents) })),
+    });
+    await repository.applyFolderEvent("owner-a", {
+      kind: "folder_moved",
+      oldRelativePath: "Blue Field Law/Automation/BFLX",
+      relativePath: "Blue Field Law/Technology/BFLX",
+    });
+    const update = vi.mocked(collection.bulkWrite).mock.calls[0][0][0] as unknown as {
+      updateOne: { update: { $set: Record<string, unknown> } };
+    };
+    expect(update.updateOne.update.$set.relative_path).toBe("Blue Field Law/Technology/BFLX");
+    expect(update.updateOne.update.$set).not.toHaveProperty("drive_folder_id");
+    expect(update.updateOne.update.$set).not.toHaveProperty("drive_web_url");
+  });
+
+  it("removes Branch status without clearing cached Drive identity", async () => {
+    const { collection, repository } = repositoryWith({
+      updateOne: vi.fn().mockResolvedValue({ matchedCount: 1 }),
+    });
+    await expect(repository.setBranchState(
+      "owner-a",
+      "Blue Field Law/Automation/BFLX",
+      false,
+    )).resolves.toBe(true);
+    const update = vi.mocked(collection.updateOne).mock.calls[0][1] as unknown as {
+      $set: Record<string, unknown>;
+    };
+    expect(update.$set).toMatchObject({ is_branch: false, selectable: false });
+    expect(update.$set).not.toHaveProperty("drive_folder_id");
+    expect(update.$set).not.toHaveProperty("drive_web_url");
+  });
 });

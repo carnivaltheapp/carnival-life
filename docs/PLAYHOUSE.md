@@ -150,18 +150,22 @@ When nothing is selected, the second surface is Calendar. Selecting contextual c
 
 Eventually Carnival will render its own native calendar as this second surface.
 
-## Tree of Life Branch authority (current Mongo phase)
+## Tree of Life and Drive identity (current Mongo phase)
 
-After a deliberate one-time desktop bootstrap, the owner-scoped Mongo `tree_of_life`
-collection is the authoritative Branch catalog. PlayHouse desktop, web, and mobile read
-that catalog through authenticated server access; opening the Branch picker never scans
-the local filesystem or requires the Chrome extension/native host.
+The local Google Drive for Desktop hierarchy is authoritative for folder existence and
+path structure. The paired companion mirrors filesystem create, rename, move, and delete
+events into the owner-scoped Mongo `tree_of_life` collection and periodically reconciles
+the complete hierarchy. Branch state remains explicit metadata and is not overwritten by
+ordinary folder scans.
 
-The native Tree of Life scan is bootstrap-only. Future Branch management follows a
-strict one-way contract: PlayHouse writes Mongo first, then requests any corresponding
-local filesystem change through the native host. Local filesystem changes must never
-silently overwrite Mongo. Existing Play Branch storage and canonical values remain
-unchanged.
+Google Drive for Desktop remains responsible for local/cloud synchronization. Carnival
+never creates a cloud folder to compensate for a temporarily missing API result. Instead,
+Carnival durably queues exact hierarchical Drive identity resolution, prioritizes Branches,
+and retries with bounded backoff until `drive_folder_id` and `drive_web_url` can be cached.
+Cached Drive identity survives folder rename, move, and removal of Branch status.
+
+PlayHouse desktop, web, and mobile read the Mongo mirror through authenticated server
+access; opening the Branch picker never scans the local filesystem directly.
 
 ## Settings
 

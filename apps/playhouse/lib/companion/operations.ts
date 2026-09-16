@@ -2,6 +2,13 @@ import "server-only";
 
 import { MongoCompanionRepository } from "./repository";
 import { MongoTreeOfLifeRepository } from "../tree-of-life/repository";
+import {
+  cancelDriveIdentityPrefix,
+  enqueueDriveIdentity,
+  enqueueUnresolvedDriveBranches,
+  processDriveIdentityQueue,
+  retargetDriveIdentityPrefix,
+} from "../google/drive-auto-reconciliation";
 
 export type CompanionFolderOperation = {
   folders?: unknown;
@@ -30,6 +37,10 @@ export async function applyCompanionFolderOperation(
     const tree = new MongoTreeOfLifeRepository();
     if (operation.kind === "reconcile") {
       const result = await tree.reconcileFolders(device.ownerUserId, operation.folders);
+      await bestEffortDriveReconciliation(async () => {
+        await enqueueUnresolvedDriveBranches(device.ownerUserId);
+        await processDriveIdentityQueue(device.ownerUserId);
+      });
       await companion.completeOperation(device.deviceId, operation.operationId);
       return { duplicate: false, ...result };
     }
@@ -41,6 +52,12 @@ export async function applyCompanionFolderOperation(
         operation.isBranch === true,
       );
       if (!matched) throw new Error("folder_not_found");
+      if (operation.isBranch) {
+        await bestEffortDriveReconciliation(async () => {
+          await enqueueDriveIdentity(device.ownerUserId, operation.relativePath!, true);
+          await processDriveIdentityQueue(device.ownerUserId);
+        });
+      }
       await companion.completeOperation(device.deviceId, operation.operationId);
       return { duplicate: false };
     }
@@ -50,10 +67,38 @@ export async function applyCompanionFolderOperation(
       oldRelativePath: operation.oldRelativePath,
       relativePath: operation.relativePath,
     });
+    await bestEffortDriveReconciliation(async () => {
+      if (operation.kind === "folder_deleted") {
+        await cancelDriveIdentityPrefix(device.ownerUserId, operation.relativePath!);
+      } else {
+        if (
+          (operation.kind === "folder_moved" || operation.kind === "folder_renamed") &&
+          operation.oldRelativePath
+        ) {
+          await retargetDriveIdentityPrefix(
+            device.ownerUserId,
+            operation.oldRelativePath,
+            operation.relativePath!,
+          );
+        }
+        await enqueueDriveIdentity(device.ownerUserId, operation.relativePath!, false);
+        await processDriveIdentityQueue(device.ownerUserId);
+      }
+    });
     await companion.completeOperation(device.deviceId, operation.operationId);
     return { duplicate: false };
   } catch (error) {
     await companion.abandonOperation(device.deviceId, operation.operationId);
     throw error;
+  }
+}
+
+async function bestEffortDriveReconciliation(operation: () => Promise<void>) {
+  try {
+    await operation();
+  } catch (error) {
+    console.warn("DRIVE_AUTO_RETRY", {
+      reason: error instanceof Error ? error.message : "automatic_drive_reconciliation_failed",
+    });
   }
 }
