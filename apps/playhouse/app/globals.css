@@ -2625,6 +2625,17 @@ h1 {
   stroke-width: 1.5;
 }
 
+.incomingGmailIcon {
+  width: 17px !important;
+  height: 14px !important;
+  fill: initial !important;
+  stroke: none !important;
+}
+
+.incomingGmailButton:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
 .doneButton {
   color: #167146;
 }

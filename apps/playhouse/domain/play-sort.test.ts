@@ -100,4 +100,20 @@ describe("chronological Play sorting", () => {
       "appointment", "promoted", "headline", "reminder",
     ]);
   });
+
+  it("places incoming-event Reminders above ordinary Reminders without crossing ranks", () => {
+    const incoming = {
+      ...play({ id: "incoming", order: 999, taskType: "S" }),
+      incomingPriority: true,
+    };
+    expect(sortChronologicalPlays([
+      play({ id: "ordinary-first", order: 1, taskType: "S" }),
+      incoming,
+      play({ id: "headline", order: 500, taskType: "H" }),
+      play({ id: "ordinary-second", order: 2, taskType: "S" }),
+      play({ id: "appointment", order: 500, taskType: "A" }),
+    ]).map(({ id }) => id)).toEqual([
+      "appointment", "headline", "incoming", "ordinary-first", "ordinary-second",
+    ]);
+  });
 });

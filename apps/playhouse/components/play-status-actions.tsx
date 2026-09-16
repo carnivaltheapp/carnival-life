@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
 
 import { doneCreate, markPlayDone, trashPlay } from "../app/plays/actions";
+import { handleIncomingGmailEvents } from "../app/incoming/actions";
 import type {
   BasketSummary,
   NextPlayOption,
@@ -12,7 +13,9 @@ import type {
 } from "../domain/play";
 import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
 import { openSlackInAux } from "../lib/desktop/open-slack-in-aux";
+import { openInAuxAndWait } from "../lib/desktop/open-in-aux";
 import { requestGmailThreadUnstar } from "./gmail-thread-sync";
+import { routeAndHandleIncomingGmail } from "./incoming-gmail-action";
 
 export function DoneIcon() {
   return <span aria-hidden="true">✓</span>;
@@ -40,6 +43,18 @@ export function BrowserIcon() {
       <circle cx="10" cy="10" r="7" />
       <circle cx="10" cy="10" r="2.4" />
       <path d="M10 3h6M4 6.2l3 5.2m1.7 5.5 3-5.2" />
+    </svg>
+  );
+}
+
+export function IncomingGmailIcon() {
+  return (
+    <svg aria-hidden="true" className="incomingGmailIcon" viewBox="0 0 24 18">
+      <path d="M2 4.2 12 11l10-6.8V16H2Z" fill="#fff" />
+      <path d="M2 4.2 5.2 6.4V16H2Z" fill="#4285f4" />
+      <path d="m2 4.2 2.7-2.1L12 7.1l7.3-5L22 4.2 12 11Z" fill="#ea4335" />
+      <path d="M18.8 6.4 22 4.2V16h-3.2Z" fill="#34a853" />
+      <path d="M5.2 16V6.4L12 11l6.8-4.6V16Z" fill="#fbbc04" opacity=".28" />
     </svg>
   );
 }
@@ -134,6 +149,8 @@ export function PlayStatusActions({
     trashPlay,
     INITIAL_PLAY_MUTATION_STATE,
   );
+  const [incomingPending, setIncomingPending] = useState(false);
+  const [incomingError, setIncomingError] = useState<string | null>(null);
   const syncedStatusRef = useRef<"done" | "trash" | null>(null);
   useEffect(() => {
     const status = doneState.status === "success"
@@ -146,13 +163,38 @@ export function PlayStatusActions({
     requestGmailThreadUnstar(play, status);
     router.refresh();
   }, [doneState.status, play, router, trashState.status]);
-  const anyPending = donePending || trashPending || flipPending;
+  const anyPending = donePending || trashPending || flipPending || incomingPending;
   const errorMessage =
     doneState.status === "error"
       ? doneState.message
       : trashState.status === "error"
         ? trashState.message
-        : null;
+        : incomingError;
+
+  async function openIncomingGmail() {
+    if (!play.incomingGmailUrl || incomingPending) return;
+    setIncomingError(null);
+    setIncomingPending(true);
+    try {
+      const result = await routeAndHandleIncomingGmail({
+        handle: handleIncomingGmailEvents,
+        playId: play.id,
+        route: openInAuxAndWait,
+        url: play.incomingGmailUrl,
+      });
+      if (!result.routed) {
+        setIncomingError("Gmail could not be opened. The incoming message remains unhandled.");
+      } else if (!result.handled) {
+        setIncomingError("Gmail opened, but its incoming status could not be cleared.");
+      } else {
+        router.refresh();
+      }
+    } catch {
+      setIncomingError("Gmail could not be opened. The incoming message remains unhandled.");
+    } finally {
+      setIncomingPending(false);
+    }
+  }
 
   return (
     <div className="statusActionArea">
@@ -197,7 +239,23 @@ export function PlayStatusActions({
         ) : (
           <span aria-hidden="true" className="rowActionPlaceholder" />
         )}
-        <span aria-hidden="true" className="rowActionPlaceholder" />
+        {play.incomingGmailCount && play.incomingGmailUrl ? (
+          <button
+            aria-label={`Open ${play.incomingGmailCount} new Gmail ${play.incomingGmailCount === 1 ? "message" : "messages"}`}
+            className="rowIconButton incomingGmailButton"
+            disabled={anyPending}
+            onClick={(event) => {
+              event.stopPropagation();
+              void openIncomingGmail();
+            }}
+            title={play.incomingGmailCount === 1 ? "New Gmail message" : `${play.incomingGmailCount} new Gmail messages`}
+            type="button"
+          >
+            <IncomingGmailIcon />
+          </button>
+        ) : (
+          <span aria-hidden="true" className="rowActionPlaceholder" />
+        )}
         {onFlipRank ? (
           <button
             aria-label="Flip rank"

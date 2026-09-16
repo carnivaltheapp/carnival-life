@@ -144,6 +144,11 @@ describe("Mongo Play mapping", () => {
       carnival_google: {
         gmail_attachment: { account_index: 2 },
       },
+      carnival_incoming: {
+        gmail_latest_url: "https://mail.google.com/mail/u/2/#all/api-thread",
+        gmail_unhandled_count: 2,
+        priority: true,
+      },
       contact_id: "people/legacy-player",
       duration: 45,
       is_active: true,
@@ -167,6 +172,9 @@ describe("Mongo Play mapping", () => {
       durationMinutes: 45,
       gmailAccountIndex: 2,
       gmailThreadId: "gmail-thread-id",
+      incomingGmailCount: 2,
+      incomingGmailUrl: "https://mail.google.com/mail/u/2/#all/api-thread",
+      incomingPriority: true,
       note: "Legacy note",
       place: "outside",
       playerContactId: "33333333-3333-4333-8333-333333333333",

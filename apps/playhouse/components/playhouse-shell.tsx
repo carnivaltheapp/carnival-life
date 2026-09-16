@@ -100,6 +100,7 @@ import { PlaySearch } from "./play-search";
 import {
   DoneIcon,
   FlipRankIcon,
+  IncomingGmailIcon,
   PlayStatusActions,
   SlackIcon,
   TrashIcon,
@@ -1513,7 +1514,9 @@ function PlayhouseShellView({
                   <span aria-label="Done" role="columnheader" title="Done"><DoneIcon /></span>
                   <span aria-label="Trash" role="columnheader" title="Trash"><TrashIcon /></span>
                   <span aria-label="Slack" role="columnheader" title="Slack"><SlackIcon /></span>
-                  <span aria-hidden="true" />
+                  <span aria-label="Incoming Gmail" role="columnheader" title="Incoming Gmail">
+                    <IncomingGmailIcon />
+                  </span>
                   {gridSort ? (
                     <button
                       aria-label="Return to natural order"

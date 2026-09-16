@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getSafeNextPath } from "../../../lib/auth/redirect";
 import { upsertGoogleAccountAfterSignIn } from "../../../lib/google/account";
 import { retainGoogleRefreshToken } from "../../../lib/google/token-broker.server";
+import { registerGmailWatchForOwnerAccount } from "../../../lib/incoming-events/gmail-watch.server";
 import { createClient } from "../../../lib/supabase/server";
 
 const PRODUCTION_ORIGIN = "https://carnival-playhouse.vercel.app";
@@ -57,6 +58,17 @@ export async function GET(request: NextRequest) {
           ownerUserId: data.session.user.id,
           providerRefreshToken: data.session.provider_refresh_token,
         });
+        try {
+          await registerGmailWatchForOwnerAccount({
+            googleAccountId,
+            ownerUserId: data.session.user.id,
+          });
+        } catch (watchError) {
+          console.warn("CARNIVAL_INCOMING_EVENT GMAIL_WATCH_REGISTRATION_FAILED", {
+            googleAccountId,
+            reason: watchError instanceof Error ? watchError.name : "unknown_error",
+          });
+        }
       } catch {
         await supabase.auth.signOut();
         return authErrorRedirect(request);

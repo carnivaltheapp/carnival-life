@@ -12,7 +12,7 @@ declare global {
   var carnivalMongoClientPromise: Promise<MongoClient> | undefined;
 }
 
-function mongoClientPromise() {
+export function getCarnivalMongoClient() {
   if (globalThis.carnivalMongoClientPromise) {
     return globalThis.carnivalMongoClientPromise;
   }
@@ -45,11 +45,11 @@ function mongoClientPromise() {
 }
 
 export async function getLegacyTaskCollection() {
-  const client = await mongoClientPromise();
+  const client = await getCarnivalMongoClient();
   return client.db(DATABASE_NAME).collection<LegacyTaskDocument>(COLLECTION_NAME);
 }
 
 export async function getCarnivalMongoDatabase() {
-  const client = await mongoClientPromise();
+  const client = await getCarnivalMongoClient();
   return client.db(DATABASE_NAME);
 }

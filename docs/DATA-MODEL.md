@@ -2,6 +2,14 @@
 
 This document defines domain ownership and conceptual entities. Exact SQL types, indexes and constraints should be finalized during implementation and represented as version-controlled Supabase migrations. Do not manually create an ad-hoc production schema from this document.
 
+## Carnival Incoming Events
+
+During the current Mongo-authoritative PlayHouse phase, source-neutral incoming events are stored in `carnival_incoming_events`. Records are owner-scoped, idempotent by `(owner_user_id, source, external_event_id)`, and retain only metadata needed for matching, routing, and event history. `linked_play_id` is nullable, `match_status` distinguishes matched/unmatched/ambiguous, and the lifecycle is `unhandled` to `handled`.
+
+Gmail watch cursors and expirations are stored separately in `carnival_gmail_watch_states`. Tokens remain in the existing encrypted Google credential store; neither collection stores OAuth credentials or message bodies.
+
+An existing matched Mongo Play carries only derived `carnival_incoming` count/latest-routing fields for efficient rendering and sorting. Incoming Event records remain authoritative. Event recording and Play promotion happen in one transaction, and incoming processing has no Play-creation operation.
+
 ## Principles
 
 - One shared Carnival Supabase/Postgres database.

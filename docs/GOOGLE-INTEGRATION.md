@@ -14,6 +14,25 @@ Google Auth Platform/OAuth application configuration has been initialized. Final
 
 The preferred long-term administrative identity is a `carnivaltheapp.com` Google Workspace account rather than a personal/public Gmail or Blue Field Law identity.
 
+## Carnival Incoming Events (Gmail)
+
+Gmail incoming communication is event-driven and cloud-to-cloud:
+
+`Gmail watch -> Google Cloud Pub/Sub authenticated push -> /api/incoming/gmail/pubsub -> Gmail history -> Carnival Incoming Event`
+
+The processor stores message/thread identifiers and routing metadata only; it does not store message bodies. It can promote only an already-linked, unambiguous Play. An unmatched or ambiguous message records an event without creating or mutating a Play. Gmail unread state is independent from Carnival handled state.
+
+Production setup:
+
+1. Create a dedicated Pub/Sub topic and grant `roles/pubsub.publisher` on it to `gmail-api-push@system.gserviceaccount.com`.
+2. Create a push subscription targeting `https://carnival-playhouse.vercel.app/api/incoming/gmail/pubsub`.
+3. Enable authenticated push with a dedicated service account and an OIDC audience exactly equal to that endpoint URL.
+4. Configure server-only `GMAIL_PUBSUB_TOPIC`, `GMAIL_PUBSUB_SUBSCRIPTION`, `GMAIL_PUBSUB_AUDIENCE`, `GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL`, and `CRON_SECRET` values as shown in `.env.example`.
+
+The existing `gmail.modify` authorization is sufficient for mailbox watch, history, and metadata lookup. Initial registration stores Gmail's current history ID as the baseline, so old mail is not replayed. The daily `/api/cron/gmail-watch` Vercel cron renews watches independently of an open PlayHouse browser. Duplicate/coalesced notifications are serialized by a durable mailbox lease and history cursor.
+
+For matched mail, the event record and existing Play mutation are one Mongo transaction. The Play moves to the owner's local Today, becomes a Reminder, and receives a derived incoming priority/count. Clicking its colored Gmail indicator uses the existing Aux Gmail route; only a successful route marks the Play's current Gmail events handled.
+
 ## Google Drive Folder Identity
 
 Tree of Life Branch paths resolve to Google Drive folders through the Drive API using

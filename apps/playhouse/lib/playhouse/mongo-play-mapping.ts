@@ -341,6 +341,15 @@ export function mapMongoPlay(
       typeof (gmailAttachment as Record<string, unknown>).account_index === "number"
     ? (gmailAttachment as Record<string, unknown>).account_index as number
     : null;
+  const incoming = task.carnival_incoming &&
+      typeof task.carnival_incoming === "object" &&
+      !Array.isArray(task.carnival_incoming)
+    ? task.carnival_incoming as Record<string, unknown>
+    : null;
+  const incomingGmailCount = typeof incoming?.gmail_unhandled_count === "number" &&
+      Number.isSafeInteger(incoming.gmail_unhandled_count) && incoming.gmail_unhandled_count > 0
+    ? incoming.gmail_unhandled_count
+    : 0;
 
   return {
     basketId: basket?.id ?? null,
@@ -349,6 +358,9 @@ export function mapMongoPlay(
     durationMinutes: number(task.duration),
     gmailAccountIndex,
     gmailThreadId: text(task.thread_id),
+    incomingGmailCount,
+    incomingGmailUrl: text(incoming?.gmail_latest_url),
+    incomingPriority: incoming?.priority === true && incomingGmailCount > 0,
     id: task._id.toHexString(),
     legacyTaskType: text(task.task_type),
     note: text(task.note),
