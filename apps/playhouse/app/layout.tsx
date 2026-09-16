@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-INCOMING-GMAIL-101
+          P3-INCOMING-GMAIL-DIAG-102
         </small>
       </body>
     </html>

@@ -1,8 +1,20 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 import { parseGmailPubSubEnvelope, verifyPubSubAuthorization } from "./pubsub-auth";
 
 describe("authenticated Gmail Pub/Sub notifications", () => {
+  it("logs only the missing configuration variable name", () => {
+    const route = readFileSync(
+      new URL("../../app/api/incoming/gmail/pubsub/route.ts", import.meta.url),
+      "utf8",
+    );
+    expect(route).toContain(
+      'console.error("CARNIVAL_INCOMING_EVENT GMAIL_NOTIFICATION_CONFIGURATION_INVALID", {\n      variable: name,\n    })',
+    );
+    expect(route).not.toMatch(/variable:\s*process\.env/);
+  });
+
   it("requires the signed audience and exact push service account", async () => {
     const verify = vi.fn().mockResolvedValue({
       aud: "https://example.com/hook",
