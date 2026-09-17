@@ -128,6 +128,59 @@ test("Gmail content script returns latest visible participants without page-drag
   assert.deepEqual(registeredWindowEvents, []);
 });
 
+test("Gmail content script reads the API thread ID from the sibling conversation header", () => {
+  let metadataListener;
+  const header = {
+    getAttribute: (attribute) => attribute === "data-legacy-thread-id"
+      ? "api-thread-from-header"
+      : null,
+  };
+  const conversation = {
+    querySelector: (selector) => selector === "h2[data-legacy-thread-id]" ? header : null,
+  };
+  const participant = {
+    getAttribute: (attribute) => attribute === "email"
+      ? "person@example.com"
+      : attribute === "name"
+        ? "Person"
+        : null,
+    textContent: "Person",
+  };
+  const latest = {
+    closest: (selector) => selector === "div[role='main']" ? conversation : null,
+    getAttribute: () => null,
+    getClientRects: () => [{}],
+    querySelector: () => participant,
+    querySelectorAll: () => [participant],
+  };
+  vm.runInNewContext(`${messagingSource}\n${bridgeSource}`, {
+    URL,
+    chrome: {
+      runtime: { onMessage: { addListener: (listener) => { metadataListener = listener; } } },
+    },
+    decodeURIComponent,
+    document: {
+      querySelector: () => ({ textContent: "Visible subject" }),
+      querySelectorAll: () => [latest],
+    },
+    window: {
+      location: {
+        hostname: "mail.google.com",
+        href: "https://mail.google.com/mail/u/0/#all/FMexact",
+      },
+    },
+  });
+
+  let response;
+  metadataListener(
+    { type: "getVisibleGmailParticipants" },
+    null,
+    (value) => { response = value; },
+  );
+
+  assert.equal(response.gmailApiThreadId, "api-thread-from-header");
+});
+
 test("Gmail content script stars only the exact open thread without navigation", () => {
   let metadataListener;
   let clicked = 0;

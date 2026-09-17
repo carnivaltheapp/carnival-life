@@ -75,7 +75,10 @@ function latestVisibleGmailMessage() {
 }
 
 function visibleGmailApiThreadId(message) {
-  const value = message?.getAttribute?.("data-legacy-thread-id") ??
+  const conversation = message?.closest?.("div[role='main']");
+  const header = conversation?.querySelector?.("h2[data-legacy-thread-id]");
+  const value = header?.getAttribute?.("data-legacy-thread-id") ??
+    message?.getAttribute?.("data-legacy-thread-id") ??
     message?.closest?.("[data-legacy-thread-id]")?.getAttribute?.("data-legacy-thread-id");
   const normalized = value?.trim?.() ?? "";
   return /^[a-zA-Z0-9_-]{1,200}$/.test(normalized) ? normalized : null;
