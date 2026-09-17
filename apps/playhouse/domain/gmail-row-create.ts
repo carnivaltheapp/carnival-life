@@ -24,6 +24,7 @@ type GmailRowCreateView =
 export type GmailRowCreateRequest = {
   correlationId: string;
   gmailApiThreadId?: unknown;
+  gmailApiThreadStrategy?: unknown;
   gmailParticipants?: unknown;
   subject: string;
   targetPlayId: string;
@@ -33,6 +34,7 @@ export type GmailRowCreateRequest = {
 export type ParsedGmailRowCreate = {
   attachment: GmailAttachment;
   correlationId: string;
+  gmailApiThreadStrategy: "ancestor" | "conversation_header" | "direct" | "missing";
   gmailParticipants: GmailParticipants | null;
   subject: string;
   targetPlayId: string;
@@ -97,6 +99,11 @@ export function parseGmailRowCreateRequest(value: unknown): ParsedGmailRowCreate
     ? parseGmailAttachmentUrl(request.url)
     : null;
   const apiThreadId = sanitizeGmailApiThreadId(request.gmailApiThreadId);
+  const gmailApiThreadStrategy = ["ancestor", "conversation_header", "direct"].includes(
+    String(request.gmailApiThreadStrategy),
+  )
+    ? request.gmailApiThreadStrategy as "ancestor" | "conversation_header" | "direct"
+    : "missing";
   if (!attachment || !subject || subject.length > 500 || !correlationId ||
       correlationId.length > 100 || !targetPlayId || targetPlayId.length > 100) return null;
 
@@ -106,6 +113,7 @@ export function parseGmailRowCreateRequest(value: unknown): ParsedGmailRowCreate
       ...(apiThreadId ? { apiThreadId } : {}),
     },
     correlationId,
+    gmailApiThreadStrategy,
     gmailParticipants: sanitizeGmailParticipants(request.gmailParticipants),
     subject,
     targetPlayId,

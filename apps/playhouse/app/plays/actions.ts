@@ -27,6 +27,7 @@ import {
 import { reminderContextDate } from "../../domain/reminder";
 import { resolveGmailAssigneeForParticipants } from "../../lib/google/gmail-assignee.server";
 import { changedPlayerSlackFromFormData } from "../../lib/google/contact-slack";
+import { recordGmailDiagnostic } from "../../lib/incoming-events/gmail-diagnostics";
 import { resolvePlayhouseDataSource } from "../../lib/playhouse/data-source";
 import { dateInTimeZone } from "../../lib/playhouse/data";
 import { createPlayRepository } from "../../lib/playhouse/play-repository";
@@ -519,6 +520,22 @@ export async function createGmailPlayFromRow(
       console.warn("GMAIL_ROW_CREATE_FAILED", { ...diagnostic, reason: "session_expired" });
       return errorState("Your session expired. Refresh the page and sign in again.");
     }
+    const gmailDiagnostic = {
+      apiThreadPresent: Boolean(parsed.attachment.apiThreadId),
+      correlationId: parsed.correlationId,
+      extractionStrategy: parsed.gmailApiThreadStrategy,
+      ownerUserId: auth.userId,
+      threadId: parsed.attachment.apiThreadId,
+      webThreadPresent: Boolean(parsed.attachment.threadRef),
+    } as const;
+    await recordGmailDiagnostic({
+      ...gmailDiagnostic,
+      stage: "DRAG_METADATA_EXTRACTED",
+    });
+    await recordGmailDiagnostic({
+      ...gmailDiagnostic,
+      stage: "DRAG_METADATA_RECEIVED",
+    });
     const baskets = await loadBaskets(auth.supabase);
     if (!baskets) {
       console.warn("GMAIL_ROW_CREATE_FAILED", { ...diagnostic, reason: "basket_load_failed" });
@@ -579,9 +596,21 @@ export async function createGmailPlayFromRow(
       playerResourceName,
     });
     if (!playId) {
+      await recordGmailDiagnostic({
+        ...gmailDiagnostic,
+        playId: null,
+        reason: "play_create_failed",
+        stage: "PLAY_GMAIL_LINK_PERSISTED",
+      });
       console.warn("GMAIL_ROW_CREATE_FAILED", { ...resolvedDiagnostic, reason: "create_failed" });
       return errorState("That Gmail Play could not be created.");
     }
+    await recordGmailDiagnostic({
+      ...gmailDiagnostic,
+      playId,
+      reason: "persisted",
+      stage: "PLAY_GMAIL_LINK_PERSISTED",
+    });
     const positioned = await repository.reposition({
       beforePlayId: target.id,
       placement: input.placement,

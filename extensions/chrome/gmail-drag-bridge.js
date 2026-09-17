@@ -77,11 +77,19 @@ function latestVisibleGmailMessage() {
 function visibleGmailApiThreadId(message) {
   const conversation = message?.closest?.("div[role='main']");
   const header = conversation?.querySelector?.("h2[data-legacy-thread-id]");
-  const value = header?.getAttribute?.("data-legacy-thread-id") ??
-    message?.getAttribute?.("data-legacy-thread-id") ??
-    message?.closest?.("[data-legacy-thread-id]")?.getAttribute?.("data-legacy-thread-id");
-  const normalized = value?.trim?.() ?? "";
-  return /^[a-zA-Z0-9_-]{1,200}$/.test(normalized) ? normalized : null;
+  const candidates = [
+    ["conversation_header", header?.getAttribute?.("data-legacy-thread-id")],
+    ["direct", message?.getAttribute?.("data-legacy-thread-id")],
+    ["ancestor", message?.closest?.("[data-legacy-thread-id]")
+      ?.getAttribute?.("data-legacy-thread-id")],
+  ];
+  for (const [strategy, value] of candidates) {
+    const normalized = value?.trim?.() ?? "";
+    if (/^[a-zA-Z0-9_-]{1,200}$/.test(normalized)) {
+      return { threadId: normalized, strategy };
+    }
+  }
+  return { threadId: null, strategy: "missing" };
 }
 
 function latestGmailParticipants() {
@@ -173,10 +181,11 @@ if (window.location.hostname === "mail.google.com") {
     const currentThreadRef = parseGmailUrl(window.location.href)?.threadRef ?? null;
     const extraction = latestGmailParticipants();
     const latest = latestVisibleGmailMessage();
-    const gmailApiThreadId = visibleGmailApiThreadId(latest);
+    const gmailApiThread = visibleGmailApiThreadId(latest);
     const subject = visibleGmailSubject();
     sendResponse({
-      gmailApiThreadId,
+      gmailApiThreadId: gmailApiThread.threadId,
+      gmailApiThreadStrategy: gmailApiThread.strategy,
       gmailParticipants: extraction.participants,
       gmailSubject: subject,
       participants: extraction.participants,
@@ -203,6 +212,7 @@ if (window.location.hostname === "mail.google.com") {
       const subject = response?.subject ?? response?.gmailSubject ?? null;
       const participants = response?.participants ?? response?.gmailParticipants ?? null;
       const gmailApiThreadId = response?.gmailApiThreadId ?? null;
+      const gmailApiThreadStrategy = response?.gmailApiThreadStrategy ?? "missing";
       console.info("GMAIL_ROW_CREATE_TAB_METADATA", {
         fromPresent: Boolean(participants?.from),
         gmailThreadRef: returnedThreadRef,
@@ -236,6 +246,7 @@ if (window.location.hostname === "mail.google.com") {
         detail: JSON.stringify({
           correlationId,
           gmailApiThreadId: gmailApiThreadId ?? undefined,
+          gmailApiThreadStrategy,
           gmailParticipants: participants ?? undefined,
           subject,
           targetPlayId: playId,

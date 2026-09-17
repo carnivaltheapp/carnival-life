@@ -12,6 +12,7 @@ import {
 import { GOOGLE_GMAIL_MODIFY_SCOPE } from "../google/scopes";
 import { getGoogleAccessToken } from "../google/token-broker.server";
 import { normalizeGmailIncomingMessage } from "./gmail-adapter";
+import { recordGmailDiagnostic } from "./gmail-diagnostics";
 import { MongoGmailWatchRepository } from "./gmail-watch-repository";
 import { MongoIncomingEventService } from "./mongo-incoming-event-store";
 import { processIncomingEvent } from "../../domain/incoming-event";
@@ -150,6 +151,11 @@ export async function processGmailNotification({
   if (!account || account.email.trim().toLocaleLowerCase() !== emailAddress.toLocaleLowerCase()) {
     return { ignored: true as const, reason: "account_not_connected" };
   }
+  await recordGmailDiagnostic({
+    ownerUserId: account.owner_user_id,
+    reason: "account_resolved",
+    stage: "GMAIL_NOTIFICATION_RECEIVED",
+  });
   const claim = await repository.claimNotification(account.id, historyId, now);
   if (claim.duplicate) return { duplicate: true as const };
   if ("busy" in claim && claim.busy) return { busy: true as const };
@@ -181,6 +187,13 @@ export async function processGmailNotification({
         ownerUserId: account.owner_user_id,
       });
       if (!event) continue;
+      await recordGmailDiagnostic({
+        apiThreadPresent: Boolean(event.externalThreadId),
+        ownerUserId: event.ownerUserId,
+        reason: "message_normalized",
+        stage: "GMAIL_NOTIFICATION_NORMALIZED",
+        threadId: event.externalThreadId,
+      });
       await processIncomingEvent({ event, matchEngine: service, store: service, todayDate });
       processed += 1;
     }
@@ -191,6 +204,11 @@ export async function processGmailNotification({
     );
     return { duplicate: false as const, processed };
   } catch (error) {
+    await recordGmailDiagnostic({
+      ownerUserId: account.owner_user_id,
+      reason: "notification_processing_failed",
+      stage: "GMAIL_NOTIFICATION_RECEIVED",
+    });
     if (error instanceof GmailIncomingApiError && error.status === 404) {
       // An expired Gmail history cursor must establish a new baseline, never replay old mail.
       await registerGmailWatchForAccount({

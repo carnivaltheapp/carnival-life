@@ -8,6 +8,8 @@ During the current Mongo-authoritative PlayHouse phase, source-neutral incoming 
 
 Gmail watch cursors and expirations are stored separately in `carnival_gmail_watch_states`. Tokens remain in the existing encrypted Google credential store; neither collection stores OAuth credentials or message bodies.
 
+The owner-scoped `carnival_gmail_diagnostics` collection retains a compact operational trail for Gmail drag linkage, notification normalization, matching and Play mutation. Gmail API thread identifiers are stored there only as deterministic SHA-256 fingerprints; message content, subjects, addresses, credentials and raw provider payloads are excluded.
+
 An existing matched Mongo Play carries only derived `carnival_incoming` count/latest-routing fields for efficient rendering and sorting. Incoming Event records remain authoritative. Event recording and Play promotion happen in one transaction, and incoming processing has no Play-creation operation.
 
 ## Principles

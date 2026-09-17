@@ -588,6 +588,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
       const gmailParticipants = response?.gmailParticipants ?? response?.participants ?? null;
       const gmailApiThreadId = response?.gmailApiThreadId ?? null;
+      const gmailApiThreadStrategy = response?.gmailApiThreadStrategy ?? "missing";
       const gmailSubject = response?.gmailSubject ?? response?.subject ?? null;
       const normalizedResponse = { ...response, gmailParticipants, gmailSubject };
       const received = {
@@ -604,6 +605,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         recordDiagnostic("warn", "GMAIL_METADATA_THREAD_MISMATCH", received);
         sendResponse({
           gmailApiThreadId,
+          gmailApiThreadStrategy,
           gmailParticipants: null,
           gmailSubject: null,
           returnedThreadRef: normalizedResponse?.threadRef ?? null,
@@ -617,6 +619,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         });
         sendResponse({
           gmailApiThreadId,
+          gmailApiThreadStrategy,
           gmailParticipants: null,
           gmailSubject,
           participants: null,
@@ -629,6 +632,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       recordDiagnostic("info", "GMAIL_PARTICIPANTS_RESOLVED_FROM_OPEN_TAB", received);
       sendResponse({
         gmailApiThreadId,
+        gmailApiThreadStrategy,
         gmailParticipants: verified.gmailParticipants,
         gmailSubject,
         participants: verified.gmailParticipants,

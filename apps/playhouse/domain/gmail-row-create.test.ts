@@ -11,6 +11,7 @@ import {
 const base = {
   correlationId: "drop-1",
   gmailApiThreadId: "api-thread-123",
+  gmailApiThreadStrategy: "conversation_header",
   subject: "Quarterly planning",
   targetPlayId: "target-1",
   url: "https://mail.google.com/mail/u/2/#inbox/FMfcExact",
@@ -42,6 +43,7 @@ describe("Gmail row-create input", () => {
     const parsed = parseGmailRowCreateRequest(base);
     expect(parsed).not.toBeNull();
     expect(parsed?.attachment.apiThreadId).toBe("api-thread-123");
+    expect(parsed?.gmailApiThreadStrategy).toBe("conversation_header");
     expect(gmailRowCreateInput(parsed!, target())).toMatchObject({
       placement: { kind: "calendar", scheduledDate: "2026-09-14" },
       playType: "normal",

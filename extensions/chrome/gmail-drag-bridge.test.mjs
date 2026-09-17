@@ -113,6 +113,7 @@ test("Gmail content script returns latest visible participants without page-drag
   );
   assert.deepEqual(JSON.parse(JSON.stringify(response)), {
     gmailApiThreadId: "api-thread-123",
+    gmailApiThreadStrategy: "direct",
     gmailParticipants: {
       from: { email: "me@example.com", name: "Me" },
       to: [{ email: "kayla@example.com", name: "Kayla" }],
@@ -179,6 +180,7 @@ test("Gmail content script reads the API thread ID from the sibling conversation
   );
 
   assert.equal(response.gmailApiThreadId, "api-thread-from-header");
+  assert.equal(response.gmailApiThreadStrategy, "conversation_header");
 });
 
 test("Gmail content script stars only the exact open thread without navigation", () => {
@@ -289,6 +291,7 @@ test("omnibox Gmail URL drop requests exact-tab metadata for row-create", async 
     request = message;
     return {
       gmailApiThreadId: "api-thread-123",
+      gmailApiThreadStrategy: "conversation_header",
       gmailParticipants,
       gmailSubject: "Quarterly planning",
       returnedThreadRef: "FMexact",
@@ -311,6 +314,7 @@ test("omnibox Gmail URL drop requests exact-tab metadata for row-create", async 
   assert.deepEqual(JSON.parse(context.dispatched().detail), {
     correlationId: "correlation-1",
     gmailApiThreadId: "api-thread-123",
+    gmailApiThreadStrategy: "conversation_header",
     gmailParticipants,
     subject: "Quarterly planning",
     targetPlayId: "play-1",
@@ -332,6 +336,7 @@ test("row-create waits for asynchronous exact-tab metadata and retains its targe
 
   resolveMetadata({
     gmailApiThreadId: "api-thread-123",
+    gmailApiThreadStrategy: "conversation_header",
     participants: {
       from: { email: "kayla@example.com", name: "Kayla" },
       to: [{ email: "me@example.com", name: "Me" }],
@@ -346,6 +351,7 @@ test("row-create waits for asynchronous exact-tab metadata and retains its targe
   assert.deepEqual(JSON.parse(context.dispatched().detail), {
     correlationId: "correlation-1",
     gmailApiThreadId: "api-thread-123",
+    gmailApiThreadStrategy: "conversation_header",
     gmailParticipants: {
       from: { email: "kayla@example.com", name: "Kayla" },
       to: [{ email: "me@example.com", name: "Me" }],

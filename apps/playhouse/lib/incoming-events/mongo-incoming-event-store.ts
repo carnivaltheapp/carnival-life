@@ -16,6 +16,7 @@ import type {
 } from "../../domain/incoming-event";
 import { incomingHeadlineOrderUpdates } from "../../domain/incoming-event";
 import { gmailThreadUrl } from "../../domain/play-display";
+import { recordGmailDiagnostic, type GmailMatchStrategy } from "./gmail-diagnostics";
 import {
   getCarnivalMongoClient,
   getCarnivalMongoDatabase,
@@ -119,12 +120,45 @@ function gmailRelationshipIds(event: NormalizedIncomingEvent) {
   return Array.from(new Set(values.flatMap((value) => text(value) ? [text(value)!] : [])));
 }
 
+function gmailCandidateMatchStrategy(
+  candidate: GmailCandidate,
+  externalThreadId: string | null,
+  relationshipIds: string[],
+): GmailMatchStrategy {
+  const carnivalGoogle = objectValue(candidate.carnival_google);
+  const attachment = objectValue(carnivalGoogle?.gmail_attachment);
+  if (externalThreadId && text(carnivalGoogle?.gmail_api_thread_id) === externalThreadId) {
+    return "api_thread_canonical";
+  }
+  if (externalThreadId && text(attachment?.api_thread_id) === externalThreadId) {
+    return "api_thread_attachment";
+  }
+  if (externalThreadId && text(candidate.thread_id) === externalThreadId) {
+    return "legacy_thread_id";
+  }
+  if (
+    relationshipIds.includes(text(candidate.last_id) ?? "") ||
+    relationshipIds.includes(text(candidate.message_id) ?? "")
+  ) {
+    return "legacy_message_id";
+  }
+  return "none";
+}
+
 export class MongoIncomingEventService implements IncomingEventMatchEngine, IncomingEventStore {
   async match(event: NormalizedIncomingEvent): Promise<IncomingEventMatch> {
     assertMongoUserMapping(event.ownerUserId);
     if (event.source !== "gmail") return { status: "unmatched" };
     const externalThreadId = text(event.externalThreadId);
     const relationshipIds = gmailRelationshipIds(event);
+    await recordGmailDiagnostic({
+      apiThreadPresent: Boolean(externalThreadId),
+      matchStrategy: "none",
+      ownerUserId: event.ownerUserId,
+      reason: externalThreadId ? "api_thread_present" : "relationship_ids_only",
+      stage: "GMAIL_MATCH_ATTEMPTED",
+      threadId: externalThreadId,
+    });
     const relationships: Filter<LegacyTaskDocument>[] = [];
     if (externalThreadId) {
       relationships.push(
@@ -139,7 +173,17 @@ export class MongoIncomingEventService implements IncomingEventMatchEngine, Inco
         { message_id: { $in: relationshipIds } },
       );
     }
-    if (!relationships.length) return { status: "unmatched" };
+    if (!relationships.length) {
+      await recordGmailDiagnostic({
+        apiThreadPresent: false,
+        matchResult: "unmatched",
+        matchStrategy: "none",
+        ownerUserId: event.ownerUserId,
+        reason: "no_relationship_identifiers",
+        stage: "GMAIL_MATCH_RESULT",
+      });
+      return { status: "unmatched" };
+    }
     const tasks = await (await getCarnivalMongoDatabase())
       .collection<LegacyTaskDocument>("tasks_task")
       .find({
@@ -159,9 +203,41 @@ export class MongoIncomingEventService implements IncomingEventMatchEngine, Inco
       })
       .limit(2)
       .toArray() as GmailCandidate[];
-    if (tasks.length === 0) return { status: "unmatched" };
-    if (tasks.length > 1) return { candidateCount: tasks.length, status: "ambiguous" };
+    if (tasks.length === 0) {
+      await recordGmailDiagnostic({
+        apiThreadPresent: Boolean(externalThreadId),
+        matchResult: "unmatched",
+        matchStrategy: "none",
+        ownerUserId: event.ownerUserId,
+        reason: "no_candidate",
+        stage: "GMAIL_MATCH_RESULT",
+        threadId: externalThreadId,
+      });
+      return { status: "unmatched" };
+    }
+    if (tasks.length > 1) {
+      await recordGmailDiagnostic({
+        apiThreadPresent: Boolean(externalThreadId),
+        matchResult: "ambiguous",
+        matchStrategy: "none",
+        ownerUserId: event.ownerUserId,
+        reason: "multiple_candidates",
+        stage: "GMAIL_MATCH_RESULT",
+        threadId: externalThreadId,
+      });
+      return { candidateCount: tasks.length, status: "ambiguous" };
+    }
     const playId = tasks[0]._id.toHexString();
+    await recordGmailDiagnostic({
+      apiThreadPresent: Boolean(externalThreadId),
+      matchResult: "matched",
+      matchStrategy: gmailCandidateMatchStrategy(tasks[0], externalThreadId, relationshipIds),
+      ownerUserId: event.ownerUserId,
+      playId,
+      reason: "candidate_found",
+      stage: "GMAIL_MATCH_RESULT",
+      threadId: externalThreadId,
+    });
     return {
       playId,
       routingUrl: accountIndexAndUrl(tasks[0], externalThreadId),
@@ -178,6 +254,7 @@ export class MongoIncomingEventService implements IncomingEventMatchEngine, Inco
     const client = await getCarnivalMongoClient();
     const session = client.startSession();
     let mutatedPlay = false;
+    let resultPriority: string | null = null;
     try {
       await session.withTransaction(async () => {
         const eventId = new ObjectId();
@@ -290,6 +367,7 @@ export class MongoIncomingEventService implements IncomingEventMatchEngine, Inco
           throw new Error("matched_play_update_failed");
         }
         mutatedPlay = true;
+        resultPriority = orderById.get(mutation.playId) ?? null;
         const wasToday = current.task_date instanceof Date &&
           current.task_date.toISOString().slice(0, 10) === mutation.scheduledDate;
         console.info(
@@ -300,6 +378,17 @@ export class MongoIncomingEventService implements IncomingEventMatchEngine, Inco
           count: existingCount + 1,
           playId: mutation.playId,
         });
+      });
+      await recordGmailDiagnostic({
+        mutationAttempted: Boolean(mutation && match.status === "matched"),
+        ownerUserId: event.ownerUserId,
+        playId: match.status === "matched" ? match.playId : null,
+        reason: mutatedPlay ? "mutation_complete" : "not_matched",
+        resultDate: mutatedPlay ? mutation?.scheduledDate : null,
+        resultPriority,
+        resultTaskType: mutatedPlay ? "H" : null,
+        stage: "PLAY_INCOMING_MUTATION",
+        threadId: event.externalThreadId,
       });
       return {
         duplicate: false,
@@ -313,6 +402,14 @@ export class MongoIncomingEventService implements IncomingEventMatchEngine, Inco
           externalEventId: event.externalEventId,
           source: event.source,
         });
+        await recordGmailDiagnostic({
+          mutationAttempted: false,
+          ownerUserId: event.ownerUserId,
+          playId: match.status === "matched" ? match.playId : null,
+          reason: "duplicate_event",
+          stage: "PLAY_INCOMING_MUTATION",
+          threadId: event.externalThreadId,
+        });
         return {
           duplicate: true,
           linkedPlayId: match.status === "matched" ? match.playId : null,
@@ -320,6 +417,14 @@ export class MongoIncomingEventService implements IncomingEventMatchEngine, Inco
           mutatedPlay: false,
         };
       }
+      await recordGmailDiagnostic({
+        mutationAttempted: Boolean(mutation && match.status === "matched"),
+        ownerUserId: event.ownerUserId,
+        playId: match.status === "matched" ? match.playId : null,
+        reason: "mutation_failed",
+        stage: "PLAY_INCOMING_MUTATION",
+        threadId: event.externalThreadId,
+      });
       throw error;
     } finally {
       await session.endSession();
