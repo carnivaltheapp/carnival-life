@@ -1507,39 +1507,17 @@ function PlayhouseShellView({
           aria-labelledby="view-title"
           style={{ "--play-grid-font-size": `${gridFontSize}px` } as CSSProperties}
         >
-          <div className="playPanelCrown">
-            {crownError ? (
-              <p className="playPanelCrownError" id="view-title" role="alert">
-                {crownError}
-              </p>
-            ) : (
-              <h1 className="playPanelCrownTitle" id="view-title">{viewTitle}</h1>
-            )}
-          </div>
-          {dataError ? (
-            <div className="emptyState">
-              <span className="spark errorSpark" aria-hidden="true">
-                !
-              </span>
-              <p>
-                Your session is still secure. Refresh the page in a moment, or sign out and
-                try again.
-              </p>
+          <div className="playPanelHeader">
+            <div className="playPanelCrown">
+              {crownError ? (
+                <p className="playPanelCrownError" id="view-title" role="alert">
+                  {crownError}
+                </p>
+              ) : (
+                <h1 className="playPanelCrownTitle" id="view-title">{viewTitle}</h1>
+              )}
             </div>
-          ) : visiblePlays.length === 0 ? (
-            <div className="emptyState">
-              <span className="spark" aria-hidden="true">
-                ✦
-              </span>
-              <h2>{searchQuery ? "No Plays found" : "No Plays here yet."}</h2>
-              <p>
-                {searchQuery
-                  ? "Try another search, or clear it to return to this view."
-                  : "Create a Play here, or choose another calendar date or Basket."}
-              </p>
-            </div>
-          ) : (
-            <>
+            {!dataError && visiblePlays.length > 0 ? (
               <div className="playGridHeader" role="row">
                 <div className="playIdentityCell">
                   <GridSortHeader
@@ -1585,7 +1563,32 @@ function PlayhouseShellView({
                   )}
                 </div>
               </div>
-              <ol
+            ) : null}
+          </div>
+          {dataError ? (
+            <div className="emptyState">
+              <span className="spark errorSpark" aria-hidden="true">
+                !
+              </span>
+              <p>
+                Your session is still secure. Refresh the page in a moment, or sign out and
+                try again.
+              </p>
+            </div>
+          ) : visiblePlays.length === 0 ? (
+            <div className="emptyState">
+              <span className="spark" aria-hidden="true">
+                ✦
+              </span>
+              <h2>{searchQuery ? "No Plays found" : "No Plays here yet."}</h2>
+              <p>
+                {searchQuery
+                  ? "Try another search, or clear it to return to this view."
+                  : "Create a Play here, or choose another calendar date or Basket."}
+              </p>
+            </div>
+          ) : (
+            <ol
                 aria-busy={movePending || bulkPending}
                 className="playList"
                 aria-label={`Open Plays in ${selectedView.label}`}
@@ -1794,8 +1797,7 @@ function PlayhouseShellView({
                 </li>
                   );
                 })}
-              </ol>
-            </>
+            </ol>
           )}
         </section>
       </div>

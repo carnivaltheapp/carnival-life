@@ -30,10 +30,12 @@ describe("Play grid responsive squeeze contract", () => {
   });
 
   it("keeps the original symmetric outer margin while reclaiming navigation width", () => {
+    const workspace = rule(".workspace");
     const workspaceRule = rule(".workspaceBody");
 
     expect(workspaceRule).toContain("grid-template-columns: 160px minmax(0, 1fr)");
-    expect(workspaceRule).toContain("padding: clamp(24px, 4vw, 52px)");
+    expect(workspace).toContain("--workspace-block-inset: clamp(24px, 4vw, 52px)");
+    expect(workspaceRule).toContain("padding: var(--workspace-block-inset)");
     expect(workspaceRule).toContain("padding-right: 100px");
   });
 
