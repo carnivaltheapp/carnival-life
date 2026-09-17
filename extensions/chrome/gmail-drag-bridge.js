@@ -3,6 +3,7 @@ const CONSUME_GMAIL_LIST_ROW_DRAG = "consumeGmailListRowDrag";
 const GET_GMAIL_LIST_ROW_DRAG = "getGmailListRowDrag";
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
 const GET_VISIBLE_GMAIL_PARTICIPANTS = "getVisibleGmailParticipants";
+const GMAIL_LIST_ROW_RELAY_KEY = "carnivalGmailListRowDiagnosticRelay";
 const RECORD_GMAIL_LIST_ROW_DIAGNOSTIC = "recordGmailListRowDiagnostic";
 const STAR_GMAIL_THREAD = "starGmailThread";
 const STAR_VISIBLE_GMAIL_THREAD = "starVisibleGmailThread";
@@ -209,10 +210,71 @@ function gmailListRowMetadataResolution(row) {
 }
 
 function reportGmailListRowDiagnostic(detail) {
+  const retainRelayStatus = (status, reason) => {
+    try {
+      void globalThis.chrome?.storage?.local?.set({
+        [GMAIL_LIST_ROW_RELAY_KEY]: {
+          correlationId: detail.correlationId,
+          ...(reason ? { reason } : {}),
+          stage: detail.stage,
+          status,
+        },
+      });
+    } catch {}
+  };
+  retainRelayStatus("diagnostic_created");
   void sendGmailExtensionMessage({
     diagnostic: detail,
     type: RECORD_GMAIL_LIST_ROW_DIAGNOSTIC,
+  }).then((result) => {
+    if (!result.ok) retainRelayStatus("diagnostic_relay_failed", "runtime_message_failed");
   });
+}
+
+function gmailListRowStructure(target) {
+  const allowedRoles = new Set([
+    "button", "checkbox", "gridcell", "link", "main", "presentation", "row",
+  ]);
+  const ancestors = [];
+  const ancestorRoles = [];
+  let current = target;
+  let rolePresent = false;
+  let draggableAttributePresent = false;
+  let dataLegacyThreadAttributePresent = false;
+  let dataThreadAttributePresent = false;
+  let dataMessageAttributePresent = false;
+  for (let depth = 0; current instanceof Element && depth < 7; depth += 1) {
+    const rawTag = current.tagName?.toUpperCase?.() ?? "UNKNOWN";
+    ancestors.push(/^[A-Z][A-Z0-9-]{0,19}$/.test(rawTag) ? rawTag : "OTHER");
+    const currentRole = current.getAttribute?.("role")?.trim?.().toLowerCase?.() ?? null;
+    ancestorRoles.push(currentRole
+      ? (allowedRoles.has(currentRole) ? currentRole : "other")
+      : "none");
+    rolePresent ||= current.hasAttribute?.("role") === true;
+    draggableAttributePresent ||= current.hasAttribute?.("draggable") === true;
+    dataLegacyThreadAttributePresent ||=
+      current.hasAttribute?.("data-legacy-thread-id") === true;
+    dataThreadAttributePresent ||= current.hasAttribute?.("data-thread-id") === true;
+    dataMessageAttributePresent ||= current.hasAttribute?.("data-message-id") === true;
+    current = current.parentElement;
+  }
+  const rawRole = target.getAttribute?.("role")?.trim?.().toLowerCase?.() ?? null;
+  return {
+    ancestorDepth: Math.max(ancestors.length - 1, 0),
+    ancestorRoles,
+    ancestorTags: ancestors,
+    clickableMessageLinkPresent: Boolean(
+      target.closest?.("a, [role='link']") || target.querySelector?.("a, [role='link']"),
+    ),
+    dataLegacyThreadAttributePresent,
+    dataMessageAttributePresent,
+    dataThreadAttributePresent,
+    draggableAncestorPresent: Boolean(target.closest?.("[draggable='true']")),
+    draggableAttributePresent,
+    rolePresent,
+    targetRole: rawRole ? (allowedRoles.has(rawRole) ? rawRole : "other") : null,
+    targetTag: ancestors[0] ?? "UNKNOWN",
+  };
 }
 
 function starVisibleGmailThread(expectedThreadRef) {
@@ -278,7 +340,7 @@ if (window.location.hostname === "mail.google.com") {
 
   function reportMissingListRowDragstart() {
     if (
-      !listRowAttempt?.metadataReady ||
+      !listRowAttempt ||
       !listRowAttempt.moved ||
       listRowAttempt.dragStarted ||
       listRowAttempt.missingReported
@@ -287,7 +349,7 @@ if (window.location.hostname === "mail.google.com") {
     reportGmailListRowDiagnostic({
       correlationId: listRowAttempt.correlationId,
       fired: false,
-      metadataReady: true,
+      metadataReady: listRowAttempt.metadataReady,
       reason: "dragstart_not_fired",
       stage: "LIST_ROW_DRAGSTART",
     });
@@ -307,18 +369,28 @@ if (window.location.hostname === "mail.google.com") {
     if (event.button !== 0) return;
     clearPreparedListRowDrag();
     listRowAttempt = null;
-    const candidateRow = event.target instanceof Element
-      ? event.target.closest("tr")
-      : null;
-    if (!candidateRow) return;
+    if (!(event.target instanceof Element)) return;
     const correlationId = crypto.randomUUID();
     const row = gmailListRowFromTarget(event.target);
+    const structure = gmailListRowStructure(event.target);
     reportGmailListRowDiagnostic({
       correlationId,
-      reason: row ? "completed" : "row_not_recognized",
+      handlerReached: true,
+      reason: row ? "recognized" : "row_not_recognized",
       rowRecognized: Boolean(row),
       stage: "LIST_ROW_POINTERDOWN",
+      ...structure,
     });
+    listRowAttempt = {
+      correlationId,
+      dragStarted: false,
+      metadataReady: false,
+      missingReported: false,
+      moved: false,
+      pointerX: Number.isFinite(event.clientX) ? event.clientX : 0,
+      pointerY: Number.isFinite(event.clientY) ? event.clientY : 0,
+      row,
+    };
     if (!row) return;
     const resolution = gmailListRowMetadataResolution(row);
     reportGmailListRowDiagnostic({
@@ -330,16 +402,7 @@ if (window.location.hostname === "mail.google.com") {
       success: Boolean(resolution.metadata),
       webThreadPresent: resolution.webThreadPresent,
     });
-    listRowAttempt = {
-      correlationId,
-      dragStarted: false,
-      metadataReady: Boolean(resolution.metadata),
-      missingReported: false,
-      moved: false,
-      pointerX: Number.isFinite(event.clientX) ? event.clientX : 0,
-      pointerY: Number.isFinite(event.clientY) ? event.clientY : 0,
-      row,
-    };
+    listRowAttempt.metadataReady = Boolean(resolution.metadata);
     if (!resolution.metadata) return;
     preparedListRowDrag = {
       metadata: { ...resolution.metadata, correlationId },
@@ -354,7 +417,7 @@ if (window.location.hostname === "mail.google.com") {
     const sourceRow = event.target instanceof Element
       ? event.target.closest("tr.zA[role='row']")
       : null;
-    if (listRowAttempt && sourceRow === listRowAttempt.row) {
+    if (listRowAttempt && (!listRowAttempt.row || sourceRow === listRowAttempt.row)) {
       listRowAttempt.dragStarted = true;
       reportGmailListRowDiagnostic({
         correlationId: listRowAttempt.correlationId,

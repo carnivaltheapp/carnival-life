@@ -23,6 +23,7 @@ const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
 const GET_GMAIL_LIST_ROW_DRAG = "getGmailListRowDrag";
+const GMAIL_LIST_ROW_RELAY_KEY = "carnivalGmailListRowDiagnosticRelay";
 const RECORD_GMAIL_LIST_ROW_DIAGNOSTIC = "recordGmailListRowDiagnostic";
 const STAR_GMAIL_THREAD = "starGmailThread";
 const STAR_VISIBLE_GMAIL_THREAD = "starVisibleGmailThread";
@@ -470,6 +471,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === RECORD_GMAIL_LIST_ROW_DIAGNOSTIC) {
+    const relay = {
+      correlationId: message.diagnostic?.correlationId,
+      stage: message.diagnostic?.stage,
+    };
+    recordDiagnostic("info", "GMAIL_LIST_ROW_DIAGNOSTIC_RELAY", {
+      ...relay,
+      status: "diagnostic_created",
+    });
+    const retainRelayStatus = (status, reason) => chrome.storage.local.set({
+      [GMAIL_LIST_ROW_RELAY_KEY]: {
+        correlationId: relay.correlationId,
+        ...(reason ? { reason } : {}),
+        stage: relay.stage,
+        status,
+      },
+    }).catch(() => {});
+    void retainRelayStatus("diagnostic_created");
     chrome.tabs.query({
       url: ["https://carnival-playhouse.vercel.app/*", "http://localhost/*"],
     }).then((tabs) => {
@@ -478,10 +496,35 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return chrome.tabs.sendMessage(playhouseTab.id, {
           diagnostic: message.diagnostic,
           type: RECORD_GMAIL_LIST_ROW_DIAGNOSTIC,
+        }).then((response) => {
+          recordDiagnostic(response?.ok ? "info" : "warn", "GMAIL_LIST_ROW_DIAGNOSTIC_RELAY", {
+            ...relay,
+            reason: response?.reason ?? (response?.ok ? "completed" : "diagnostic_post_failed"),
+            status: response?.ok
+              ? "diagnostic_relay_succeeded"
+              : "diagnostic_relay_failed",
+          });
+          void retainRelayStatus(
+            response?.ok ? "diagnostic_relay_succeeded" : "diagnostic_relay_failed",
+            response?.reason ?? (response?.ok ? "completed" : "diagnostic_post_failed"),
+          );
         });
       }
+      recordDiagnostic("warn", "GMAIL_LIST_ROW_DIAGNOSTIC_RELAY", {
+        ...relay,
+        reason: "playhouse_tab_missing",
+        status: "diagnostic_relay_failed",
+      });
+      void retainRelayStatus("diagnostic_relay_failed", "playhouse_tab_missing");
       return null;
-    }).catch(() => {});
+    }).catch(() => {
+      recordDiagnostic("warn", "GMAIL_LIST_ROW_DIAGNOSTIC_RELAY", {
+        ...relay,
+        reason: "bridge_request_failed",
+        status: "diagnostic_relay_failed",
+      });
+      void retainRelayStatus("diagnostic_relay_failed", "bridge_request_failed");
+    });
     sendResponse({ ok: true });
     return false;
   }

@@ -15,6 +15,7 @@ const LIST_ROW_STAGES = [
   "LIST_ROW_DRAGSTART",
 ] as const;
 const LIST_ROW_REASONS = [
+  "recognized",
   "row_not_recognized",
   "metadata_container_missing",
   "web_thread_missing",
@@ -25,6 +26,13 @@ const LIST_ROW_REASONS = [
   "metadata_not_ready",
   "completed",
 ] as const;
+const LIST_ROW_ROLES = [
+  "button", "checkbox", "gridcell", "link", "main", "none", "other", "presentation", "row",
+] as const;
+
+function booleanValue(input: Record<string, unknown>, key: string) {
+  return typeof input[key] === "boolean" ? input[key] as boolean : undefined;
+}
 
 async function authenticatedOwnerUserId() {
   const supabase = await createClient();
@@ -101,25 +109,48 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid_diagnostic" }, { status: 400 });
   }
 
-  await recordGmailDiagnostic({
-    apiThreadPresent: typeof input.apiThreadPresent === "boolean"
-      ? input.apiThreadPresent
-      : undefined,
+  const ancestorTags = Array.isArray(input.ancestorTags) && input.ancestorTags.every((tag) => (
+    typeof tag === "string" && /^[A-Z][A-Z0-9-]{0,19}$/.test(tag)
+  )) && input.ancestorTags.length <= 7 ? input.ancestorTags as string[] : undefined;
+  const ancestorRoles = Array.isArray(input.ancestorRoles) && input.ancestorRoles.every((role) => (
+    typeof role === "string" && LIST_ROW_ROLES.includes(
+      role as (typeof LIST_ROW_ROLES)[number],
+    )
+  )) && input.ancestorRoles.length <= 7 ? input.ancestorRoles as string[] : undefined;
+  const targetTag = typeof input.targetTag === "string" &&
+    /^[A-Z][A-Z0-9-]{0,19}$/.test(input.targetTag) ? input.targetTag : undefined;
+  const targetRole = typeof input.targetRole === "string" && LIST_ROW_ROLES.includes(
+    input.targetRole as (typeof LIST_ROW_ROLES)[number],
+  ) ? input.targetRole : undefined;
+  const persisted = await recordGmailDiagnostic({
+    ancestorDepth: Number.isSafeInteger(input.ancestorDepth) && Number(input.ancestorDepth) >= 0 &&
+      Number(input.ancestorDepth) <= 6 ? Number(input.ancestorDepth) : undefined,
+    ancestorRoles,
+    ancestorTags,
+    apiThreadPresent: booleanValue(input, "apiThreadPresent"),
+    clickableMessageLinkPresent: booleanValue(input, "clickableMessageLinkPresent"),
     correlationId,
-    draggableTargetPresent: typeof input.draggableTargetPresent === "boolean"
-      ? input.draggableTargetPresent
-      : undefined,
-    fired: typeof input.fired === "boolean" ? input.fired : undefined,
-    metadataReady: typeof input.metadataReady === "boolean" ? input.metadataReady : undefined,
+    dataLegacyThreadAttributePresent: booleanValue(input, "dataLegacyThreadAttributePresent"),
+    dataMessageAttributePresent: booleanValue(input, "dataMessageAttributePresent"),
+    dataThreadAttributePresent: booleanValue(input, "dataThreadAttributePresent"),
+    draggableAncestorPresent: booleanValue(input, "draggableAncestorPresent"),
+    draggableAttributePresent: booleanValue(input, "draggableAttributePresent"),
+    draggableTargetPresent: booleanValue(input, "draggableTargetPresent"),
+    fired: booleanValue(input, "fired"),
+    handlerReached: booleanValue(input, "handlerReached"),
+    metadataReady: booleanValue(input, "metadataReady"),
     ownerUserId,
     reason,
-    rowRecognized: typeof input.rowRecognized === "boolean" ? input.rowRecognized : undefined,
+    rolePresent: booleanValue(input, "rolePresent"),
+    rowRecognized: booleanValue(input, "rowRecognized"),
     source: "list_row",
     stage,
-    success: typeof input.success === "boolean" ? input.success : undefined,
-    webThreadPresent: typeof input.webThreadPresent === "boolean"
-      ? input.webThreadPresent
-      : undefined,
+    success: booleanValue(input, "success"),
+    targetRole,
+    targetTag,
+    webThreadPresent: booleanValue(input, "webThreadPresent"),
   });
-  return new NextResponse(null, { status: 204 });
+  return persisted
+    ? new NextResponse(null, { status: 204 })
+    : NextResponse.json({ error: "diagnostic_unavailable" }, { status: 503 });
 }

@@ -40,34 +40,55 @@ describe("Gmail pipeline diagnostics", () => {
 
   it("stores only privacy-safe list-row diagnostic fields", () => {
     const document = gmailDiagnosticDocument({
-      apiThreadPresent: true,
+      ancestorDepth: 2,
+      ancestorRoles: ["none", "link", "row"],
+      ancestorTags: ["SPAN", "DIV", "DIV"],
+      clickableMessageLinkPresent: true,
       correlationId: "list-row-1",
-      draggableTargetPresent: true,
-      fired: true,
-      metadataReady: true,
+      dataLegacyThreadAttributePresent: false,
+      dataMessageAttributePresent: false,
+      dataThreadAttributePresent: true,
+      draggableAncestorPresent: true,
+      draggableAttributePresent: false,
+      handlerReached: true,
       ownerUserId: "owner-1",
-      reason: "completed",
-      rowRecognized: true,
+      reason: "row_not_recognized",
+      rolePresent: true,
+      rowRecognized: false,
       source: "list_row",
-      stage: "LIST_ROW_DRAGSTART",
-      success: true,
-      webThreadPresent: true,
-      ...({ emailAddress: "private@example.com", subject: "private" } as object),
+      stage: "LIST_ROW_POINTERDOWN",
+      targetRole: "link",
+      targetTag: "SPAN",
+      ...({
+        emailAddress: "private@example.com",
+        href: "https://mail.google.com/private",
+        rawHtml: "<div>private</div>",
+        subject: "private",
+      } as object),
     });
     expect(document).toMatchObject({
-      api_thread_present: true,
+      ancestor_depth: 2,
+      ancestor_roles: ["none", "link", "row"],
+      ancestor_tags: ["SPAN", "DIV", "DIV"],
+      clickable_message_link_present: true,
       correlation_id: "list-row-1",
-      draggable_target_present: true,
-      fired: true,
-      metadata_ready: true,
-      reason: "completed",
-      row_recognized: true,
+      data_legacy_thread_attribute_present: false,
+      data_message_attribute_present: false,
+      data_thread_attribute_present: true,
+      draggable_ancestor_present: true,
+      draggable_attribute_present: false,
+      handler_reached: true,
+      reason: "row_not_recognized",
+      role_present: true,
+      row_recognized: false,
       source: "list_row",
-      stage: "LIST_ROW_DRAGSTART",
-      success: true,
-      web_thread_present: true,
+      stage: "LIST_ROW_POINTERDOWN",
+      target_role: "link",
+      target_tag: "SPAN",
     });
     expect(JSON.stringify(document)).not.toContain("private");
+    expect(document).not.toHaveProperty("href");
+    expect(document).not.toHaveProperty("raw_html");
   });
 
   it("records outgoing lifecycle results without raw Gmail identifiers", () => {
@@ -201,6 +222,7 @@ describe("Gmail pipeline diagnostics", () => {
     expect(route).toContain('error: "unauthorized"');
     expect(route).toContain("export async function POST");
     expect(route).toContain("recordGmailDiagnostic({");
+    expect(route).toContain("diagnostic_unavailable");
     expect(route).toContain('source: "list_row"');
     expect(route).toContain("ownerUserId,");
     expect(route).toContain('"Cache-Control": "private, no-store"');
