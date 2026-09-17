@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-DETAIL-STICKY-SCOPE-113
+          P3-GMAIL-STAR-TOOLTIP-114
         </small>
       </body>
     </html>

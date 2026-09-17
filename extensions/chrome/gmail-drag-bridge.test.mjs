@@ -194,7 +194,7 @@ test("Gmail content script stars only the exact open thread without navigation",
     getAttribute: () => null,
     getClientRects: () => [{}],
     querySelector: () => null,
-    querySelectorAll: (selector) => selector === "[aria-label], [data-tooltip], [title]"
+    querySelectorAll: (selector) => selector === "[aria-label], [data-tooltip], [title], [tooltip]"
       ? [star]
       : [],
   };
@@ -235,15 +235,20 @@ test("Gmail content script stars only the exact open thread without navigation",
 test("Gmail content script unstars only the exact open thread without navigation", () => {
   let metadataListener;
   let clicked = 0;
+  let unrelatedClicked = 0;
   const unstar = {
     click: () => { clicked += 1; },
-    getAttribute: (attribute) => attribute === "aria-label" ? "Remove star" : null,
+    getAttribute: (attribute) => attribute === "tooltip" ? "Starred" : null,
+  };
+  const unrelated = {
+    click: () => { unrelatedClicked += 1; },
+    getAttribute: (attribute) => attribute === "tooltip" ? "Starred" : null,
   };
   const latest = {
     getAttribute: () => null,
     getClientRects: () => [{}],
     querySelector: () => null,
-    querySelectorAll: (selector) => selector === "[aria-label], [data-tooltip], [title]"
+    querySelectorAll: (selector) => selector === "[aria-label], [data-tooltip], [title], [tooltip]"
       ? [unstar]
       : [],
   };
@@ -257,7 +262,7 @@ test("Gmail content script unstars only the exact open thread without navigation
       runtime: { onMessage: { addListener: (listener) => { metadataListener = listener; } } },
     },
     decodeURIComponent,
-    document: { querySelectorAll: () => [latest] },
+    document: { querySelectorAll: () => [unrelated, latest] },
     window: { location },
   });
 
@@ -269,6 +274,7 @@ test("Gmail content script unstars only the exact open thread without navigation
   );
   assert.equal(response.ok, true);
   assert.equal(clicked, 1);
+  assert.equal(unrelatedClicked, 0);
   assert.equal(location.href, "https://mail.google.com/mail/u/2/#all/FMexact");
 
   metadataListener(
@@ -279,6 +285,92 @@ test("Gmail content script unstars only the exact open thread without navigation
   assert.equal(response.ok, false);
   assert.equal(response.reason, "thread_mismatch");
   assert.equal(clicked, 1);
+  assert.equal(unrelatedClicked, 0);
+});
+
+test("Gmail content script recognizes the current tooltip unstarred state", () => {
+  let metadataListener;
+  let clicked = 0;
+  const alreadyUnstarred = {
+    click: () => { clicked += 1; },
+    getAttribute: (attribute) => attribute === "tooltip" ? "Not starred" : null,
+  };
+  const latest = {
+    getAttribute: () => null,
+    getClientRects: () => [{}],
+    querySelector: () => null,
+    querySelectorAll: (selector) => selector === "[aria-label], [data-tooltip], [title], [tooltip]"
+      ? [alreadyUnstarred]
+      : [],
+  };
+  vm.runInNewContext(`${messagingSource}\n${bridgeSource}`, {
+    URL,
+    chrome: {
+      runtime: { onMessage: { addListener: (listener) => { metadataListener = listener; } } },
+    },
+    decodeURIComponent,
+    document: { querySelectorAll: () => [latest] },
+    window: {
+      location: {
+        hostname: "mail.google.com",
+        href: "https://mail.google.com/mail/u/0/#all/FMexact",
+      },
+    },
+  });
+
+  let response;
+  metadataListener(
+    { threadRef: "FMexact", type: "unstarVisibleGmailThread" },
+    null,
+    (value) => { response = value; },
+  );
+  assert.equal(response.ok, true);
+  assert.equal(response.alreadyUnstarred, true);
+  assert.equal(clicked, 0);
+});
+
+test("Gmail star controls retain aria-label, data-tooltip, and title fallbacks", () => {
+  for (const [attribute, value, type] of [
+    ["data-tooltip", "Not starred", "starVisibleGmailThread"],
+    ["title", "Starred", "unstarVisibleGmailThread"],
+  ]) {
+    let metadataListener;
+    let clicked = 0;
+    const control = {
+      click: () => { clicked += 1; },
+      getAttribute: (name) => name === attribute ? value : null,
+    };
+    const latest = {
+      getAttribute: () => null,
+      getClientRects: () => [{}],
+      querySelector: () => null,
+      querySelectorAll: (selector) => selector === "[aria-label], [data-tooltip], [title], [tooltip]"
+        ? [control]
+        : [],
+    };
+    vm.runInNewContext(`${messagingSource}\n${bridgeSource}`, {
+      URL,
+      chrome: {
+        runtime: { onMessage: { addListener: (listener) => { metadataListener = listener; } } },
+      },
+      decodeURIComponent,
+      document: { querySelectorAll: () => [latest] },
+      window: {
+        location: {
+          hostname: "mail.google.com",
+          href: "https://mail.google.com/mail/u/0/#all/FMexact",
+        },
+      },
+    });
+    let response;
+    metadataListener(
+      { threadRef: "FMexact", type },
+      null,
+      (result) => { response = result; },
+    );
+    assert.equal(response.ok, true);
+    assert.equal(clicked, 1);
+  }
 });
 
 test("omnibox Gmail URL drop requests exact-tab metadata for row-create", async () => {

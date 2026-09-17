@@ -123,11 +123,14 @@ function starVisibleGmailThread(expectedThreadRef) {
   }
   const latest = latestVisibleGmailMessage();
   if (!latest) return { ok: false, reason: "latest_visible_message_not_found", threadRef: currentThreadRef };
-  const controls = Array.from(latest.querySelectorAll("[aria-label], [data-tooltip], [title]"));
+  const controls = Array.from(latest.querySelectorAll(
+    "[aria-label], [data-tooltip], [title], [tooltip]",
+  ));
   const label = (control) => [
     control.getAttribute?.("aria-label"),
     control.getAttribute?.("data-tooltip"),
     control.getAttribute?.("title"),
+    control.getAttribute?.("tooltip"),
   ].filter(Boolean).join(" ").toLowerCase();
   const star = controls.find((control) => /add star|not starred/.test(label(control)));
   if (star && typeof star.click === "function") {
@@ -147,11 +150,14 @@ function unstarVisibleGmailThread(expectedThreadRef) {
   }
   const latest = latestVisibleGmailMessage();
   if (!latest) return { ok: false, reason: "latest_visible_message_not_found", threadRef: currentThreadRef };
-  const controls = Array.from(latest.querySelectorAll("[aria-label], [data-tooltip], [title]"));
+  const controls = Array.from(latest.querySelectorAll(
+    "[aria-label], [data-tooltip], [title], [tooltip]",
+  ));
   const label = (control) => [
     control.getAttribute?.("aria-label"),
     control.getAttribute?.("data-tooltip"),
     control.getAttribute?.("title"),
+    control.getAttribute?.("tooltip"),
   ].filter(Boolean).join(" ").toLowerCase();
   const unstar = controls.find((control) => {
     const value = label(control);
