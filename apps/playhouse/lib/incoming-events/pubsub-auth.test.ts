@@ -52,4 +52,26 @@ describe("authenticated Gmail Pub/Sub notifications", () => {
     expect(parseGmailPubSubEnvelope({ message: { data }, subscription: "wrong" }, subscription))
       .toBeNull();
   });
+
+  it.each([
+    ["envelope_invalid", null],
+    ["subscription_mismatch", { message: { data: "ignored" }, subscription: "wrong" }],
+    ["data_missing", { message: {}, subscription: "projects/project/subscriptions/sub" }],
+    ["gmail_payload_invalid", {
+      message: { data: Buffer.from("{}").toString("base64url") },
+      subscription: "projects/project/subscriptions/sub",
+    }],
+  ])("logs only the safe %s validation stage", (stage, envelope) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    expect(parseGmailPubSubEnvelope(
+      envelope,
+      "projects/project/subscriptions/sub",
+    )).toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      "CARNIVAL_INCOMING_EVENT GMAIL_NOTIFICATION_VALIDATION_FAILED",
+      { stage },
+    );
+    warn.mockRestore();
+  });
 });

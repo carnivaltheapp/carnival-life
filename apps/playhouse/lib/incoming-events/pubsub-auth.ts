@@ -45,14 +45,33 @@ export type GmailPubSubEnvelope = {
   subscription?: unknown;
 };
 
+type GmailPubSubValidationStage =
+  | "envelope_invalid"
+  | "subscription_mismatch"
+  | "data_missing"
+  | "gmail_payload_invalid";
+
+function invalidGmailPubSubNotification(stage: GmailPubSubValidationStage) {
+  console.warn("CARNIVAL_INCOMING_EVENT GMAIL_NOTIFICATION_VALIDATION_FAILED", {
+    stage,
+  });
+  return null;
+}
+
 export function parseGmailPubSubEnvelope(
   value: unknown,
   expectedSubscription: string,
 ) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return invalidGmailPubSubNotification("envelope_invalid");
+  }
   const envelope = value as GmailPubSubEnvelope;
-  if (envelope.subscription !== expectedSubscription ||
-      typeof envelope.message?.data !== "string") return null;
+  if (envelope.subscription !== expectedSubscription) {
+    return invalidGmailPubSubNotification("subscription_mismatch");
+  }
+  if (typeof envelope.message?.data !== "string") {
+    return invalidGmailPubSubNotification("data_missing");
+  }
   try {
     const decoded = JSON.parse(
       Buffer.from(envelope.message.data, "base64url").toString("utf8"),
@@ -60,7 +79,9 @@ export function parseGmailPubSubEnvelope(
     if (typeof decoded.emailAddress !== "string" ||
         !decoded.emailAddress.trim() ||
         typeof decoded.historyId !== "string" ||
-        !/^\d+$/.test(decoded.historyId)) return null;
+        !/^\d+$/.test(decoded.historyId)) {
+      return invalidGmailPubSubNotification("gmail_payload_invalid");
+    }
     return {
       emailAddress: decoded.emailAddress.trim().toLocaleLowerCase(),
       historyId: decoded.historyId,
@@ -72,6 +93,6 @@ export function parseGmailPubSubEnvelope(
         : null,
     };
   } catch {
-    return null;
+    return invalidGmailPubSubNotification("gmail_payload_invalid");
   }
 }
