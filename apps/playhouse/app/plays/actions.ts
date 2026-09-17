@@ -524,6 +524,7 @@ export async function createGmailPlayFromRow(
       apiThreadPresent: Boolean(parsed.attachment.apiThreadId),
       correlationId: parsed.correlationId,
       extractionStrategy: parsed.gmailApiThreadStrategy,
+      source: parsed.gmailDragSource,
       ownerUserId: auth.userId,
       threadId: parsed.attachment.apiThreadId,
       webThreadPresent: Boolean(parsed.attachment.threadRef),

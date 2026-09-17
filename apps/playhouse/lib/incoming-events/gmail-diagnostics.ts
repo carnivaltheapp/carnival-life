@@ -21,6 +21,7 @@ export const GMAIL_DIAGNOSTIC_STAGES = [
 
 export type GmailDiagnosticStage = (typeof GMAIL_DIAGNOSTIC_STAGES)[number];
 export type GmailExtractionStrategy = "ancestor" | "conversation_header" | "direct" | "missing";
+export type GmailDragSource = "list_row" | "opened_conversation";
 export type GmailMatchResult = "ambiguous" | "matched" | "unmatched";
 export type GmailMatchStrategy =
   | "api_thread_attachment"
@@ -44,6 +45,7 @@ export type GmailDiagnosticInput = {
   resultDate?: string | null;
   resultPriority?: string | null;
   resultTaskType?: string | null;
+  source?: GmailDragSource;
   success?: boolean;
   stage: GmailDiagnosticStage;
   threadId?: string | null;
@@ -67,6 +69,7 @@ export type GmailDiagnosticDocument = {
   result_date?: string;
   result_priority?: string;
   result_task_type?: string;
+  source?: GmailDragSource;
   stage: GmailDiagnosticStage;
   success?: boolean;
   thread_fingerprint?: string;
@@ -125,6 +128,7 @@ export function gmailDiagnosticDocument(
     ...(resultDate ? { result_date: resultDate } : {}),
     ...(resultPriority ? { result_priority: resultPriority } : {}),
     ...(resultTaskType ? { result_task_type: resultTaskType } : {}),
+    ...(input.source ? { source: input.source } : {}),
     ...(typeof input.success === "boolean" ? { success: input.success } : {}),
     ...(threadFingerprint
       ? { identifier_type: "gmail_api_thread_id" as const, thread_fingerprint: threadFingerprint }

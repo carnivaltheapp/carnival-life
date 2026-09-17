@@ -11,16 +11,24 @@ import {
   selectGmailMetadataTab,
   verifyVisibleGmailParticipants,
 } from "./gmail-tab-metadata.js";
+import {
+  consumeGmailListRowDrag,
+  getGmailListRowDrag,
+  storeGmailListRowDrag,
+} from "./gmail-list-row-drag.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
 const NATIVE_HOST_VERSION = "DRAWER-HOST-17";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
+const GET_GMAIL_LIST_ROW_DRAG = "getGmailListRowDrag";
 const STAR_GMAIL_THREAD = "starGmailThread";
 const STAR_VISIBLE_GMAIL_THREAD = "starVisibleGmailThread";
 const UNSTAR_GMAIL_THREAD = "unstarGmailThread";
 const UNSTAR_VISIBLE_GMAIL_THREAD = "unstarVisibleGmailThread";
+const STORE_GMAIL_LIST_ROW_DRAG = "storeGmailListRowDrag";
+const CONSUME_GMAIL_LIST_ROW_DRAG = "consumeGmailListRowDrag";
 const TAB_SAVE_DELAY_MS = 300;
 const DIAGNOSTIC_STORAGE_KEY = "carnivalWorkspaceDiagnostics";
 const DIAGNOSTIC_LIMIT = 500;
@@ -440,6 +448,24 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse({ ok: false, branches: [] });
       return false;
     }
+    return true;
+  }
+  if (message?.type === STORE_GMAIL_LIST_ROW_DRAG) {
+    storeGmailListRowDrag(chrome.storage.session, message.payload)
+      .then(sendResponse)
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (message?.type === GET_GMAIL_LIST_ROW_DRAG) {
+    getGmailListRowDrag(chrome.storage.session)
+      .then(sendResponse)
+      .catch(() => sendResponse({ reason: "storage_failed", status: "missing" }));
+    return true;
+  }
+  if (message?.type === CONSUME_GMAIL_LIST_ROW_DRAG) {
+    consumeGmailListRowDrag(chrome.storage.session, message.correlationId)
+      .then(sendResponse)
+      .catch(() => sendResponse({ reason: "storage_failed", status: "missing" }));
     return true;
   }
   if (message?.type === UNSTAR_GMAIL_THREAD) {

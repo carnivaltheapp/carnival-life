@@ -1,9 +1,13 @@
+const CARNIVAL_GMAIL_DRAG_TYPE = "application/x-carnival-gmail";
+const CONSUME_GMAIL_LIST_ROW_DRAG = "consumeGmailListRowDrag";
+const GET_GMAIL_LIST_ROW_DRAG = "getGmailListRowDrag";
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
 const GET_VISIBLE_GMAIL_PARTICIPANTS = "getVisibleGmailParticipants";
 const STAR_GMAIL_THREAD = "starGmailThread";
 const STAR_VISIBLE_GMAIL_THREAD = "starVisibleGmailThread";
 const UNSTAR_GMAIL_THREAD = "unstarGmailThread";
 const UNSTAR_VISIBLE_GMAIL_THREAD = "unstarVisibleGmailThread";
+const STORE_GMAIL_LIST_ROW_DRAG = "storeGmailListRowDrag";
 
 const gmailExtensionMessaging = globalThis.CarnivalExtensionMessaging;
 
@@ -45,9 +49,17 @@ function parseGmailUrl(value) {
 }
 
 function gmailUrlFromTransfer(dataTransfer) {
-  for (const type of ["text/uri-list", "text/plain", "text/html"]) {
+  for (const type of [CARNIVAL_GMAIL_DRAG_TYPE, "text/uri-list", "text/plain", "text/html"]) {
     const raw = dataTransfer?.getData(type) ?? "";
     if (!raw) continue;
+    if (type === CARNIVAL_GMAIL_DRAG_TYPE) {
+      try {
+        const payload = JSON.parse(raw);
+        const attachment = typeof payload.url === "string" ? parseGmailUrl(payload.url) : null;
+        if (attachment) return attachment;
+      } catch {}
+      continue;
+    }
     const match = raw.replaceAll("&amp;", "&")
       .match(/https:\/\/mail\.google\.com\/[^\s"'<>]+/i)?.[0];
     const attachment = match ? parseGmailUrl(match) : null;
@@ -74,6 +86,20 @@ function latestVisibleGmailMessage() {
   }).at(-1) ?? null;
 }
 
+function sanitizedGmailApiThreadId(value) {
+  const normalized = value?.trim?.() ?? "";
+  return /^[a-zA-Z0-9_-]{1,200}$/.test(normalized) ? normalized : null;
+}
+
+function structuredGmailPayloadFromTransfer(dataTransfer) {
+  try {
+    const payload = JSON.parse(dataTransfer?.getData(CARNIVAL_GMAIL_DRAG_TYPE) ?? "");
+    return typeof payload?.url === "string" && parseGmailUrl(payload.url) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
 function visibleGmailApiThreadId(message) {
   const conversation = message?.closest?.("div[role='main']");
   const header = conversation?.querySelector?.("h2[data-legacy-thread-id]");
@@ -84,10 +110,8 @@ function visibleGmailApiThreadId(message) {
       ?.getAttribute?.("data-legacy-thread-id")],
   ];
   for (const [strategy, value] of candidates) {
-    const normalized = value?.trim?.() ?? "";
-    if (/^[a-zA-Z0-9_-]{1,200}$/.test(normalized)) {
-      return { threadId: normalized, strategy };
-    }
+    const threadId = sanitizedGmailApiThreadId(value);
+    if (threadId) return { threadId, strategy };
   }
   return { threadId: null, strategy: "missing" };
 }
@@ -114,6 +138,52 @@ function latestGmailParticipants() {
 function visibleGmailSubject() {
   const subject = document.querySelector("h2.hP")?.textContent?.trim() ?? "";
   return subject ? subject.slice(0, 500) : null;
+}
+
+function gmailAccountIndex() {
+  const match = /^\/mail\/u\/(\d+)\/?$/.exec(window.location.pathname);
+  const value = Number(match?.[1]);
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function gmailListRowFromTarget(target) {
+  if (!(target instanceof Element)) return null;
+  if (target.closest("input, button, a, [role='checkbox'], [role='button']")) return null;
+  return target.closest("tr.zA[role='row']");
+}
+
+function sanitizedGmailWebThreadRef(value) {
+  const normalized = value?.trim?.() ?? "";
+  return /^[a-zA-Z0-9_:#-]{1,200}$/.test(normalized) ? normalized : null;
+}
+
+function gmailListRowMetadata(row) {
+  const identity = row.querySelector("[data-thread-id][data-legacy-thread-id]");
+  const threadRef = sanitizedGmailWebThreadRef(identity?.getAttribute("data-thread-id"));
+  const gmailApiThreadId = sanitizedGmailApiThreadId(
+    identity?.getAttribute("data-legacy-thread-id"),
+  );
+  const accountIndex = gmailAccountIndex();
+  const subject = row.querySelector(".bog")?.textContent?.trim().slice(0, 500) ?? "";
+  if (accountIndex === null || !threadRef || !gmailApiThreadId || !subject) return null;
+  const seen = new Set();
+  const participants = Array.from(row.querySelectorAll("[email], [data-hovercard-id*='@']"))
+    .map(gmailParticipant)
+    .filter((participant) => {
+      if (!participant || seen.has(participant.email)) return false;
+      seen.add(participant.email);
+      return true;
+    });
+  return {
+    gmailApiThreadId,
+    gmailApiThreadStrategy: "direct",
+    gmailDragSource: "list_row",
+    gmailParticipants: participants.length
+      ? { from: participants[0], to: participants.slice(1) }
+      : null,
+    subject,
+    url: `https://mail.google.com/mail/u/${accountIndex}/#all/${encodeURIComponent(threadRef)}`,
+  };
 }
 
 function starVisibleGmailThread(expectedThreadRef) {
@@ -174,6 +244,51 @@ function unstarVisibleGmailThread(expectedThreadRef) {
 }
 
 if (window.location.hostname === "mail.google.com") {
+  let preparedListRowDrag = null;
+
+  function clearPreparedListRowDrag() {
+    if (!preparedListRowDrag) return;
+    if (preparedListRowDrag.previousDraggable === null) {
+      preparedListRowDrag.row.removeAttribute("draggable");
+    } else {
+      preparedListRowDrag.row.setAttribute("draggable", preparedListRowDrag.previousDraggable);
+    }
+    preparedListRowDrag = null;
+  }
+
+  document.addEventListener?.("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    clearPreparedListRowDrag();
+    const row = gmailListRowFromTarget(event.target);
+    const metadata = row ? gmailListRowMetadata(row) : null;
+    if (!row || !metadata) return;
+    preparedListRowDrag = {
+      metadata: { ...metadata, correlationId: crypto.randomUUID() },
+      previousDraggable: row.getAttribute("draggable"),
+      row,
+    };
+    row.setAttribute("draggable", "true");
+  }, true);
+
+  document.addEventListener?.("dragstart", (event) => {
+    const prepared = preparedListRowDrag;
+    const sourceRow = event.target instanceof Element
+      ? event.target.closest("tr.zA[role='row']")
+      : null;
+    if (!event.dataTransfer || !prepared || sourceRow !== prepared.row) return;
+    const payload = prepared.metadata;
+    try { event.dataTransfer.setData("text/uri-list", payload.url); } catch {}
+    try { event.dataTransfer.setData("text/plain", payload.url); } catch {}
+    try {
+      event.dataTransfer.setData(CARNIVAL_GMAIL_DRAG_TYPE, JSON.stringify(payload));
+    } catch {}
+    try { event.dataTransfer.effectAllowed = "copy"; } catch {}
+    sendGmailExtensionMessage({ payload, type: STORE_GMAIL_LIST_ROW_DRAG });
+  }, true);
+  document.addEventListener?.("dragend", clearPreparedListRowDrag, true);
+  document.addEventListener?.("pointercancel", clearPreparedListRowDrag, true);
+  document.addEventListener?.("pointerup", clearPreparedListRowDrag, true);
+
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === STAR_VISIBLE_GMAIL_THREAD) {
       sendResponse(starVisibleGmailThread(message.threadRef));
@@ -214,6 +329,7 @@ if (window.location.hostname === "mail.google.com") {
     event.stopImmediatePropagation();
     const correlationId = crypto.randomUUID();
     const dispatchAttachment = (response, messagingFailure = null) => {
+      const rowCreateCorrelationId = response?.correlationId ?? correlationId;
       const returnedThreadRef = response?.threadRef ?? response?.returnedThreadRef ?? null;
       const subject = response?.subject ?? response?.gmailSubject ?? null;
       const participants = response?.participants ?? response?.gmailParticipants ?? null;
@@ -233,14 +349,14 @@ if (window.location.hostname === "mail.google.com") {
           ? "thread_mismatch"
           : "subject_missing";
         console.warn("GMAIL_ROW_CREATE_FAILED", {
-          correlationId,
+          correlationId: rowCreateCorrelationId,
           reason,
           targetPlayId: playId,
         });
         window.dispatchEvent(new CustomEvent("carnival:gmail-row-create-metadata-failed", {
           detail: JSON.stringify({
             code: messagingFailure?.code,
-            correlationId,
+            correlationId: rowCreateCorrelationId,
             message: messagingFailure?.message,
             reason,
             targetPlayId: playId,
@@ -250,7 +366,8 @@ if (window.location.hostname === "mail.google.com") {
       }
       window.dispatchEvent(new CustomEvent("carnival:gmail-row-create", {
         detail: JSON.stringify({
-          correlationId,
+          correlationId: rowCreateCorrelationId,
+          gmailDragSource: response?.gmailDragSource ?? "opened_conversation",
           gmailApiThreadId: gmailApiThreadId ?? undefined,
           gmailApiThreadStrategy,
           gmailParticipants: participants ?? undefined,
@@ -270,7 +387,23 @@ if (window.location.hostname === "mail.google.com") {
       gmailThreadRef: transferredAttachment.threadRef,
       targetPlayId: playId,
     });
-    sendGmailExtensionMessage({
+    const structuredPayload = structuredGmailPayloadFromTransfer(event.dataTransfer);
+    const useStructuredPayload = (payload) => {
+      if (!payload || parseGmailUrl(payload.url)?.threadRef !== transferredAttachment.threadRef) {
+        return false;
+      }
+      dispatchAttachment({ ...payload, threadRef: transferredAttachment.threadRef });
+      if (payload.correlationId) {
+        sendGmailExtensionMessage({
+          correlationId: payload.correlationId,
+          type: CONSUME_GMAIL_LIST_ROW_DRAG,
+        });
+      }
+      return true;
+    };
+    if (useStructuredPayload(structuredPayload)) return;
+
+    const requestOpenedConversationMetadata = () => sendGmailExtensionMessage({
       accountIndex: transferredAttachment.accountIndex,
       canonicalUrl: transferredAttachment.canonicalUrl,
       correlationId,
@@ -284,6 +417,11 @@ if (window.location.hostname === "mail.google.com") {
       }
       dispatchAttachment(result.response);
     }).catch(() => dispatchAttachment(null, bridgeHandlerFailure()));
+
+    sendGmailExtensionMessage({ type: GET_GMAIL_LIST_ROW_DRAG }).then((result) => {
+      if (result.ok && useStructuredPayload(result.response?.payload)) return;
+      requestOpenedConversationMetadata();
+    }).catch(requestOpenedConversationMetadata);
   }, true);
 
   window.addEventListener("carnival:gmail-star-thread", (event) => {
