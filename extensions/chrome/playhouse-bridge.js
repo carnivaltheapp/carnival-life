@@ -6,6 +6,7 @@ const GET_LOCAL_BRANCHES_MESSAGE_TYPE = "getLocalBranches";
 const LOCAL_BRANCHES_RESULT_TYPE = "localBranchesResult";
 const BRIDGE_HEALTH_MESSAGE_TYPE = "carnivalBridgeHealth";
 const BRIDGE_HEALTH_RESULT_TYPE = "carnivalBridgeHealthResult";
+const FORWARDED_GMAIL_LIST_ROW_DIAGNOSTIC = "recordGmailListRowDiagnostic";
 
 console.info("Carnival Aux bridge content script loaded");
 console.info("BRANCH_TREE_BRIDGE_READY");
@@ -24,6 +25,14 @@ function sendPlayhouseExtensionMessage(message) {
 function logBridgeFailure(event, result) {
   playhouseExtensionMessaging?.reportFailureOnce?.(event, result);
 }
+
+globalThis.chrome?.runtime?.onMessage?.addListener((message) => {
+  if (message?.type !== FORWARDED_GMAIL_LIST_ROW_DIAGNOSTIC) return false;
+  window.dispatchEvent(new CustomEvent("carnival:gmail-list-row-diagnostic", {
+    detail: JSON.stringify(message.diagnostic),
+  }));
+  return false;
+});
 
 window.addEventListener("message", (event) => {
   if (event.origin !== window.location.origin) return;

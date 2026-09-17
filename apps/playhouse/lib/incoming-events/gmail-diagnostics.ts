@@ -7,6 +7,9 @@ import { getCarnivalMongoDatabase } from "../playhouse/mongo-client";
 export const GMAIL_DIAGNOSTIC_COLLECTION = "carnival_gmail_diagnostics";
 
 export const GMAIL_DIAGNOSTIC_STAGES = [
+  "LIST_ROW_POINTERDOWN",
+  "LIST_ROW_METADATA_RESOLVED",
+  "LIST_ROW_DRAGSTART",
   "DRAG_METADATA_EXTRACTED",
   "DRAG_METADATA_RECEIVED",
   "PLAY_GMAIL_LINK_PERSISTED",
@@ -34,14 +37,18 @@ export type GmailOutgoingOperation = "star" | "unstar";
 export type GmailDiagnosticInput = {
   apiThreadPresent?: boolean;
   correlationId?: string | null;
+  draggableTargetPresent?: boolean;
   extractionStrategy?: GmailExtractionStrategy;
+  fired?: boolean;
   matchResult?: GmailMatchResult;
   matchStrategy?: GmailMatchStrategy;
   mutationAttempted?: boolean;
+  metadataReady?: boolean;
   operation?: GmailOutgoingOperation;
   ownerUserId: string;
   playId?: string | null;
   reason?: string | null;
+  rowRecognized?: boolean;
   resultDate?: string | null;
   resultPriority?: string | null;
   resultTaskType?: string | null;
@@ -57,15 +64,19 @@ export type GmailDiagnosticDocument = {
   api_thread_present?: boolean;
   correlation_id?: string;
   created_at: Date;
+  draggable_target_present?: boolean;
   extraction_strategy?: GmailExtractionStrategy;
+  fired?: boolean;
   identifier_type?: "gmail_api_thread_id";
   match_result?: GmailMatchResult;
   match_strategy?: GmailMatchStrategy;
   mutation_attempted?: boolean;
+  metadata_ready?: boolean;
   operation?: GmailOutgoingOperation;
   owner_user_id: string;
   play_id?: string;
   reason?: string;
+  row_recognized?: boolean;
   result_date?: string;
   result_priority?: string;
   result_task_type?: string;
@@ -116,15 +127,23 @@ export function gmailDiagnosticDocument(
       ? { api_thread_present: input.apiThreadPresent }
       : {}),
     ...(correlationId ? { correlation_id: correlationId } : {}),
+    ...(typeof input.draggableTargetPresent === "boolean"
+      ? { draggable_target_present: input.draggableTargetPresent }
+      : {}),
     ...(input.extractionStrategy ? { extraction_strategy: input.extractionStrategy } : {}),
+    ...(typeof input.fired === "boolean" ? { fired: input.fired } : {}),
     ...(input.matchResult ? { match_result: input.matchResult } : {}),
     ...(input.matchStrategy ? { match_strategy: input.matchStrategy } : {}),
     ...(typeof input.mutationAttempted === "boolean"
       ? { mutation_attempted: input.mutationAttempted }
       : {}),
+    ...(typeof input.metadataReady === "boolean" ? { metadata_ready: input.metadataReady } : {}),
     ...(input.operation ? { operation: input.operation } : {}),
     ...(playId ? { play_id: playId } : {}),
     ...(reason ? { reason } : {}),
+    ...(typeof input.rowRecognized === "boolean"
+      ? { row_recognized: input.rowRecognized }
+      : {}),
     ...(resultDate ? { result_date: resultDate } : {}),
     ...(resultPriority ? { result_priority: resultPriority } : {}),
     ...(resultTaskType ? { result_task_type: resultTaskType } : {}),

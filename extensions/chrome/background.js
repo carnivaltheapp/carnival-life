@@ -23,6 +23,7 @@ const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
 const GET_GMAIL_LIST_ROW_DRAG = "getGmailListRowDrag";
+const RECORD_GMAIL_LIST_ROW_DIAGNOSTIC = "recordGmailListRowDiagnostic";
 const STAR_GMAIL_THREAD = "starGmailThread";
 const STAR_VISIBLE_GMAIL_THREAD = "starVisibleGmailThread";
 const UNSTAR_GMAIL_THREAD = "unstarGmailThread";
@@ -467,6 +468,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .then(sendResponse)
       .catch(() => sendResponse({ reason: "storage_failed", status: "missing" }));
     return true;
+  }
+  if (message?.type === RECORD_GMAIL_LIST_ROW_DIAGNOSTIC) {
+    chrome.tabs.query({
+      url: ["https://carnival-playhouse.vercel.app/*", "http://localhost/*"],
+    }).then((tabs) => {
+      const playhouseTab = tabs.find((tab) => tab.active) ?? tabs[0];
+      if (playhouseTab?.id !== undefined) {
+        return chrome.tabs.sendMessage(playhouseTab.id, {
+          diagnostic: message.diagnostic,
+          type: RECORD_GMAIL_LIST_ROW_DIAGNOSTIC,
+        });
+      }
+      return null;
+    }).catch(() => {});
+    sendResponse({ ok: true });
+    return false;
   }
   if (message?.type === UNSTAR_GMAIL_THREAD) {
     const diagnostic = {

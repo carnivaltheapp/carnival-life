@@ -14,6 +14,9 @@ import {
 describe("Gmail pipeline diagnostics", () => {
   it("defines and instruments the complete Gmail lifecycle trail", () => {
     expect(GMAIL_DIAGNOSTIC_STAGES).toEqual([
+      "LIST_ROW_POINTERDOWN",
+      "LIST_ROW_METADATA_RESOLVED",
+      "LIST_ROW_DRAGSTART",
       "DRAG_METADATA_EXTRACTED",
       "DRAG_METADATA_RECEIVED",
       "PLAY_GMAIL_LINK_PERSISTED",
@@ -27,10 +30,44 @@ describe("Gmail pipeline diagnostics", () => {
     ]);
     const sources = [
       readFileSync(new URL("../../app/plays/actions.ts", import.meta.url), "utf8"),
+      readFileSync(new URL("../../app/api/diagnostics/gmail/route.ts", import.meta.url), "utf8"),
       readFileSync(new URL("./gmail-watch.server.ts", import.meta.url), "utf8"),
       readFileSync(new URL("./mongo-incoming-event-store.ts", import.meta.url), "utf8"),
+      readFileSync(new URL("../../../../extensions/chrome/gmail-drag-bridge.js", import.meta.url), "utf8"),
     ].join("\n");
     for (const stage of GMAIL_DIAGNOSTIC_STAGES) expect(sources).toContain(stage);
+  });
+
+  it("stores only privacy-safe list-row diagnostic fields", () => {
+    const document = gmailDiagnosticDocument({
+      apiThreadPresent: true,
+      correlationId: "list-row-1",
+      draggableTargetPresent: true,
+      fired: true,
+      metadataReady: true,
+      ownerUserId: "owner-1",
+      reason: "completed",
+      rowRecognized: true,
+      source: "list_row",
+      stage: "LIST_ROW_DRAGSTART",
+      success: true,
+      webThreadPresent: true,
+      ...({ emailAddress: "private@example.com", subject: "private" } as object),
+    });
+    expect(document).toMatchObject({
+      api_thread_present: true,
+      correlation_id: "list-row-1",
+      draggable_target_present: true,
+      fired: true,
+      metadata_ready: true,
+      reason: "completed",
+      row_recognized: true,
+      source: "list_row",
+      stage: "LIST_ROW_DRAGSTART",
+      success: true,
+      web_thread_present: true,
+    });
+    expect(JSON.stringify(document)).not.toContain("private");
   });
 
   it("records outgoing lifecycle results without raw Gmail identifiers", () => {
@@ -162,6 +199,9 @@ describe("Gmail pipeline diagnostics", () => {
     );
     expect(route).toContain("supabase.auth.getClaims()");
     expect(route).toContain('error: "unauthorized"');
+    expect(route).toContain("export async function POST");
+    expect(route).toContain("recordGmailDiagnostic({");
+    expect(route).toContain('source: "list_row"');
     expect(route).toContain("ownerUserId,");
     expect(route).toContain('"Cache-Control": "private, no-store"');
     expect(route.indexOf("getClaims()")).toBeLessThan(route.indexOf(".list({"));

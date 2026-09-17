@@ -16,7 +16,7 @@ function dataTransfer(initial = {}) {
   };
 }
 
-function gmailListRowContext(hash = "#inbox") {
+function gmailListRowContext(hash = "#inbox", { metadataPresent = true, messagingFails = false } = {}) {
   const listeners = new Map();
   const messages = [];
   class TestElement {}
@@ -40,7 +40,7 @@ function gmailListRowContext(hash = "#inbox") {
   row.closest = (selector) => selector === "tr.zA[role='row']" ? row : null;
   row.getAttribute = (attribute) => attributes.get(attribute) ?? null;
   row.querySelector = (selector) => selector === "[data-thread-id][data-legacy-thread-id]"
-    ? identity
+    ? metadataPresent ? identity : null
     : selector === ".bog"
       ? { textContent: "List subject" }
       : null;
@@ -48,11 +48,11 @@ function gmailListRowContext(hash = "#inbox") {
   row.removeAttribute = (attribute) => attributes.delete(attribute);
   row.setAttribute = (attribute, value) => attributes.set(attribute, value);
   const target = new TestElement();
-  target.closest = (selector) => selector === "tr.zA[role='row']" ? row : null;
+  target.closest = (selector) => ["tr", "tr.zA[role='row']"].includes(selector) ? row : null;
   const checkbox = new TestElement();
   checkbox.closest = (selector) => selector.includes("[role='checkbox']")
     ? checkbox
-    : selector === "tr.zA[role='row']"
+    : ["tr", "tr.zA[role='row']"].includes(selector)
       ? row
       : null;
   vm.runInNewContext(`${messagingSource}\n${bridgeSource}`, {
@@ -63,6 +63,7 @@ function gmailListRowContext(hash = "#inbox") {
         onMessage: { addListener() {} },
         sendMessage(message, callback) {
           messages.push(message);
+          if (messagingFails) throw new Error("diagnostic unavailable");
           callback?.({ ok: true });
           return Promise.resolve({ ok: true });
         },
@@ -91,6 +92,11 @@ function gmailListRowContext(hash = "#inbox") {
       return transfer;
     },
     messages,
+    pointerDown(targetElement = target) {
+      listeners.get("pointerdown")?.({ button: 0, clientX: 10, clientY: 10, target: targetElement });
+    },
+    pointerMove() { listeners.get("pointermove")?.({ clientX: 20, clientY: 10 }); },
+    pointerUp() { listeners.get("pointerup")?.({}); },
     row,
   };
 }
@@ -298,7 +304,84 @@ test("list-row drag does not arm Gmail checkbox controls", () => {
   const transfer = context.drag(context.checkbox);
   assert.equal(transfer.types.length, 0);
   assert.equal(context.row.getAttribute("draggable"), "false");
-  assert.deepEqual(context.messages, []);
+  assert.deepEqual(JSON.parse(JSON.stringify(context.messages)), [{
+    diagnostic: {
+      correlationId: "list-correlation-1",
+      reason: "row_not_recognized",
+      rowRecognized: false,
+      stage: "LIST_ROW_POINTERDOWN",
+    },
+    type: "recordGmailListRowDiagnostic",
+  }]);
+});
+
+test("list-row diagnostics cover pointerdown, metadata, and native dragstart", () => {
+  const context = gmailListRowContext();
+  context.drag();
+  const diagnostics = context.messages
+    .filter((message) => message.type === "recordGmailListRowDiagnostic")
+    .map((message) => message.diagnostic);
+  assert.deepEqual(JSON.parse(JSON.stringify(diagnostics)), [
+    {
+      correlationId: "list-correlation-1",
+      reason: "completed",
+      rowRecognized: true,
+      stage: "LIST_ROW_POINTERDOWN",
+    },
+    {
+      apiThreadPresent: true,
+      correlationId: "list-correlation-1",
+      draggableTargetPresent: true,
+      reason: "completed",
+      stage: "LIST_ROW_METADATA_RESOLVED",
+      success: true,
+      webThreadPresent: true,
+    },
+    {
+      correlationId: "list-correlation-1",
+      fired: true,
+      metadataReady: true,
+      reason: "completed",
+      stage: "LIST_ROW_DRAGSTART",
+    },
+  ]);
+  const serialized = JSON.stringify(diagnostics);
+  for (const prohibited of ["subject", "email", "url", "threadId", "html", "body"]) {
+    assert.equal(serialized.includes(prohibited), false);
+  }
+});
+
+test("list-row diagnostics expose metadata failure and missing native dragstart", () => {
+  const missingMetadata = gmailListRowContext("#inbox", { metadataPresent: false });
+  missingMetadata.pointerDown();
+  assert.deepEqual(JSON.parse(JSON.stringify(missingMetadata.messages.at(-1).diagnostic)), {
+    apiThreadPresent: false,
+    correlationId: "list-correlation-1",
+    draggableTargetPresent: true,
+    reason: "metadata_container_missing",
+    stage: "LIST_ROW_METADATA_RESOLVED",
+    success: false,
+    webThreadPresent: false,
+  });
+
+  const noDragstart = gmailListRowContext();
+  noDragstart.pointerDown();
+  noDragstart.pointerMove();
+  noDragstart.pointerUp();
+  assert.deepEqual(JSON.parse(JSON.stringify(noDragstart.messages.at(-1).diagnostic)), {
+    correlationId: "list-correlation-1",
+    fired: false,
+    metadataReady: true,
+    reason: "dragstart_not_fired",
+    stage: "LIST_ROW_DRAGSTART",
+  });
+});
+
+test("diagnostic transport failure cannot block native list-row payload creation", () => {
+  const context = gmailListRowContext("#inbox", { messagingFails: true });
+  const transfer = context.drag();
+  assert.ok(transfer.getData("text/uri-list").startsWith("https://mail.google.com/"));
+  assert.ok(transfer.getData("application/x-carnival-gmail"));
 });
 
 test("Gmail content script stars only the exact open thread without navigation", () => {

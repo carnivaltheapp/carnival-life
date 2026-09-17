@@ -3,6 +3,7 @@ const CONSUME_GMAIL_LIST_ROW_DRAG = "consumeGmailListRowDrag";
 const GET_GMAIL_LIST_ROW_DRAG = "getGmailListRowDrag";
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
 const GET_VISIBLE_GMAIL_PARTICIPANTS = "getVisibleGmailParticipants";
+const RECORD_GMAIL_LIST_ROW_DIAGNOSTIC = "recordGmailListRowDiagnostic";
 const STAR_GMAIL_THREAD = "starGmailThread";
 const STAR_VISIBLE_GMAIL_THREAD = "starVisibleGmailThread";
 const UNSTAR_GMAIL_THREAD = "unstarGmailThread";
@@ -186,6 +187,34 @@ function gmailListRowMetadata(row) {
   };
 }
 
+function gmailListRowMetadataResolution(row) {
+  const identity = row?.querySelector?.("[data-thread-id][data-legacy-thread-id]") ?? null;
+  const webThreadPresent = Boolean(sanitizedGmailWebThreadRef(
+    identity?.getAttribute?.("data-thread-id"),
+  ));
+  const apiThreadPresent = Boolean(sanitizedGmailApiThreadId(
+    identity?.getAttribute?.("data-legacy-thread-id"),
+  ));
+  const metadata = row ? gmailListRowMetadata(row) : null;
+  const reason = metadata
+    ? "completed"
+    : !identity
+      ? "metadata_container_missing"
+      : !webThreadPresent
+        ? "web_thread_missing"
+        : !apiThreadPresent
+          ? "api_thread_missing"
+          : "metadata_resolution_failed";
+  return { apiThreadPresent, metadata, reason, webThreadPresent };
+}
+
+function reportGmailListRowDiagnostic(detail) {
+  void sendGmailExtensionMessage({
+    diagnostic: detail,
+    type: RECORD_GMAIL_LIST_ROW_DIAGNOSTIC,
+  });
+}
+
 function starVisibleGmailThread(expectedThreadRef) {
   const currentThreadRef = parseGmailUrl(window.location.href)?.threadRef ?? null;
   if (!currentThreadRef || currentThreadRef !== expectedThreadRef) {
@@ -245,6 +274,24 @@ function unstarVisibleGmailThread(expectedThreadRef) {
 
 if (window.location.hostname === "mail.google.com") {
   let preparedListRowDrag = null;
+  let listRowAttempt = null;
+
+  function reportMissingListRowDragstart() {
+    if (
+      !listRowAttempt?.metadataReady ||
+      !listRowAttempt.moved ||
+      listRowAttempt.dragStarted ||
+      listRowAttempt.missingReported
+    ) return;
+    listRowAttempt.missingReported = true;
+    reportGmailListRowDiagnostic({
+      correlationId: listRowAttempt.correlationId,
+      fired: false,
+      metadataReady: true,
+      reason: "dragstart_not_fired",
+      stage: "LIST_ROW_DRAGSTART",
+    });
+  }
 
   function clearPreparedListRowDrag() {
     if (!preparedListRowDrag) return;
@@ -259,11 +306,43 @@ if (window.location.hostname === "mail.google.com") {
   document.addEventListener?.("pointerdown", (event) => {
     if (event.button !== 0) return;
     clearPreparedListRowDrag();
+    listRowAttempt = null;
+    const candidateRow = event.target instanceof Element
+      ? event.target.closest("tr")
+      : null;
+    if (!candidateRow) return;
+    const correlationId = crypto.randomUUID();
     const row = gmailListRowFromTarget(event.target);
-    const metadata = row ? gmailListRowMetadata(row) : null;
-    if (!row || !metadata) return;
+    reportGmailListRowDiagnostic({
+      correlationId,
+      reason: row ? "completed" : "row_not_recognized",
+      rowRecognized: Boolean(row),
+      stage: "LIST_ROW_POINTERDOWN",
+    });
+    if (!row) return;
+    const resolution = gmailListRowMetadataResolution(row);
+    reportGmailListRowDiagnostic({
+      apiThreadPresent: resolution.apiThreadPresent,
+      correlationId,
+      draggableTargetPresent: true,
+      reason: resolution.reason,
+      stage: "LIST_ROW_METADATA_RESOLVED",
+      success: Boolean(resolution.metadata),
+      webThreadPresent: resolution.webThreadPresent,
+    });
+    listRowAttempt = {
+      correlationId,
+      dragStarted: false,
+      metadataReady: Boolean(resolution.metadata),
+      missingReported: false,
+      moved: false,
+      pointerX: Number.isFinite(event.clientX) ? event.clientX : 0,
+      pointerY: Number.isFinite(event.clientY) ? event.clientY : 0,
+      row,
+    };
+    if (!resolution.metadata) return;
     preparedListRowDrag = {
-      metadata: { ...metadata, correlationId: crypto.randomUUID() },
+      metadata: { ...resolution.metadata, correlationId },
       previousDraggable: row.getAttribute("draggable"),
       row,
     };
@@ -275,6 +354,16 @@ if (window.location.hostname === "mail.google.com") {
     const sourceRow = event.target instanceof Element
       ? event.target.closest("tr.zA[role='row']")
       : null;
+    if (listRowAttempt && sourceRow === listRowAttempt.row) {
+      listRowAttempt.dragStarted = true;
+      reportGmailListRowDiagnostic({
+        correlationId: listRowAttempt.correlationId,
+        fired: true,
+        metadataReady: listRowAttempt.metadataReady,
+        reason: listRowAttempt.metadataReady ? "completed" : "metadata_not_ready",
+        stage: "LIST_ROW_DRAGSTART",
+      });
+    }
     if (!event.dataTransfer || !prepared || sourceRow !== prepared.row) return;
     const payload = prepared.metadata;
     try { event.dataTransfer.setData("text/uri-list", payload.url); } catch {}
@@ -285,9 +374,30 @@ if (window.location.hostname === "mail.google.com") {
     try { event.dataTransfer.effectAllowed = "copy"; } catch {}
     sendGmailExtensionMessage({ payload, type: STORE_GMAIL_LIST_ROW_DRAG });
   }, true);
-  document.addEventListener?.("dragend", clearPreparedListRowDrag, true);
-  document.addEventListener?.("pointercancel", clearPreparedListRowDrag, true);
-  document.addEventListener?.("pointerup", clearPreparedListRowDrag, true);
+  document.addEventListener?.("pointermove", (event) => {
+    if (!listRowAttempt || listRowAttempt.dragStarted) return;
+    const x = Number.isFinite(event.clientX) ? event.clientX : listRowAttempt.pointerX;
+    const y = Number.isFinite(event.clientY) ? event.clientY : listRowAttempt.pointerY;
+    if (Math.hypot(x - listRowAttempt.pointerX, y - listRowAttempt.pointerY) >= 5) {
+      listRowAttempt.moved = true;
+    }
+  }, true);
+  document.addEventListener?.("pointerout", (event) => {
+    if (event.relatedTarget === null) reportMissingListRowDragstart();
+  }, true);
+  document.addEventListener?.("dragend", () => {
+    clearPreparedListRowDrag();
+    listRowAttempt = null;
+  }, true);
+  document.addEventListener?.("pointercancel", () => {
+    clearPreparedListRowDrag();
+    listRowAttempt = null;
+  }, true);
+  document.addEventListener?.("pointerup", () => {
+    reportMissingListRowDragstart();
+    clearPreparedListRowDrag();
+    listRowAttempt = null;
+  }, true);
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === STAR_VISIBLE_GMAIL_THREAD) {

@@ -351,6 +351,30 @@ function PlayhouseShellView({
   const [gmailCreatePending, startGmailCreate] = useTransition();
   const localPlays = optimisticPlays?.source === plays ? optimisticPlays.value : plays;
   useEffect(() => {
+    const recordListRowDiagnostic = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (typeof detail !== "string") return;
+      let diagnostic: unknown;
+      try {
+        diagnostic = JSON.parse(detail);
+      } catch {
+        return;
+      }
+      void fetch("/api/diagnostics/gmail", {
+        body: JSON.stringify(diagnostic),
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      }).catch(() => {});
+    };
+    window.addEventListener("carnival:gmail-list-row-diagnostic", recordListRowDiagnostic);
+    return () => window.removeEventListener(
+      "carnival:gmail-list-row-diagnostic",
+      recordListRowDiagnostic,
+    );
+  }, []);
+  useEffect(() => {
     let active = true;
     let mutationToken: string | null = null;
     let requestPending = false;

@@ -14,6 +14,35 @@ test("manifest injects the Aux bridge on the production PlayHouse origin", async
   ));
 });
 
+test("content script relays list-row diagnostics to the authenticated PlayHouse page", () => {
+  let runtimeListener;
+  const events = [];
+  class TestCustomEvent {
+    constructor(type, init) { this.type = type; this.detail = init.detail; }
+  }
+  vm.runInNewContext(`${messagingSource}\n${bridgeSource}`, {
+    CustomEvent: TestCustomEvent,
+    chrome: { runtime: { onMessage: { addListener(listener) { runtimeListener = listener; } } } },
+    console: { info() {} },
+    window: {
+      addEventListener() {},
+      dispatchEvent(event) { events.push(event); },
+      location: { origin: "https://carnival-playhouse.vercel.app" },
+    },
+  });
+  const diagnostic = {
+    correlationId: "list-1",
+    reason: "completed",
+    rowRecognized: true,
+    stage: "LIST_ROW_POINTERDOWN",
+  };
+  runtimeListener({ diagnostic, type: "recordGmailListRowDiagnostic" });
+  assert.deepEqual(JSON.parse(JSON.stringify(events)), [{
+    detail: JSON.stringify(diagnostic),
+    type: "carnival:gmail-list-row-diagnostic",
+  }]);
+});
+
 test("content script receives the page request and forwards canonical openInAux", async () => {
   let messageListener;
   const messages = [];
