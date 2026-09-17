@@ -74,4 +74,27 @@ describe("authenticated Gmail Pub/Sub notifications", () => {
     );
     warn.mockRestore();
   });
+
+  it("logs only privacy-safe structure when the Gmail history ID is not a string", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const subscription = "projects/project/subscriptions/sub";
+    const data = Buffer.from(JSON.stringify({
+      emailAddress: "owner@example.com",
+      historyId: 123,
+    })).toString("base64url");
+
+    expect(parseGmailPubSubEnvelope({ message: { data }, subscription }, subscription))
+      .toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      "CARNIVAL_INCOMING_EVENT GMAIL_NOTIFICATION_PAYLOAD_STRUCTURE",
+      {
+        decoded_json_object: true,
+        emailAddress_type: "string",
+        emailAddress_nonblank: true,
+        historyId_type: "number",
+        historyId_string_digits_only: false,
+      },
+    );
+    warn.mockRestore();
+  });
 });

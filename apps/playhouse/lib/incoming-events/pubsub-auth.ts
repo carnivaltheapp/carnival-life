@@ -58,6 +58,28 @@ function invalidGmailPubSubNotification(stage: GmailPubSubValidationStage) {
   return null;
 }
 
+function payloadFieldType(value: unknown) {
+  if (value === undefined) return "missing";
+  if (typeof value === "string" || typeof value === "number") return typeof value;
+  return "other";
+}
+
+function logInvalidGmailPayload(value: unknown) {
+  const decodedJsonObject = Boolean(
+    value && typeof value === "object" && !Array.isArray(value),
+  );
+  const payload = decodedJsonObject ? value as Record<string, unknown> : {};
+  console.warn("CARNIVAL_INCOMING_EVENT GMAIL_NOTIFICATION_PAYLOAD_STRUCTURE", {
+    decoded_json_object: decodedJsonObject,
+    emailAddress_type: payloadFieldType(payload.emailAddress),
+    emailAddress_nonblank: typeof payload.emailAddress === "string" &&
+      Boolean(payload.emailAddress.trim()),
+    historyId_type: payloadFieldType(payload.historyId),
+    historyId_string_digits_only: typeof payload.historyId === "string" &&
+      /^\d+$/.test(payload.historyId),
+  });
+}
+
 export function parseGmailPubSubEnvelope(
   value: unknown,
   expectedSubscription: string,
@@ -73,13 +95,18 @@ export function parseGmailPubSubEnvelope(
     return invalidGmailPubSubNotification("data_missing");
   }
   try {
-    const decoded = JSON.parse(
+    const decodedValue: unknown = JSON.parse(
       Buffer.from(envelope.message.data, "base64url").toString("utf8"),
-    ) as { emailAddress?: unknown; historyId?: unknown };
+    );
+    const decoded = decodedValue && typeof decodedValue === "object" &&
+        !Array.isArray(decodedValue)
+      ? decodedValue as { emailAddress?: unknown; historyId?: unknown }
+      : {};
     if (typeof decoded.emailAddress !== "string" ||
         !decoded.emailAddress.trim() ||
         typeof decoded.historyId !== "string" ||
         !/^\d+$/.test(decoded.historyId)) {
+      logInvalidGmailPayload(decodedValue);
       return invalidGmailPubSubNotification("gmail_payload_invalid");
     }
     return {
@@ -93,6 +120,7 @@ export function parseGmailPubSubEnvelope(
         : null,
     };
   } catch {
+    logInvalidGmailPayload(null);
     return invalidGmailPubSubNotification("gmail_payload_invalid");
   }
 }
