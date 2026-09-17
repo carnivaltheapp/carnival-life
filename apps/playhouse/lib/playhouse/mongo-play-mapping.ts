@@ -9,6 +9,7 @@ import type {
   PushRule,
 } from "../../domain/play";
 import type { PlayInput } from "../../domain/play-input";
+import { isGmailApiThreadId } from "../../domain/play-display";
 import { LEGACY_BASKETS } from "../../migration/legacy/mapping";
 
 export const MONGO_CARNIVAL_USER_ID =
@@ -341,6 +342,26 @@ export function mapMongoPlay(
       typeof (gmailAttachment as Record<string, unknown>).account_index === "number"
     ? (gmailAttachment as Record<string, unknown>).account_index as number
     : null;
+  const carnivalGoogle = task.carnival_google &&
+      typeof task.carnival_google === "object" &&
+      !Array.isArray(task.carnival_google)
+    ? task.carnival_google as Record<string, unknown>
+    : null;
+  const gmailAttachmentRecord = gmailAttachment &&
+      typeof gmailAttachment === "object" &&
+      !Array.isArray(gmailAttachment)
+    ? gmailAttachment as Record<string, unknown>
+    : null;
+  const legacyThreadId = text(task.thread_id);
+  const canonicalWebThreadRef = text(gmailAttachmentRecord?.thread_ref);
+  const gmailWebThreadRef = canonicalWebThreadRef && !isGmailApiThreadId(canonicalWebThreadRef)
+    ? canonicalWebThreadRef
+    : legacyThreadId && !isGmailApiThreadId(legacyThreadId)
+      ? legacyThreadId
+      : null;
+  const gmailApiThreadId = text(carnivalGoogle?.gmail_api_thread_id) ??
+    text(gmailAttachmentRecord?.api_thread_id) ??
+    (legacyThreadId && isGmailApiThreadId(legacyThreadId) ? legacyThreadId : null);
   const incoming = task.carnival_incoming &&
       typeof task.carnival_incoming === "object" &&
       !Array.isArray(task.carnival_incoming)
@@ -357,7 +378,9 @@ export function mapMongoPlay(
     contextType,
     durationMinutes: number(task.duration),
     gmailAccountIndex,
-    gmailThreadId: text(task.thread_id),
+    gmailApiThreadId,
+    gmailThreadId: legacyThreadId,
+    gmailWebThreadRef,
     incomingGmailCount,
     incomingGmailUrl: text(incoming?.gmail_latest_url),
     incomingPriority: incoming?.priority === true && incomingGmailCount > 0,

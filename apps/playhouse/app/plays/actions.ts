@@ -985,3 +985,51 @@ export async function doneCreate(
     return errorState("PlayHouse could not complete Done/Create. Please try again.");
   }
 }
+
+export async function recordGmailOutgoingSync(input: {
+  apiThreadIdPresent?: unknown;
+  operation?: unknown;
+  playId?: unknown;
+  reason?: unknown;
+  stage?: unknown;
+  success?: unknown;
+  webThreadRefPresent?: unknown;
+}) {
+  const auth = await authenticatedClient();
+  if (!auth) return { status: "unauthorized" as const };
+  if (input.operation !== "star" && input.operation !== "unstar") {
+    return { status: "invalid" as const };
+  }
+  if (
+    input.stage !== "GMAIL_OUTGOING_SYNC_REQUESTED" &&
+    input.stage !== "GMAIL_OUTGOING_SYNC_RESULT"
+  ) {
+    return { status: "invalid" as const };
+  }
+  const safeReasons = new Set([
+    "BRIDGE_HANDLER_FAILED",
+    "command_failed",
+    "completed",
+    "extension_request_failed",
+    "latest_visible_message_not_found",
+    "matching_tab_not_found",
+    "star_control_not_found",
+    "thread_mismatch",
+    "web_thread_ref_missing",
+  ]);
+  const playId = typeof input.playId === "string" ? input.playId.trim().slice(0, 100) : "";
+  const reason = typeof input.reason === "string" && safeReasons.has(input.reason)
+    ? input.reason
+    : "";
+  await recordGmailDiagnostic({
+    apiThreadPresent: input.apiThreadIdPresent === true,
+    operation: input.operation,
+    ownerUserId: auth.userId,
+    playId: playId || null,
+    reason: reason || null,
+    stage: input.stage,
+    ...(typeof input.success === "boolean" ? { success: input.success } : {}),
+    webThreadPresent: input.webThreadRefPresent === true,
+  });
+  return { status: "success" as const };
+}

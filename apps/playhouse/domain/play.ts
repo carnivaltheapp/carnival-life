@@ -46,7 +46,9 @@ export interface PlayListItem {
   contextType?: "place" | null;
   durationMinutes: number | null;
   gmailAccountIndex?: number | null;
+  gmailApiThreadId?: string | null;
   gmailThreadId?: string | null;
+  gmailWebThreadRef?: string | null;
   incomingGmailCount?: number;
   incomingGmailUrl?: string | null;
   incomingPriority?: boolean;

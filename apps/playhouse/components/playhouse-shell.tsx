@@ -20,6 +20,7 @@ import {
   createGmailPlayFromRow,
   flipPlayRank,
   repositionPlays,
+  recordGmailOutgoingSync,
   unlinkGmailFromPlay,
 } from "../app/plays/actions";
 import { loadPlayerSlackValues } from "../app/players/actions";
@@ -115,6 +116,21 @@ export type UserIdentity = {
   displayName: string;
   email: string | null;
 };
+
+const SAFE_GMAIL_SYNC_REASONS = new Set([
+  "extension_request_failed",
+  "matching_tab_not_found",
+  "star_control_not_found",
+  "thread_mismatch",
+  "latest_visible_message_not_found",
+  "BRIDGE_HANDLER_FAILED",
+]);
+
+function safeGmailSyncReason(value: unknown) {
+  return typeof value === "string" && SAFE_GMAIL_SYNC_REASONS.has(value)
+    ? value
+    : "command_failed";
+}
 
 type PlayhouseShellProps = {
   baskets: BasketSummary[];
@@ -292,6 +308,11 @@ function PlayhouseShellView({
     : destinationNavigationModeForView(selectedView.kind);
   const processedGmailRowCreatesRef = useRef(new Set<string>());
   const gmailCorrelationIdRef = useRef<string | null>(null);
+  const gmailStarContextRef = useRef(new Map<string, {
+    apiThreadIdPresent: boolean;
+    playId: string;
+    webThreadRefPresent: boolean;
+  }>());
   const gmailDropTargetRef = useRef<string | null>(null);
   const [gmailDropTarget, setGmailDropTarget] = useState<string | null>(null);
   const [gmailContextMenu, setGmailContextMenu] = useState<{
@@ -538,7 +559,9 @@ function PlayhouseShellView({
         ? {
             ...play,
             gmailAccountIndex: null,
+            gmailApiThreadId: null,
             gmailThreadId: null,
+            gmailWebThreadRef: null,
             playerContactId: null,
             playerDisplayName: null,
             sourceMetadata: gmailMetadataWithoutAttachment(play.sourceMetadata),
@@ -660,13 +683,28 @@ function PlayhouseShellView({
         console.info("GMAIL_THREAD_STAR_STARTED", {
           accountIndex: parsed.attachment.accountIndex,
           correlationId: parsed.correlationId,
-          threadRef: parsed.attachment.threadRef,
+          webThreadRefPresent: true,
+        });
+        void recordGmailOutgoingSync({
+          apiThreadIdPresent: Boolean(parsed.attachment.apiThreadId),
+          operation: "star",
+          playId: result.playId,
+          stage: "GMAIL_OUTGOING_SYNC_REQUESTED",
+          webThreadRefPresent: true,
+        });
+        gmailStarContextRef.current.set(parsed.correlationId, {
+          apiThreadIdPresent: Boolean(parsed.attachment.apiThreadId),
+          playId: result.playId,
+          webThreadRefPresent: true,
         });
         window.dispatchEvent(new CustomEvent("carnival:gmail-star-thread", {
           detail: JSON.stringify({
             accountIndex: parsed.attachment.accountIndex,
+            apiThreadIdPresent: Boolean(parsed.attachment.apiThreadId),
             correlationId: parsed.correlationId,
+            playId: result.playId,
             threadRef: parsed.attachment.threadRef,
+            webThreadRefPresent: true,
           }),
         }));
       });
@@ -684,8 +722,27 @@ function PlayhouseShellView({
         const result = JSON.parse(event.detail) as {
           correlationId?: unknown;
           ok?: unknown;
+          apiThreadIdPresent?: unknown;
+          playId?: unknown;
           reason?: unknown;
+          webThreadRefPresent?: unknown;
         };
+        const correlationId = typeof result.correlationId === "string"
+          ? result.correlationId
+          : "";
+        const context = correlationId
+          ? gmailStarContextRef.current.get(correlationId)
+          : undefined;
+        if (correlationId) gmailStarContextRef.current.delete(correlationId);
+        void recordGmailOutgoingSync({
+          apiThreadIdPresent: context?.apiThreadIdPresent ?? result.apiThreadIdPresent === true,
+          operation: "star",
+          playId: context?.playId ?? result.playId,
+          reason: result.ok ? "completed" : safeGmailSyncReason(result.reason),
+          stage: "GMAIL_OUTGOING_SYNC_RESULT",
+          success: result.ok === true,
+          webThreadRefPresent: context?.webThreadRefPresent ?? result.webThreadRefPresent === true,
+        });
         if (result.ok) {
           console.info("GMAIL_ROW_CREATE_STAR_COMPLETE", {
             correlationId: result.correlationId,
@@ -707,16 +764,28 @@ function PlayhouseShellView({
       try {
         const result = JSON.parse(event.detail) as {
           action?: "done" | "trash";
+          apiThreadIdPresent?: unknown;
+          diagnosticRecorded?: unknown;
           ok?: unknown;
           playId?: unknown;
           reason?: unknown;
-          threadRef?: unknown;
+          webThreadRefPresent?: unknown;
         };
         const diagnostic = {
           action: result.action,
           playId: result.playId,
-          threadRef: result.threadRef,
         };
+        if (result.diagnosticRecorded !== true) {
+          void recordGmailOutgoingSync({
+            apiThreadIdPresent: result.apiThreadIdPresent === true,
+            operation: "unstar",
+            playId: result.playId,
+            reason: result.ok ? "completed" : safeGmailSyncReason(result.reason),
+            stage: "GMAIL_OUTGOING_SYNC_RESULT",
+            success: result.ok === true,
+            webThreadRefPresent: result.webThreadRefPresent === true,
+          });
+        }
         if (result.ok) {
           console.info("GMAIL_UNSTAR_COMPLETE", diagnostic);
           return;

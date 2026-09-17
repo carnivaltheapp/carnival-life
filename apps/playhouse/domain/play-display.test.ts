@@ -4,8 +4,10 @@ import {
   displayBranch,
   displayPlayDestination,
   gmailAccountIndexFromMetadata,
+  gmailApiThreadIdFromMetadata,
   gmailThreadIdFromMetadata,
   gmailThreadUrl,
+  gmailWebThreadRefFromMetadata,
   playRowLeadingLabel,
   usablePlayUrl,
   usesDateLeadingColumn,
@@ -26,6 +28,25 @@ describe("Play row display helpers", () => {
     expect(displayBranch("BlueField Law\\Marketing")).toBe(
       "BlueField Law\\Marketing",
     );
+  });
+
+  it("keeps canonical Gmail web and API thread identifiers separate", () => {
+    const metadata = {
+      external_ids: { thread_id: "legacy-fallback" },
+      gmail_api_thread_id: "1a0ad6003af12a6b",
+      gmail_attachment: {
+        api_thread_id: "1a0ad6003af12a6b",
+        thread_ref: "FMfcgzQZSexact",
+      },
+    };
+    expect(gmailWebThreadRefFromMetadata(metadata)).toBe("FMfcgzQZSexact");
+    expect(gmailApiThreadIdFromMetadata(metadata)).toBe("1a0ad6003af12a6b");
+    expect(gmailWebThreadRefFromMetadata({
+      external_ids: { thread_id: "1a0ad6003af12a6b" },
+    })).toBeNull();
+    expect(gmailApiThreadIdFromMetadata({
+      external_ids: { thread_id: "1a0ad6003af12a6b" },
+    })).toBe("1a0ad6003af12a6b");
   });
 
   it("reads a usable Gmail thread ID from current migration metadata", () => {

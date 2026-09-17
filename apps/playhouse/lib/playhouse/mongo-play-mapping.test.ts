@@ -142,7 +142,12 @@ describe("Mongo Play mapping", () => {
       action_type: "Legacy title",
       branch: "Branch",
       carnival_google: {
-        gmail_attachment: { account_index: 2 },
+        gmail_api_thread_id: "1a0ad6003af12a6b",
+        gmail_attachment: {
+          account_index: 2,
+          api_thread_id: "1a0ad6003af12a6b",
+          thread_ref: "FMfcgzQZSexact",
+        },
       },
       carnival_incoming: {
         gmail_latest_url: "https://mail.google.com/mail/u/2/#all/api-thread",
@@ -171,7 +176,9 @@ describe("Mongo Play mapping", () => {
       branch: "Branch",
       durationMinutes: 45,
       gmailAccountIndex: 2,
+      gmailApiThreadId: "1a0ad6003af12a6b",
       gmailThreadId: "gmail-thread-id",
+      gmailWebThreadRef: "FMfcgzQZSexact",
       incomingGmailCount: 2,
       incomingGmailUrl: "https://mail.google.com/mail/u/2/#all/api-thread",
       incomingPriority: true,
@@ -185,6 +192,25 @@ describe("Mongo Play mapping", () => {
       sourceType: "gmail",
       title: "Legacy title",
       url: "https://example.test/path",
+    });
+  });
+
+  it("does not use a legacy hexadecimal API thread ID for browser synchronization", () => {
+    const task = {
+      _id: new ObjectId(),
+      action_type: "Legacy Gmail Play",
+      is_active: true,
+      is_deleted: false,
+      regarding: "email",
+      task_date: new Date("2026-09-17T00:00:00.000Z"),
+      task_type: "H",
+      thread_id: "1a0ad6003af12a6b",
+      user_id: 43,
+    };
+    expect(mapMongoPlay(task, baskets)).toMatchObject({
+      gmailApiThreadId: "1a0ad6003af12a6b",
+      gmailThreadId: "1a0ad6003af12a6b",
+      gmailWebThreadRef: null,
     });
   });
 

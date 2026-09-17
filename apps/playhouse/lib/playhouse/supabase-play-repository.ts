@@ -8,7 +8,9 @@ import {
 } from "../../domain/gmail-attachment";
 import {
   gmailAccountIndexFromMetadata,
+  gmailApiThreadIdFromMetadata,
   gmailThreadIdFromMetadata,
+  gmailWebThreadRefFromMetadata,
 } from "../../domain/play-display";
 import { orderUpdatesForInsertion } from "../../domain/play-order";
 import { searchableMetadataText } from "../../domain/play-search";
@@ -157,7 +159,9 @@ export class SupabasePlayRepository implements PlayRepository {
       branch: data.branch,
       durationMinutes: data.duration_minutes,
       gmailAccountIndex: gmailAccountIndexFromMetadata(data.source_metadata),
+      gmailApiThreadId: gmailApiThreadIdFromMetadata(data.source_metadata),
       gmailThreadId: gmailThreadIdFromMetadata(data.source_metadata),
+      gmailWebThreadRef: gmailWebThreadRefFromMetadata(data.source_metadata),
       id: data.id,
       nextPlayId: null,
       note: data.note,
@@ -265,7 +269,9 @@ export class SupabasePlayRepository implements PlayRepository {
       branch: play.branch,
       durationMinutes: play.duration_minutes,
       gmailAccountIndex: gmailAccountIndexFromMetadata(play.source_metadata),
+      gmailApiThreadId: gmailApiThreadIdFromMetadata(play.source_metadata),
       gmailThreadId: gmailThreadIdFromMetadata(play.source_metadata),
+      gmailWebThreadRef: gmailWebThreadRefFromMetadata(play.source_metadata),
       id: play.id,
       nextPlayId: nextByPlayId.get(play.id) ?? null,
       note: play.note,

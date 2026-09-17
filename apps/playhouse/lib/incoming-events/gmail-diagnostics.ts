@@ -15,6 +15,8 @@ export const GMAIL_DIAGNOSTIC_STAGES = [
   "GMAIL_MATCH_ATTEMPTED",
   "GMAIL_MATCH_RESULT",
   "PLAY_INCOMING_MUTATION",
+  "GMAIL_OUTGOING_SYNC_REQUESTED",
+  "GMAIL_OUTGOING_SYNC_RESULT",
 ] as const;
 
 export type GmailDiagnosticStage = (typeof GMAIL_DIAGNOSTIC_STAGES)[number];
@@ -26,6 +28,7 @@ export type GmailMatchStrategy =
   | "legacy_message_id"
   | "legacy_thread_id"
   | "none";
+export type GmailOutgoingOperation = "star" | "unstar";
 
 export type GmailDiagnosticInput = {
   apiThreadPresent?: boolean;
@@ -34,12 +37,14 @@ export type GmailDiagnosticInput = {
   matchResult?: GmailMatchResult;
   matchStrategy?: GmailMatchStrategy;
   mutationAttempted?: boolean;
+  operation?: GmailOutgoingOperation;
   ownerUserId: string;
   playId?: string | null;
   reason?: string | null;
   resultDate?: string | null;
   resultPriority?: string | null;
   resultTaskType?: string | null;
+  success?: boolean;
   stage: GmailDiagnosticStage;
   threadId?: string | null;
   webThreadPresent?: boolean;
@@ -55,6 +60,7 @@ export type GmailDiagnosticDocument = {
   match_result?: GmailMatchResult;
   match_strategy?: GmailMatchStrategy;
   mutation_attempted?: boolean;
+  operation?: GmailOutgoingOperation;
   owner_user_id: string;
   play_id?: string;
   reason?: string;
@@ -62,6 +68,7 @@ export type GmailDiagnosticDocument = {
   result_priority?: string;
   result_task_type?: string;
   stage: GmailDiagnosticStage;
+  success?: boolean;
   thread_fingerprint?: string;
   web_thread_present?: boolean;
 };
@@ -112,11 +119,13 @@ export function gmailDiagnosticDocument(
     ...(typeof input.mutationAttempted === "boolean"
       ? { mutation_attempted: input.mutationAttempted }
       : {}),
+    ...(input.operation ? { operation: input.operation } : {}),
     ...(playId ? { play_id: playId } : {}),
     ...(reason ? { reason } : {}),
     ...(resultDate ? { result_date: resultDate } : {}),
     ...(resultPriority ? { result_priority: resultPriority } : {}),
     ...(resultTaskType ? { result_task_type: resultTaskType } : {}),
+    ...(typeof input.success === "boolean" ? { success: input.success } : {}),
     ...(threadFingerprint
       ? { identifier_type: "gmail_api_thread_id" as const, thread_fingerprint: threadFingerprint }
       : {}),

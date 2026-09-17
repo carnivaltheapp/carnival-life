@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-FROZEN-PLAYHOUSE-111
+          P3-GMAIL-OUTGOING-SYNC-112
         </small>
       </body>
     </html>

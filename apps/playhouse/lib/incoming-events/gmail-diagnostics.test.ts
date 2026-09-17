@@ -12,7 +12,7 @@ import {
 } from "./gmail-diagnostics";
 
 describe("Gmail pipeline diagnostics", () => {
-  it("defines and instruments the complete drag-to-mutation trail", () => {
+  it("defines and instruments the complete Gmail lifecycle trail", () => {
     expect(GMAIL_DIAGNOSTIC_STAGES).toEqual([
       "DRAG_METADATA_EXTRACTED",
       "DRAG_METADATA_RECEIVED",
@@ -22,6 +22,8 @@ describe("Gmail pipeline diagnostics", () => {
       "GMAIL_MATCH_ATTEMPTED",
       "GMAIL_MATCH_RESULT",
       "PLAY_INCOMING_MUTATION",
+      "GMAIL_OUTGOING_SYNC_REQUESTED",
+      "GMAIL_OUTGOING_SYNC_RESULT",
     ]);
     const sources = [
       readFileSync(new URL("../../app/plays/actions.ts", import.meta.url), "utf8"),
@@ -29,6 +31,29 @@ describe("Gmail pipeline diagnostics", () => {
       readFileSync(new URL("./mongo-incoming-event-store.ts", import.meta.url), "utf8"),
     ].join("\n");
     for (const stage of GMAIL_DIAGNOSTIC_STAGES) expect(sources).toContain(stage);
+  });
+
+  it("records outgoing lifecycle results without raw Gmail identifiers", () => {
+    const document = gmailDiagnosticDocument({
+      apiThreadPresent: true,
+      operation: "unstar",
+      ownerUserId: "owner-1",
+      playId: "play-1",
+      reason: "matching_tab_not_found",
+      stage: "GMAIL_OUTGOING_SYNC_RESULT",
+      success: false,
+      webThreadPresent: true,
+    });
+    expect(document).toMatchObject({
+      api_thread_present: true,
+      operation: "unstar",
+      play_id: "play-1",
+      reason: "matching_tab_not_found",
+      stage: "GMAIL_OUTGOING_SYNC_RESULT",
+      success: false,
+      web_thread_present: true,
+    });
+    expect(document).not.toHaveProperty("thread_fingerprint");
   });
 
   it("creates a safe stage record with only a thread fingerprint", () => {

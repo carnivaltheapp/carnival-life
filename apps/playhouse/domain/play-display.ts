@@ -19,6 +19,31 @@ function nonblankString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+export function isGmailApiThreadId(value: unknown) {
+  return typeof value === "string" && /^[0-9a-f]{16,32}$/i.test(value.trim());
+}
+
+export function gmailWebThreadRefFromMetadata(sourceMetadata: unknown) {
+  const metadata = objectValue(sourceMetadata);
+  if (!metadata) return null;
+  const canonical = nonblankString(objectValue(metadata.gmail_attachment)?.thread_ref);
+  if (canonical && !isGmailApiThreadId(canonical)) return canonical;
+  const legacy = nonblankString(objectValue(metadata.external_ids)?.thread_id) ??
+    nonblankString(objectValue(metadata.legacy_source)?.thread_id);
+  return legacy && !isGmailApiThreadId(legacy) ? legacy : null;
+}
+
+export function gmailApiThreadIdFromMetadata(sourceMetadata: unknown) {
+  const metadata = objectValue(sourceMetadata);
+  if (!metadata) return null;
+  const canonical = nonblankString(metadata.gmail_api_thread_id) ??
+    nonblankString(objectValue(metadata.gmail_attachment)?.api_thread_id);
+  if (canonical) return canonical;
+  const legacy = nonblankString(objectValue(metadata.external_ids)?.thread_id) ??
+    nonblankString(objectValue(metadata.legacy_source)?.thread_id);
+  return isGmailApiThreadId(legacy) ? legacy : null;
+}
+
 export function gmailThreadIdFromMetadata(sourceMetadata: unknown) {
   const metadata = objectValue(sourceMetadata);
   if (!metadata) return null;
