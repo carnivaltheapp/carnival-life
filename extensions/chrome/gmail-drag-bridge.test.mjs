@@ -81,7 +81,7 @@ test("Gmail content script returns latest visible participants without page-drag
   const from = participant("me@example.com", "Me");
   const kayla = participant("kayla@example.com", "Kayla");
   const latest = {
-    getAttribute: () => null,
+    getAttribute: (attribute) => attribute === "data-legacy-thread-id" ? "api-thread-123" : null,
     getClientRects: () => [{}],
     querySelector: () => from,
     querySelectorAll: () => [from, kayla],
@@ -112,6 +112,7 @@ test("Gmail content script returns latest visible participants without page-drag
     (value) => { response = value; },
   );
   assert.deepEqual(JSON.parse(JSON.stringify(response)), {
+    gmailApiThreadId: "api-thread-123",
     gmailParticipants: {
       from: { email: "me@example.com", name: "Me" },
       to: [{ email: "kayla@example.com", name: "Kayla" }],
@@ -233,7 +234,12 @@ test("omnibox Gmail URL drop requests exact-tab metadata for row-create", async 
   };
   const context = playhouseContext(async (message) => {
     request = message;
-    return { gmailParticipants, gmailSubject: "Quarterly planning", returnedThreadRef: "FMexact" };
+    return {
+      gmailApiThreadId: "api-thread-123",
+      gmailParticipants,
+      gmailSubject: "Quarterly planning",
+      returnedThreadRef: "FMexact",
+    };
   });
 
   context.drop(dataTransfer({
@@ -251,6 +257,7 @@ test("omnibox Gmail URL drop requests exact-tab metadata for row-create", async 
   });
   assert.deepEqual(JSON.parse(context.dispatched().detail), {
     correlationId: "correlation-1",
+    gmailApiThreadId: "api-thread-123",
     gmailParticipants,
     subject: "Quarterly planning",
     targetPlayId: "play-1",
@@ -271,6 +278,7 @@ test("row-create waits for asynchronous exact-tab metadata and retains its targe
   assert.equal(context.dispatched(), undefined);
 
   resolveMetadata({
+    gmailApiThreadId: "api-thread-123",
     participants: {
       from: { email: "kayla@example.com", name: "Kayla" },
       to: [{ email: "me@example.com", name: "Me" }],
@@ -284,6 +292,7 @@ test("row-create waits for asynchronous exact-tab metadata and retains its targe
   assert.equal(context.dispatched().type, "carnival:gmail-row-create");
   assert.deepEqual(JSON.parse(context.dispatched().detail), {
     correlationId: "correlation-1",
+    gmailApiThreadId: "api-thread-123",
     gmailParticipants: {
       from: { email: "kayla@example.com", name: "Kayla" },
       to: [{ email: "me@example.com", name: "Me" }],

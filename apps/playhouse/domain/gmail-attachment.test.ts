@@ -22,6 +22,11 @@ const expected = {
   threadRef: "FMfcgzExample",
 };
 
+const expectedWithApiThread = {
+  ...expected,
+  apiThreadId: "api-thread-123",
+};
+
 describe("Gmail URL drop payloads", () => {
   it.each([
     ["text/uri-list", "# dragged link\nhttps://mail.google.com/mail/u/2/#all/FMfcgzExample"],
@@ -63,10 +68,12 @@ describe("Gmail URL drop payloads", () => {
     expect(gmailMetadataWithAttachment({
       external_ids: { event_id: "calendar-1", thread_id: "old-thread" },
       legacy_source: { task_type: "H" },
-    }, expected)).toEqual({
+    }, expectedWithApiThread)).toEqual({
       external_ids: { event_id: "calendar-1", thread_id: "FMfcgzExample" },
+      gmail_api_thread_id: "api-thread-123",
       gmail_attachment: {
         account_index: 2,
+        api_thread_id: "api-thread-123",
         canonical_url: expected.canonicalUrl,
         thread_ref: "FMfcgzExample",
       },

@@ -125,5 +125,7 @@ describe("Carnival Incoming Events core", () => {
     expect(store).toContain("priority_index: orderById.get(mutation.playId)");
     expect(store).toContain("task_date: today");
     expect(store).toContain('task_type: "H"');
+    expect(store).toContain('{ "carnival_google.gmail_api_thread_id": externalThreadId }');
+    expect(store).toContain('{ "carnival_google.gmail_attachment.api_thread_id": externalThreadId }');
   });
 });

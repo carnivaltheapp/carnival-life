@@ -80,13 +80,18 @@ export class MongoPlayRepository implements PlayRepository {
     } catch {
       return false;
     }
+    const gmailAttachment = {
+      account_index: attachment.accountIndex,
+      ...(attachment.apiThreadId ? { api_thread_id: attachment.apiThreadId } : {}),
+      canonical_url: attachment.canonicalUrl,
+      thread_ref: attachment.threadRef,
+    };
     const result = await this.dependencies.collection.updateOne(filter, {
       $set: {
-        "carnival_google.gmail_attachment": {
-          account_index: attachment.accountIndex,
-          canonical_url: attachment.canonicalUrl,
-          thread_ref: attachment.threadRef,
-        },
+        ...(attachment.apiThreadId
+          ? { "carnival_google.gmail_api_thread_id": attachment.apiThreadId }
+          : {}),
+        "carnival_google.gmail_attachment": gmailAttachment,
         thread_id: attachment.threadRef,
         updated_date: new Date(),
       },
@@ -110,8 +115,10 @@ export class MongoPlayRepository implements PlayRepository {
       priorityIndex: nextLegacyPriorityIndex(latest?.priority_index),
     });
     document.carnival_google = {
+      ...(attachment.apiThreadId ? { gmail_api_thread_id: attachment.apiThreadId } : {}),
       gmail_attachment: {
         account_index: attachment.accountIndex,
+        ...(attachment.apiThreadId ? { api_thread_id: attachment.apiThreadId } : {}),
         canonical_url: attachment.canonicalUrl,
         thread_ref: attachment.threadRef,
       },

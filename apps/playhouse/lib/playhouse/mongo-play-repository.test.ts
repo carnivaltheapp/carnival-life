@@ -55,6 +55,7 @@ describe("MongoPlayRepository mutations", () => {
     expect(await repository({ updateOne: updateOne as never }).attachGmail({
       attachment: {
         accountIndex: 2,
+        apiThreadId: "api-thread-123",
         canonicalUrl: "https://mail.google.com/mail/u/2/#all/FMnew",
         threadRef: "FMnew",
       },
@@ -70,8 +71,10 @@ describe("MongoPlayRepository mutations", () => {
       user_id: 43,
     });
     expect(updateOne.mock.calls[0][1].$set).toMatchObject({
+      "carnival_google.gmail_api_thread_id": "api-thread-123",
       "carnival_google.gmail_attachment": {
         account_index: 2,
+        api_thread_id: "api-thread-123",
         canonical_url: "https://mail.google.com/mail/u/2/#all/FMnew",
         thread_ref: "FMnew",
       },
@@ -93,6 +96,7 @@ describe("MongoPlayRepository mutations", () => {
     }).createGmail({
       attachment: {
         accountIndex: 2,
+        apiThreadId: "api-thread-123",
         canonicalUrl: "https://mail.google.com/mail/u/2/#all/FMnew",
         threadRef: "FMnew",
       },
@@ -107,8 +111,10 @@ describe("MongoPlayRepository mutations", () => {
     expect(insertOne.mock.calls[0][0]).toMatchObject({
       action_type: "Quarterly planning",
       carnival_google: {
+        gmail_api_thread_id: "api-thread-123",
         gmail_attachment: {
           account_index: 2,
+          api_thread_id: "api-thread-123",
           canonical_url: "https://mail.google.com/mail/u/2/#all/FMnew",
           thread_ref: "FMnew",
         },
@@ -119,6 +125,10 @@ describe("MongoPlayRepository mutations", () => {
       thread_id: "FMnew",
       user_id: 43,
     });
+    const created = insertOne.mock.calls[0][0];
+    expect(created.carnival_google?.gmail_api_thread_id).toBe("api-thread-123");
+    expect(created.carnival_google?.gmail_attachment?.api_thread_id).toBe("api-thread-123");
+    expect(created.carnival_google?.gmail_api_thread_id).not.toBe("unrelated-api-thread");
   });
 
   it("assigns only the targeted Play without changing rank or placement", async () => {

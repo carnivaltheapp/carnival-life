@@ -10,6 +10,7 @@ import {
 
 const base = {
   correlationId: "drop-1",
+  gmailApiThreadId: "api-thread-123",
   subject: "Quarterly planning",
   targetPlayId: "target-1",
   url: "https://mail.google.com/mail/u/2/#inbox/FMfcExact",
@@ -40,6 +41,7 @@ describe("Gmail row-create input", () => {
   it("inherits a Headline target's date and rank but always uses Everyday Push", () => {
     const parsed = parseGmailRowCreateRequest(base);
     expect(parsed).not.toBeNull();
+    expect(parsed?.attachment.apiThreadId).toBe("api-thread-123");
     expect(gmailRowCreateInput(parsed!, target())).toMatchObject({
       placement: { kind: "calendar", scheduledDate: "2026-09-14" },
       playType: "normal",
@@ -76,6 +78,12 @@ describe("Gmail row-create input", () => {
     [{ ...base, url: "https://example.com/not-gmail" }],
   ])("rejects missing required metadata", (request) => {
     expect(parseGmailRowCreateRequest(request)).toBeNull();
+  });
+
+  it("ignores an invalid optional Gmail API thread ID without breaking URL attachment", () => {
+    const parsed = parseGmailRowCreateRequest({ ...base, gmailApiThreadId: "not valid!" });
+    expect(parsed?.attachment).toMatchObject({ threadRef: "FMfcExact" });
+    expect(parsed?.attachment.apiThreadId).toBeUndefined();
   });
 
   it("rejects an Appointment or malformed target placement", () => {

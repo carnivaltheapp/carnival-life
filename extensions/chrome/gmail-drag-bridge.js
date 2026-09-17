@@ -74,6 +74,13 @@ function latestVisibleGmailMessage() {
   }).at(-1) ?? null;
 }
 
+function visibleGmailApiThreadId(message) {
+  const value = message?.getAttribute?.("data-legacy-thread-id") ??
+    message?.closest?.("[data-legacy-thread-id]")?.getAttribute?.("data-legacy-thread-id");
+  const normalized = value?.trim?.() ?? "";
+  return /^[a-zA-Z0-9_-]{1,200}$/.test(normalized) ? normalized : null;
+}
+
 function latestGmailParticipants() {
   const latest = latestVisibleGmailMessage();
   if (!latest) return { participants: null, reason: "latest_visible_message_not_found" };
@@ -162,8 +169,11 @@ if (window.location.hostname === "mail.google.com") {
     if (message?.type !== GET_VISIBLE_GMAIL_PARTICIPANTS) return false;
     const currentThreadRef = parseGmailUrl(window.location.href)?.threadRef ?? null;
     const extraction = latestGmailParticipants();
+    const latest = latestVisibleGmailMessage();
+    const gmailApiThreadId = visibleGmailApiThreadId(latest);
     const subject = visibleGmailSubject();
     sendResponse({
+      gmailApiThreadId,
       gmailParticipants: extraction.participants,
       gmailSubject: subject,
       participants: extraction.participants,
@@ -189,6 +199,7 @@ if (window.location.hostname === "mail.google.com") {
       const returnedThreadRef = response?.threadRef ?? response?.returnedThreadRef ?? null;
       const subject = response?.subject ?? response?.gmailSubject ?? null;
       const participants = response?.participants ?? response?.gmailParticipants ?? null;
+      const gmailApiThreadId = response?.gmailApiThreadId ?? null;
       console.info("GMAIL_ROW_CREATE_TAB_METADATA", {
         fromPresent: Boolean(participants?.from),
         gmailThreadRef: returnedThreadRef,
@@ -221,6 +232,7 @@ if (window.location.hostname === "mail.google.com") {
       window.dispatchEvent(new CustomEvent("carnival:gmail-row-create", {
         detail: JSON.stringify({
           correlationId,
+          gmailApiThreadId: gmailApiThreadId ?? undefined,
           gmailParticipants: participants ?? undefined,
           subject,
           targetPlayId: playId,

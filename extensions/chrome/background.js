@@ -587,11 +587,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return;
       }
       const gmailParticipants = response?.gmailParticipants ?? response?.participants ?? null;
+      const gmailApiThreadId = response?.gmailApiThreadId ?? null;
       const gmailSubject = response?.gmailSubject ?? response?.subject ?? null;
       const normalizedResponse = { ...response, gmailParticipants, gmailSubject };
       const received = {
         ...matched,
         fromExists: Boolean(gmailParticipants?.from),
+        gmailApiThreadIdPresent: Boolean(gmailApiThreadId),
         returnedThreadRef: normalizedResponse?.threadRef ?? null,
         subjectPresent: Boolean(gmailSubject),
         toCount: gmailParticipants?.to?.length ?? 0,
@@ -601,6 +603,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (verified.status === "thread_mismatch") {
         recordDiagnostic("warn", "GMAIL_METADATA_THREAD_MISMATCH", received);
         sendResponse({
+          gmailApiThreadId,
           gmailParticipants: null,
           gmailSubject: null,
           returnedThreadRef: normalizedResponse?.threadRef ?? null,
@@ -613,6 +616,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           reason: "participant_extraction_failed",
         });
         sendResponse({
+          gmailApiThreadId,
           gmailParticipants: null,
           gmailSubject,
           participants: null,
@@ -624,6 +628,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
       recordDiagnostic("info", "GMAIL_PARTICIPANTS_RESOLVED_FROM_OPEN_TAB", received);
       sendResponse({
+        gmailApiThreadId,
         gmailParticipants: verified.gmailParticipants,
         gmailSubject,
         participants: verified.gmailParticipants,

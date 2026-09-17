@@ -3,6 +3,7 @@ import { isIsoCalendarDate, isUuid } from "./play-input";
 import type { BasketSummary, PlayListItem, PlayPlacement } from "./play";
 import {
   parseGmailAttachmentUrl,
+  sanitizeGmailApiThreadId,
   sanitizeGmailParticipants,
   type GmailAttachment,
   type GmailParticipants,
@@ -22,6 +23,7 @@ type GmailRowCreateView =
 
 export type GmailRowCreateRequest = {
   correlationId: string;
+  gmailApiThreadId?: unknown;
   gmailParticipants?: unknown;
   subject: string;
   targetPlayId: string;
@@ -94,11 +96,15 @@ export function parseGmailRowCreateRequest(value: unknown): ParsedGmailRowCreate
   const attachment = typeof request.url === "string"
     ? parseGmailAttachmentUrl(request.url)
     : null;
+  const apiThreadId = sanitizeGmailApiThreadId(request.gmailApiThreadId);
   if (!attachment || !subject || subject.length > 500 || !correlationId ||
       correlationId.length > 100 || !targetPlayId || targetPlayId.length > 100) return null;
 
   return {
-    attachment,
+    attachment: {
+      ...attachment,
+      ...(apiThreadId ? { apiThreadId } : {}),
+    },
     correlationId,
     gmailParticipants: sanitizeGmailParticipants(request.gmailParticipants),
     subject,

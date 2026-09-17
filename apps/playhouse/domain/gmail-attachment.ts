@@ -8,10 +8,17 @@ export type GmailParticipants = {
 
 export type GmailAttachment = {
   accountIndex: number;
+  apiThreadId?: string;
   canonicalUrl: string;
   gmailParticipants?: GmailParticipants;
   threadRef: string;
 };
+
+export function sanitizeGmailApiThreadId(value: unknown) {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return /^[a-zA-Z0-9_-]{1,200}$/.test(normalized) ? normalized : null;
+}
 
 type DragData = {
   getData(type: string): string;
@@ -138,9 +145,11 @@ export function gmailMetadataWithAttachment(
     external_ids: { ...externalIds, thread_id: attachment.threadRef },
     gmail_attachment: {
       account_index: attachment.accountIndex,
+      ...(attachment.apiThreadId ? { api_thread_id: attachment.apiThreadId } : {}),
       canonical_url: attachment.canonicalUrl,
       thread_ref: attachment.threadRef,
     },
+    ...(attachment.apiThreadId ? { gmail_api_thread_id: attachment.apiThreadId } : {}),
   };
 }
 
