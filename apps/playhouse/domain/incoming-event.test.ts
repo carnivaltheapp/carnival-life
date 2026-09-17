@@ -6,7 +6,11 @@ import type {
   IncomingEventPolicyMutation,
   NormalizedIncomingEvent,
 } from "./incoming-event";
-import { incomingCommunicationPolicy, processIncomingEvent } from "./incoming-event";
+import {
+  incomingCommunicationPolicy,
+  incomingHeadlineOrderUpdates,
+  processIncomingEvent,
+} from "./incoming-event";
 
 function event(source: NormalizedIncomingEvent["source"] = "slack"): NormalizedIncomingEvent {
   return {
@@ -23,7 +27,7 @@ function event(source: NormalizedIncomingEvent["source"] = "slack"): NormalizedI
 }
 
 describe("Carnival Incoming Events core", () => {
-  it("processes a source-neutral normalized event through shared matching and policy", async () => {
+  it("moves a matched event to Today as a Headline regardless of its prior placement or rank", async () => {
     const match: IncomingEventMatch = {
       playId: "play-1",
       routingUrl: "https://example.com/thread-1",
@@ -50,8 +54,9 @@ describe("Carnival Incoming Events core", () => {
 
     expect(record).toHaveBeenCalledWith(event(), match, {
       incomingPriority: true,
+      placeAtTop: true,
       playId: "play-1",
-      playType: "reminder",
+      playType: "normal",
       scheduledDate: "2026-09-16",
     });
     expect(result).toMatchObject({ linkedPlayId: "play-1", mutatedPlay: true });
@@ -80,6 +85,33 @@ describe("Carnival Incoming Events core", () => {
     expect(incomingCommunicationPolicy({ status: "unmatched" }, "2026-09-16")).toBeNull();
   });
 
+  it("places a matched Play at the absolute top of today's Headlines", () => {
+    expect(incomingHeadlineOrderUpdates({
+      existingHeadlines: [
+        { id: "headline-2", order: 10 * 0x100000000 + 0x300 },
+        { id: "headline-1", order: 10 * 0x100000000 + 0x200 },
+      ],
+      incomingPlay: { id: "incoming", order: 10 * 0x100000000 + 0x900 },
+    })).toEqual([{
+      id: "incoming",
+      order: 10 * 0x100000000 + 0x100,
+    }]);
+  });
+
+  it("rebalances Headlines without changing their relative order when no gap exists", () => {
+    expect(incomingHeadlineOrderUpdates({
+      existingHeadlines: [
+        { id: "headline-1", order: 10 * 0x100000000 },
+        { id: "headline-2", order: 10 * 0x100000000 + 1 },
+      ],
+      incomingPlay: { id: "incoming", order: 10 * 0x100000000 + 0x900 },
+    })).toEqual([
+      { id: "incoming", order: 10 * 0x100000000 + 0x100 },
+      { id: "headline-1", order: 10 * 0x100000000 + 0x200 },
+      { id: "headline-2", order: 10 * 0x100000000 + 0x300 },
+    ]);
+  });
+
   it("keeps Play creation APIs out of the Incoming Events processor and store", () => {
     const core = readFileSync(new URL("./incoming-event.ts", import.meta.url), "utf8");
     const store = readFileSync(
@@ -89,5 +121,9 @@ describe("Carnival Incoming Events core", () => {
     for (const forbidden of ["createGmail", "createPlay", "mongoCreateDocument", "tasks.insertOne"]) {
       expect(`${core}\n${store}`).not.toContain(forbidden);
     }
+    expect(store).toContain('"carnival_incoming.gmail_unhandled_count": existingCount + 1');
+    expect(store).toContain("priority_index: orderById.get(mutation.playId)");
+    expect(store).toContain("task_date: today");
+    expect(store).toContain('task_type: "H"');
   });
 });

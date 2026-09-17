@@ -101,9 +101,9 @@ describe("chronological Play sorting", () => {
     ]);
   });
 
-  it("places incoming-event Reminders above ordinary Reminders without crossing ranks", () => {
+  it("keeps rank and persisted priority authoritative when incoming metadata is present", () => {
     const incoming = {
-      ...play({ id: "incoming", order: 999, taskType: "S" }),
+      ...play({ id: "incoming", order: 0, taskType: "H" }),
       incomingPriority: true,
     };
     expect(sortChronologicalPlays([
@@ -113,7 +113,7 @@ describe("chronological Play sorting", () => {
       play({ id: "ordinary-second", order: 2, taskType: "S" }),
       play({ id: "appointment", order: 500, taskType: "A" }),
     ]).map(({ id }) => id)).toEqual([
-      "appointment", "headline", "incoming", "ordinary-first", "ordinary-second",
+      "appointment", "incoming", "headline", "ordinary-first", "ordinary-second",
     ]);
   });
 });

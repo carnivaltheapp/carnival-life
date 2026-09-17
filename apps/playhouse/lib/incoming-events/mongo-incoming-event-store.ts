@@ -14,6 +14,7 @@ import type {
   IncomingEventStore,
   NormalizedIncomingEvent,
 } from "../../domain/incoming-event";
+import { incomingHeadlineOrderUpdates } from "../../domain/incoming-event";
 import { gmailThreadUrl } from "../../domain/play-display";
 import {
   getCarnivalMongoClient,
@@ -21,6 +22,8 @@ import {
 } from "../playhouse/mongo-client";
 import {
   assertMongoUserMapping,
+  legacyPriorityNumber,
+  legacyPriorityValue,
   mongoActiveFilter,
   type LegacyTaskDocument,
 } from "../playhouse/mongo-play-mapping";
@@ -211,31 +214,81 @@ export class MongoIncomingEventService implements IncomingEventMatchEngine, Inco
           ...mongoActiveFilter(),
           _id: objectId,
           task_type: { $ne: "A" },
-        }, { projection: { carnival_incoming: 1, task_date: 1 }, session });
+        }, {
+          projection: { carnival_incoming: 1, priority_index: 1, task_date: 1 },
+          session,
+        });
         if (!current) throw new Error("matched_play_no_longer_active");
         const currentIncoming = objectValue(current.carnival_incoming);
         const existingCount = typeof currentIncoming?.gmail_unhandled_count === "number"
           ? currentIncoming.gmail_unhandled_count
           : 0;
-        const update = await tasks.updateOne({
+        const today = new Date(`${mutation.scheduledDate}T00:00:00.000Z`);
+        const tomorrow = new Date(today);
+        tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+        const existingHeadlines = await tasks.find({
           ...mongoActiveFilter(),
-          _id: objectId,
-          task_type: { $ne: "A" },
-        }, {
-          $set: {
-            "carnival_google.gmail_api_thread_id": event.externalThreadId,
-            "carnival_incoming.gmail_latest_event_id": eventId.toHexString(),
-            "carnival_incoming.gmail_latest_message_id": event.externalItemId,
-            "carnival_incoming.gmail_latest_thread_id": event.externalThreadId,
-            "carnival_incoming.gmail_latest_url": match.routingUrl,
-            "carnival_incoming.gmail_unhandled_count": existingCount + 1,
-            "carnival_incoming.priority": true,
-            task_date: new Date(`${mutation.scheduledDate}T00:00:00.000Z`),
-            task_type: "S",
-            updated_date: new Date(),
+          _id: { $ne: objectId },
+          task_date: { $gte: today, $lt: tomorrow },
+          task_type: { $nin: ["A", "S"] },
+        }, { session }).sort({ priority_index: 1, created_date: 1, _id: 1 }).toArray();
+        const orderById = new Map(incomingHeadlineOrderUpdates({
+          existingHeadlines: existingHeadlines.map((task, index) => ({
+            id: task._id.toHexString(),
+            order: legacyPriorityNumber(task.priority_index, (index + 1) * 0x100),
+          })),
+          incomingPlay: {
+            id: mutation.playId,
+            order: legacyPriorityNumber(current.priority_index, 10 * 0x100000000 + 0x100),
           },
-        }, { session });
-        if (update.matchedCount !== 1) throw new Error("matched_play_update_failed");
+        }).map((item) => [item.id, legacyPriorityValue(item.order)]));
+        const updatedAt = new Date();
+        const operations = [
+          ...existingHeadlines.flatMap((task) => {
+            const priorityIndex = orderById.get(task._id.toHexString());
+            return priorityIndex && priorityIndex !== task.priority_index
+              ? [{
+                  updateOne: {
+                    filter: {
+                      ...mongoActiveFilter(),
+                      _id: task._id,
+                      task_date: { $gte: today, $lt: tomorrow },
+                      task_type: { $nin: ["A", "S"] },
+                    },
+                    update: { $set: { priority_index: priorityIndex, updated_date: updatedAt } },
+                  },
+                }]
+              : [];
+          }),
+          {
+            updateOne: {
+              filter: {
+                ...mongoActiveFilter(),
+                _id: objectId,
+                task_type: { $ne: "A" },
+              },
+              update: {
+                $set: {
+                  "carnival_google.gmail_api_thread_id": event.externalThreadId,
+                  "carnival_incoming.gmail_latest_event_id": eventId.toHexString(),
+                  "carnival_incoming.gmail_latest_message_id": event.externalItemId,
+                  "carnival_incoming.gmail_latest_thread_id": event.externalThreadId,
+                  "carnival_incoming.gmail_latest_url": match.routingUrl,
+                  "carnival_incoming.gmail_unhandled_count": existingCount + 1,
+                  "carnival_incoming.priority": true,
+                  priority_index: orderById.get(mutation.playId),
+                  task_date: today,
+                  task_type: "H",
+                  updated_date: updatedAt,
+                },
+              },
+            },
+          },
+        ];
+        const update = await tasks.bulkWrite(operations, { session });
+        if (update.matchedCount !== operations.length) {
+          throw new Error("matched_play_update_failed");
+        }
         mutatedPlay = true;
         const wasToday = current.task_date instanceof Date &&
           current.task_date.toISOString().slice(0, 10) === mutation.scheduledDate;

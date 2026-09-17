@@ -98,7 +98,7 @@ describe('"use server" export contract', () => {
         violations.push(`${file}: ${violation}`);
       }
     }
-    expect(serverActionFiles).toHaveLength(8);
+    expect(serverActionFiles).toHaveLength(9);
     expect(violations).toEqual([]);
   });
 });

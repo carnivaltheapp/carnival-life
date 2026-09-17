@@ -31,7 +31,7 @@ Production setup:
 
 The existing `gmail.modify` authorization is sufficient for mailbox watch, history, and metadata lookup. Initial registration stores Gmail's current history ID as the baseline, so old mail is not replayed. The daily `/api/cron/gmail-watch` Vercel cron renews watches independently of an open PlayHouse browser. Duplicate/coalesced notifications are serialized by a durable mailbox lease and history cursor.
 
-For matched mail, the event record and existing Play mutation are one Mongo transaction. The Play moves to the owner's local Today, becomes a Reminder, and receives a derived incoming priority/count. Clicking its colored Gmail indicator uses the existing Aux Gmail route; only a successful route marks the Play's current Gmail events handled.
+For matched actionable mail, the event record and existing Play mutation are one Mongo transaction. The Play moves to the owner's local Today, becomes the first Headline after any Appointments, and receives a derived incoming priority/count. Clicking its colored Gmail indicator uses the existing Aux Gmail route; only a successful route marks the Play's current Gmail events handled.
 
 ## Google Drive Folder Identity
 

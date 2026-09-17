@@ -7,11 +7,6 @@ export function comparePlayRankAndPriority(
 ) {
   const rankOrder = playRankSortValue(left) - playRankSortValue(right);
   if (rankOrder) return rankOrder;
-  if (left.playType === "reminder" && right.playType === "reminder") {
-    const incomingOrder = Number(Boolean(right.incomingPriority)) -
-      Number(Boolean(left.incomingPriority));
-    if (incomingOrder) return incomingOrder;
-  }
   return (left.sortOrder ?? 0) - (right.sortOrder ?? 0);
 }
 

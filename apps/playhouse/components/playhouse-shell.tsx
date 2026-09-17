@@ -120,6 +120,7 @@ type PlayhouseShellProps = {
   identity: UserIdentity;
   nextPlayOptions: NextPlayOption[];
   plays: PlayListItem[];
+  profileTimeZone: string;
   selectedView: SelectedView;
   searchQuery: string;
   supportsWorkflows: boolean;
@@ -236,6 +237,7 @@ function PlayhouseShellView({
   identity,
   nextPlayOptions,
   plays,
+  profileTimeZone,
   selectedView,
   searchQuery,
   supportsWorkflows,
@@ -1080,7 +1082,7 @@ function PlayhouseShellView({
 
   return (
     <main className="workspace">
-      <BrowserTimeZone />
+      <BrowserTimeZone profileTimeZone={profileTimeZone} />
       <div aria-hidden="true" className="playDragPreviewHost" ref={dragPreviewHostRef} />
       <header className="appHeader">
         <div className="headerBrandArea">

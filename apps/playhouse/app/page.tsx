@@ -51,6 +51,7 @@ export default async function Home({
         email: string | null;
         nextPlayOptions: Awaited<ReturnType<typeof loadPlayhouseData>>["nextPlayOptions"];
         plays: Awaited<ReturnType<typeof loadPlayhouseData>>["plays"];
+        profileTimeZone: string;
         selectedView: Awaited<ReturnType<typeof loadPlayhouseData>>["selectedView"];
         supportsWorkflows: boolean;
         searchQuery: string;
@@ -105,6 +106,7 @@ export default async function Home({
         kind: "signed-in",
         nextPlayOptions: playhouseData.nextPlayOptions,
         plays: playhouseData.plays,
+        profileTimeZone: profile?.timezone ?? "UTC",
         selectedView: playhouseData.selectedView,
         supportsWorkflows: playhouseData.supportsWorkflows,
         searchQuery: playhouseData.searchQuery,
@@ -137,6 +139,7 @@ export default async function Home({
       }}
       nextPlayOptions={pageState.nextPlayOptions}
       plays={pageState.plays}
+      profileTimeZone={pageState.profileTimeZone}
       selectedView={pageState.selectedView}
       searchQuery={pageState.searchQuery}
       supportsWorkflows={pageState.supportsWorkflows}

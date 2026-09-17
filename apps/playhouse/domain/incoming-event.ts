@@ -1,3 +1,5 @@
+import { orderUpdatesForInsertion, type OrderedPlay } from "./play-order";
+
 export const INCOMING_EVENT_SOURCES = [
   "gmail",
   "calendar",
@@ -35,8 +37,9 @@ export type IncomingEventMatch =
 
 export type IncomingEventPolicyMutation = {
   incomingPriority: true;
+  placeAtTop: true;
   playId: string;
-  playType: "reminder";
+  playType: "normal";
   scheduledDate: string;
 };
 
@@ -66,11 +69,33 @@ export function incomingCommunicationPolicy(
   return match.status === "matched"
     ? {
         incomingPriority: true,
+        placeAtTop: true,
         playId: match.playId,
-        playType: "reminder",
+        playType: "normal",
         scheduledDate: todayDate,
       }
     : null;
+}
+
+export function incomingHeadlineOrderUpdates({
+  existingHeadlines,
+  incomingPlay,
+}: {
+  existingHeadlines: OrderedPlay[];
+  incomingPlay: OrderedPlay;
+}) {
+  const orderedHeadlines = [...existingHeadlines].sort(
+    (left, right) => left.order - right.order || left.id.localeCompare(right.id),
+  );
+  const referenceOrder = orderedHeadlines[0]?.order ?? incomingPlay.order;
+  const lowerBound = Math.floor(referenceOrder / 0x100000000) * 0x100000000;
+  return orderUpdatesForInsertion({
+    beforePlayId: orderedHeadlines[0]?.id ?? null,
+    destination: orderedHeadlines,
+    lowerBound,
+    movingPlayIds: [incomingPlay.id],
+    step: 0x100,
+  });
 }
 
 export async function processIncomingEvent({
