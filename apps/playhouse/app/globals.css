@@ -461,6 +461,12 @@ a {
   background: #fffdfb;
 }
 
+.workspaceBody:has(.editDisclosure[open]) > .sidebar,
+.workspaceBody:has(.editDisclosure[open]) .playPanelHeader {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .playPanelCrownTitle,
 .playPanelCrownError {
   overflow: hidden;

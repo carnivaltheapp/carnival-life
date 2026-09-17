@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const stylesheet = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 const shell = readFileSync(new URL("./playhouse-shell.tsx", import.meta.url), "utf8");
+const playForm = readFileSync(new URL("./play-form.tsx", import.meta.url), "utf8");
 
 function rule(selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -40,5 +41,22 @@ describe("PlayHouse frozen reference layout", () => {
     expect(rule(".playList")).toContain("overflow-x: hidden");
     expect(rule(".playList")).not.toContain("overflow-y");
     expect(rule(".playRow")).not.toContain("position: sticky");
+  });
+
+  it("scopes frozen grid layers out while a Play Detail is open", () => {
+    expect(stylesheet).toMatch(
+      /\.workspaceBody:has\(\.editDisclosure\[open\]\) > \.sidebar,[\s\S]*?\.workspaceBody:has\(\.editDisclosure\[open\]\) \.playPanelHeader\s*\{[\s\S]*?visibility: hidden;[\s\S]*?pointer-events: none;/,
+    );
+    expect(stylesheet).not.toMatch(
+      /\.workspaceBody:has\(\.editDisclosure\[open\]\)[^{]*\.appHeader/,
+    );
+    expect(playForm).toContain('className="playDetailActions"');
+  });
+
+  it("restores frozen layers automatically when Detail closes", () => {
+    expect(stylesheet).toContain(":has(.editDisclosure[open])");
+    expect(playForm).toContain('detailsRef.current?.removeAttribute("open")');
+    expect(rule(".destinationNav")).toContain("position: sticky");
+    expect(rule(".playPanelHeader")).toContain("position: sticky");
   });
 });
