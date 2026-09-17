@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-GMAIL-PIPELINE-TRAIL-109
+          P3-GMAIL-LIVE-REFRESH-110
         </small>
       </body>
     </html>

@@ -1,6 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { MongoGmailDiagnosticRepository } from "../../../../lib/incoming-events/gmail-diagnostics";
+import {
+  GMAIL_DIAGNOSTIC_STAGES,
+  MongoGmailDiagnosticRepository,
+  type GmailDiagnosticStage,
+} from "../../../../lib/incoming-events/gmail-diagnostics";
 import { resolvePlayhouseDataSource } from "../../../../lib/playhouse/data-source";
 import { createClient } from "../../../../lib/supabase/server";
 
@@ -13,10 +17,17 @@ export async function GET(request: NextRequest) {
   }
 
   const playId = request.nextUrl.searchParams.get("playId");
+  const reason = request.nextUrl.searchParams.get("reason");
+  const requestedStage = request.nextUrl.searchParams.get("stage");
+  const stage = requestedStage && GMAIL_DIAGNOSTIC_STAGES.includes(
+    requestedStage as GmailDiagnosticStage,
+  ) ? requestedStage as GmailDiagnosticStage : null;
   const threadFingerprint = request.nextUrl.searchParams.get("threadFingerprint");
   const requestedLimit = Number(request.nextUrl.searchParams.get("limit") ?? "100");
   if (
     (playId && playId.length > 100) ||
+    (reason && reason.length > 100) ||
+    (requestedStage && !stage) ||
     (threadFingerprint && !/^[a-f0-9]{64}$/.test(threadFingerprint)) ||
     !Number.isSafeInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 500
   ) {
@@ -27,6 +38,8 @@ export async function GET(request: NextRequest) {
     limit: requestedLimit,
     ownerUserId,
     playId,
+    reason,
+    stage,
     threadFingerprint,
   });
   return NextResponse.json(

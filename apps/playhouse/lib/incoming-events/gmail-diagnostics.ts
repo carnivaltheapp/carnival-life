@@ -70,6 +70,8 @@ export type GmailDiagnosticQuery = {
   limit?: number;
   ownerUserId: string;
   playId?: string | null;
+  reason?: string | null;
+  stage?: GmailDiagnosticStage | null;
   threadFingerprint?: string | null;
 };
 
@@ -137,12 +139,22 @@ export class MongoGmailDiagnosticRepository {
     await collection.insertOne(gmailDiagnosticDocument(input, now));
   }
 
-  async list({ limit = 100, ownerUserId, playId, threadFingerprint }: GmailDiagnosticQuery) {
+  async list({
+    limit = 100,
+    ownerUserId,
+    playId,
+    reason,
+    stage,
+    threadFingerprint,
+  }: GmailDiagnosticQuery) {
     const collection = await this.collectionFactory();
     const filter: Filter<GmailDiagnosticDocument> = { owner_user_id: ownerUserId };
     const normalizedPlayId = safeText(playId, 100);
+    const normalizedReason = safeText(reason, 100);
     const normalizedFingerprint = safeText(threadFingerprint, 64);
     if (normalizedPlayId) filter.play_id = normalizedPlayId;
+    if (normalizedReason) filter.reason = normalizedReason;
+    if (stage) filter.stage = stage;
     if (normalizedFingerprint) filter.thread_fingerprint = normalizedFingerprint;
     const documents = await collection.find(filter, {
       projection: { owner_user_id: 0 },

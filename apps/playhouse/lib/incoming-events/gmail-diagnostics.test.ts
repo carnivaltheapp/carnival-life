@@ -103,6 +103,8 @@ describe("Gmail pipeline diagnostics", () => {
       limit: 25,
       ownerUserId: "owner-1",
       playId: "play-1",
+      reason: "mutation_complete",
+      stage: "PLAY_INCOMING_MUTATION",
       threadFingerprint: "a".repeat(64),
     });
 
@@ -113,6 +115,8 @@ describe("Gmail pipeline diagnostics", () => {
     expect(find).toHaveBeenCalledWith({
       owner_user_id: "owner-1",
       play_id: "play-1",
+      reason: "mutation_complete",
+      stage: "PLAY_INCOMING_MUTATION",
       thread_fingerprint: "a".repeat(64),
     }, { projection: { owner_user_id: 0 } });
     expect(sort).toHaveBeenCalledWith({ created_at: -1, _id: -1 });

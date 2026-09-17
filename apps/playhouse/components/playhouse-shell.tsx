@@ -89,6 +89,11 @@ import {
 import { playVisualForPlay } from "../domain/play-visual";
 import { compareChronologicalPlays, comparePlayRankAndPriority } from "../domain/play-sort";
 import { reminderContextDate } from "../domain/reminder";
+import {
+  GMAIL_LIVE_REFRESH_INTERVAL_MS,
+  gmailMutationToken,
+  observeGmailMutation,
+} from "../domain/gmail-live-refresh";
 import { PLAYER_SLACK_UPDATED_EVENT, usableSlackUrl } from "../lib/google/contact-slack";
 import { AccountMenu } from "./account-menu";
 import { BrowserTimeZone } from "./browser-time-zone";
@@ -324,6 +329,50 @@ function PlayhouseShellView({
   const [gmailAttachPending, startGmailAttach] = useTransition();
   const [gmailCreatePending, startGmailCreate] = useTransition();
   const localPlays = optimisticPlays?.source === plays ? optimisticPlays.value : plays;
+  useEffect(() => {
+    let active = true;
+    let mutationToken: string | null = null;
+    let requestPending = false;
+
+    async function refreshAfterExternalGmailMutation() {
+      if (!active || requestPending || document.visibilityState === "hidden") return;
+      requestPending = true;
+      try {
+        const response = await fetch(
+          "/api/diagnostics/gmail?stage=PLAY_INCOMING_MUTATION&reason=mutation_complete&limit=1",
+          { cache: "no-store", credentials: "same-origin" },
+        );
+        if (!response.ok || !active) return;
+        const observed = observeGmailMutation(
+          mutationToken,
+          gmailMutationToken(await response.json()),
+        );
+        mutationToken = observed.token;
+        if (observed.refresh) router.refresh();
+      } catch {
+        // A later poll retries; PlayHouse remains usable if the revision check is unavailable.
+      } finally {
+        requestPending = false;
+      }
+    }
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshAfterExternalGmailMutation();
+    };
+    void refreshAfterExternalGmailMutation();
+    const interval = window.setInterval(
+      refreshAfterExternalGmailMutation,
+      GMAIL_LIVE_REFRESH_INTERVAL_MS,
+    );
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [router]);
   useEffect(() => {
     const ids = [...new Set(localPlays.flatMap((play) =>
       play.playerContactId ? [play.playerContactId] : [],
