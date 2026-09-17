@@ -45,58 +45,30 @@ export type GmailPubSubEnvelope = {
   subscription?: unknown;
 };
 
-type GmailPubSubValidationStage =
-  | "envelope_invalid"
-  | "subscription_mismatch"
-  | "data_missing"
-  | "gmail_payload_invalid";
-
-function invalidGmailPubSubNotification(stage: GmailPubSubValidationStage) {
-  console.warn("CARNIVAL_INCOMING_EVENT GMAIL_NOTIFICATION_VALIDATION_FAILED", {
-    stage,
-  });
-  return null;
-}
-
-function payloadFieldType(value: unknown) {
-  if (value === undefined) return "missing";
-  if (typeof value === "string" || typeof value === "number") return typeof value;
-  return "other";
-}
-
-function logInvalidGmailPayload(value: unknown) {
-  const decodedJsonObject = Boolean(
-    value && typeof value === "object" && !Array.isArray(value),
-  );
-  const payload = decodedJsonObject ? value as Record<string, unknown> : {};
-  console.warn("CARNIVAL_INCOMING_EVENT GMAIL_NOTIFICATION_PAYLOAD_STRUCTURE", {
-    decoded_json_object: decodedJsonObject,
-    emailAddress_type: payloadFieldType(payload.emailAddress),
-    emailAddress_nonblank: typeof payload.emailAddress === "string" &&
-      Boolean(payload.emailAddress.trim()),
-    historyId_type: payloadFieldType(payload.historyId),
-    historyId_string_digits_only: typeof payload.historyId === "string" &&
-      /^\d+$/.test(payload.historyId),
-  });
-}
-
 export function parseGmailPubSubEnvelope(
   value: unknown,
   expectedSubscription: string,
 ) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return invalidGmailPubSubNotification("envelope_invalid");
+    return null;
   }
   const envelope = value as GmailPubSubEnvelope;
   if (envelope.subscription !== expectedSubscription) {
-    return invalidGmailPubSubNotification("subscription_mismatch");
+    return null;
   }
   if (typeof envelope.message?.data !== "string") {
-    return invalidGmailPubSubNotification("data_missing");
+    return null;
   }
   try {
     const decodedValue: unknown = JSON.parse(
       Buffer.from(envelope.message.data, "base64url").toString("utf8"),
+      (key, value, context?: { source?: string }) => {
+        if (key === "historyId" && typeof value === "number" &&
+            typeof context?.source === "string" && /^\d+$/.test(context.source)) {
+          return context.source;
+        }
+        return value;
+      },
     );
     const decoded = decodedValue && typeof decodedValue === "object" &&
         !Array.isArray(decodedValue)
@@ -106,8 +78,7 @@ export function parseGmailPubSubEnvelope(
         !decoded.emailAddress.trim() ||
         typeof decoded.historyId !== "string" ||
         !/^\d+$/.test(decoded.historyId)) {
-      logInvalidGmailPayload(decodedValue);
-      return invalidGmailPubSubNotification("gmail_payload_invalid");
+      return null;
     }
     return {
       emailAddress: decoded.emailAddress.trim().toLocaleLowerCase(),
@@ -120,7 +91,6 @@ export function parseGmailPubSubEnvelope(
         : null,
     };
   } catch {
-    logInvalidGmailPayload(null);
-    return invalidGmailPubSubNotification("gmail_payload_invalid");
+    return null;
   }
 }

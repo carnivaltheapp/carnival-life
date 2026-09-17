@@ -9,9 +9,6 @@ import {
 function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim();
   if (!value) {
-    console.error("CARNIVAL_INCOMING_EVENT GMAIL_NOTIFICATION_CONFIGURATION_INVALID", {
-      variable: name,
-    });
     throw new Error(`${name} is not configured.`);
   }
   return value;
