@@ -6,7 +6,6 @@ const GET_LOCAL_BRANCHES_MESSAGE_TYPE = "getLocalBranches";
 const LOCAL_BRANCHES_RESULT_TYPE = "localBranchesResult";
 const BRIDGE_HEALTH_MESSAGE_TYPE = "carnivalBridgeHealth";
 const BRIDGE_HEALTH_RESULT_TYPE = "carnivalBridgeHealthResult";
-const FORWARDED_GMAIL_LIST_ROW_DIAGNOSTIC = "recordGmailListRowDiagnostic";
 
 console.info("Carnival Aux bridge content script loaded");
 console.info("BRANCH_TREE_BRIDGE_READY");
@@ -25,33 +24,6 @@ function sendPlayhouseExtensionMessage(message) {
 function logBridgeFailure(event, result) {
   playhouseExtensionMessaging?.reportFailureOnce?.(event, result);
 }
-
-globalThis.chrome?.runtime?.onMessage?.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== FORWARDED_GMAIL_LIST_ROW_DIAGNOSTIC) return false;
-  const requestId = crypto.randomUUID();
-  const timeout = setTimeout(() => {
-    window.removeEventListener("carnival:gmail-list-row-diagnostic-result", acceptResult);
-    sendResponse({ ok: false, reason: "diagnostic_post_timeout" });
-  }, 5000);
-  const acceptResult = (event) => {
-    if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
-    try {
-      const result = JSON.parse(event.detail);
-      if (result.requestId !== requestId) return;
-      clearTimeout(timeout);
-      window.removeEventListener("carnival:gmail-list-row-diagnostic-result", acceptResult);
-      sendResponse({
-        ok: result.ok === true,
-        reason: result.ok === true ? "completed" : "diagnostic_post_failed",
-      });
-    } catch {}
-  };
-  window.addEventListener("carnival:gmail-list-row-diagnostic-result", acceptResult);
-  window.dispatchEvent(new CustomEvent("carnival:gmail-list-row-diagnostic", {
-    detail: JSON.stringify({ diagnostic: message.diagnostic, requestId }),
-  }));
-  return true;
-});
 
 window.addEventListener("message", (event) => {
   if (event.origin !== window.location.origin) return;

@@ -25,7 +25,6 @@ export type GmailRowCreateRequest = {
   correlationId: string;
   gmailApiThreadId?: unknown;
   gmailApiThreadStrategy?: unknown;
-  gmailDragSource?: unknown;
   gmailParticipants?: unknown;
   subject: string;
   targetPlayId: string;
@@ -36,7 +35,6 @@ export type ParsedGmailRowCreate = {
   attachment: GmailAttachment;
   correlationId: string;
   gmailApiThreadStrategy: "ancestor" | "conversation_header" | "direct" | "missing";
-  gmailDragSource: "list_row" | "opened_conversation";
   gmailParticipants: GmailParticipants | null;
   subject: string;
   targetPlayId: string;
@@ -106,9 +104,6 @@ export function parseGmailRowCreateRequest(value: unknown): ParsedGmailRowCreate
   )
     ? request.gmailApiThreadStrategy as "ancestor" | "conversation_header" | "direct"
     : "missing";
-  const gmailDragSource = request.gmailDragSource === "list_row"
-    ? "list_row"
-    : "opened_conversation";
   if (!attachment || !subject || subject.length > 500 || !correlationId ||
       correlationId.length > 100 || !targetPlayId || targetPlayId.length > 100) return null;
 
@@ -119,7 +114,6 @@ export function parseGmailRowCreateRequest(value: unknown): ParsedGmailRowCreate
     },
     correlationId,
     gmailApiThreadStrategy,
-    gmailDragSource,
     gmailParticipants: sanitizeGmailParticipants(request.gmailParticipants),
     subject,
     targetPlayId,

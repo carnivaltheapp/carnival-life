@@ -8,128 +8,7 @@ const messagingSource = await readFile(new URL("./extension-messaging.js", impor
 
 function dataTransfer(initial = {}) {
   const values = new Map(Object.entries(initial));
-  return {
-    effectAllowed: "none",
-    getData: (type) => values.get(type) ?? "",
-    setData: (type, value) => values.set(type, value),
-    get types() { return Array.from(values.keys()); },
-  };
-}
-
-function gmailListRowContext(hash = "#inbox", { metadataPresent = true, messagingFails = false } = {}) {
-  const listeners = new Map();
-  const messages = [];
-  const relayRecords = [];
-  class TestElement {}
-  const identity = {
-    getAttribute: (attribute) => attribute === "data-thread-id"
-      ? "#thread-f:123456789"
-      : attribute === "data-legacy-thread-id"
-        ? "1a0ad6003af12a6b"
-        : null,
-  };
-  const participant = {
-    getAttribute: (attribute) => attribute === "email"
-      ? "person@example.com"
-      : attribute === "name"
-        ? "Person"
-        : null,
-    textContent: "Person",
-  };
-  const attributes = new Map([["draggable", "false"]]);
-  const row = new TestElement();
-  row.tagName = "TR";
-  row.parentElement = null;
-  row.closest = (selector) => selector === "tr.zA[role='row']" ? row : null;
-  row.getAttribute = (attribute) => attribute === "role" ? "row" : attributes.get(attribute) ?? null;
-  row.hasAttribute = (attribute) => attribute === "role" || attributes.has(attribute);
-  row.querySelector = (selector) => selector === "[data-thread-id][data-legacy-thread-id]"
-    ? metadataPresent ? identity : null
-    : selector === ".bog"
-      ? { textContent: "List subject" }
-      : null;
-  row.querySelectorAll = () => [participant];
-  row.removeAttribute = (attribute) => attributes.delete(attribute);
-  row.setAttribute = (attribute, value) => attributes.set(attribute, value);
-  const target = new TestElement();
-  target.tagName = "SPAN";
-  target.parentElement = row;
-  target.getAttribute = () => null;
-  target.hasAttribute = () => false;
-  target.querySelector = () => null;
-  target.closest = (selector) => ["tr", "tr.zA[role='row']"].includes(selector) ? row : null;
-  const checkbox = new TestElement();
-  checkbox.tagName = "INPUT";
-  checkbox.parentElement = row;
-  checkbox.getAttribute = () => null;
-  checkbox.hasAttribute = () => false;
-  checkbox.querySelector = () => null;
-  checkbox.closest = (selector) => selector.includes("[role='checkbox']")
-    ? checkbox
-    : ["tr", "tr.zA[role='row']"].includes(selector)
-      ? row
-      : null;
-  const orphan = new TestElement();
-  orphan.tagName = "DIV";
-  orphan.parentElement = null;
-  orphan.closest = () => null;
-  orphan.getAttribute = () => null;
-  orphan.hasAttribute = () => false;
-  orphan.querySelector = () => null;
-  vm.runInNewContext(`${messagingSource}\n${bridgeSource}`, {
-    Element: TestElement,
-    URL,
-    chrome: {
-      runtime: {
-        onMessage: { addListener() {} },
-        sendMessage(message, callback) {
-          messages.push(message);
-          if (messagingFails) throw new Error("diagnostic unavailable");
-          callback?.({ ok: true });
-          return Promise.resolve({ ok: true });
-        },
-      },
-      storage: {
-        local: {
-          set(value) {
-            relayRecords.push(value.carnivalGmailListRowDiagnosticRelay);
-            return Promise.resolve();
-          },
-        },
-      },
-    },
-    console: { info() {}, warn() {} },
-    crypto: { randomUUID: () => "list-correlation-1" },
-    decodeURIComponent,
-    document: {
-      addEventListener: (type, listener) => listeners.set(type, listener),
-    },
-    window: {
-      location: {
-        hash,
-        hostname: "mail.google.com",
-        pathname: "/mail/u/2/",
-      },
-    },
-  });
-  return {
-    checkbox,
-    drag(targetElement = target) {
-      listeners.get("pointerdown")?.({ button: 0, target: targetElement });
-      const transfer = dataTransfer();
-      listeners.get("dragstart")?.({ dataTransfer: transfer, target: row });
-      return transfer;
-    },
-    messages,
-    orphan,
-    pointerDown(targetElement = target) {
-      listeners.get("pointerdown")?.({ button: 0, clientX: 10, clientY: 10, target: targetElement });
-    },
-    pointerMove() { listeners.get("pointermove")?.({ clientX: 20, clientY: 10 }); },
-    pointerUp() { listeners.get("pointerup")?.({}); },
-    row,
-    relayRecords,
-  };
+  return { getData: (type) => values.get(type) ?? "" };
 }
 
 function playhouseContext(sendMessage) {
@@ -302,191 +181,6 @@ test("Gmail content script reads the API thread ID from the sibling conversation
 
   assert.equal(response.gmailApiThreadId, "api-thread-from-header");
   assert.equal(response.gmailApiThreadStrategy, "conversation_header");
-});
-
-test("Inbox, Sent, search, and label rows use the exact list-row metadata path", () => {
-  for (const hash of ["#inbox", "#sent", "#search/query", "#label/Work"]) {
-    const context = gmailListRowContext(hash);
-    const transfer = context.drag();
-    const payload = JSON.parse(transfer.getData("application/x-carnival-gmail"));
-    assert.deepEqual(payload, {
-      correlationId: "list-correlation-1",
-      gmailApiThreadId: "1a0ad6003af12a6b",
-      gmailApiThreadStrategy: "direct",
-      gmailDragSource: "list_row",
-      gmailParticipants: {
-        from: { email: "person@example.com", name: "Person" },
-        to: [],
-      },
-      subject: "List subject",
-      url: "https://mail.google.com/mail/u/2/#all/%23thread-f%3A123456789",
-    });
-    assert.equal(transfer.getData("text/uri-list"), payload.url);
-    assert.equal(transfer.effectAllowed, "copy");
-    assert.deepEqual(JSON.parse(JSON.stringify(context.messages.at(-1))), {
-      payload,
-      type: "storeGmailListRowDrag",
-    });
-  }
-});
-
-test("list-row drag does not arm Gmail checkbox controls", () => {
-  const context = gmailListRowContext();
-  const transfer = context.drag(context.checkbox);
-  assert.equal(transfer.types.length, 0);
-  assert.equal(context.row.getAttribute("draggable"), "false");
-  assert.deepEqual(JSON.parse(JSON.stringify(context.messages[0])), {
-    diagnostic: {
-      ancestorDepth: 1,
-      ancestorRoles: ["none", "row"],
-      ancestorTags: ["INPUT", "TR"],
-      clickableMessageLinkPresent: false,
-      correlationId: "list-correlation-1",
-      dataLegacyThreadAttributePresent: false,
-      dataMessageAttributePresent: false,
-      dataThreadAttributePresent: false,
-      draggableAncestorPresent: false,
-      draggableAttributePresent: true,
-      handlerReached: true,
-      reason: "row_not_recognized",
-      rolePresent: true,
-      rowRecognized: false,
-      stage: "LIST_ROW_POINTERDOWN",
-      targetRole: null,
-      targetTag: "INPUT",
-    },
-    type: "recordGmailListRowDiagnostic",
-  });
-  assert.equal(context.messages.some((message) => message.type === "storeGmailListRowDrag"), false);
-  assert.deepEqual(JSON.parse(JSON.stringify(context.messages[1].diagnostic)), {
-    correlationId: "list-correlation-1",
-    fired: true,
-    metadataReady: false,
-    reason: "metadata_not_ready",
-    stage: "LIST_ROW_DRAGSTART",
-  });
-});
-
-test("list-row diagnostics cover pointerdown, metadata, and native dragstart", () => {
-  const context = gmailListRowContext();
-  context.drag();
-  const diagnostics = context.messages
-    .filter((message) => message.type === "recordGmailListRowDiagnostic")
-    .map((message) => message.diagnostic);
-  assert.deepEqual(JSON.parse(JSON.stringify(diagnostics)), [
-    {
-      ancestorDepth: 1,
-      ancestorRoles: ["none", "row"],
-      ancestorTags: ["SPAN", "TR"],
-      clickableMessageLinkPresent: false,
-      correlationId: "list-correlation-1",
-      dataLegacyThreadAttributePresent: false,
-      dataMessageAttributePresent: false,
-      dataThreadAttributePresent: false,
-      draggableAncestorPresent: false,
-      draggableAttributePresent: true,
-      handlerReached: true,
-      reason: "recognized",
-      rolePresent: true,
-      rowRecognized: true,
-      stage: "LIST_ROW_POINTERDOWN",
-      targetRole: null,
-      targetTag: "SPAN",
-    },
-    {
-      apiThreadPresent: true,
-      correlationId: "list-correlation-1",
-      draggableTargetPresent: true,
-      reason: "completed",
-      stage: "LIST_ROW_METADATA_RESOLVED",
-      success: true,
-      webThreadPresent: true,
-    },
-    {
-      correlationId: "list-correlation-1",
-      fired: true,
-      metadataReady: true,
-      reason: "completed",
-      stage: "LIST_ROW_DRAGSTART",
-    },
-  ]);
-  const serialized = JSON.stringify(diagnostics);
-  for (const prohibited of ["subject", "email", "url", "threadId", "html", "body"]) {
-    assert.equal(serialized.includes(prohibited), false);
-  }
-});
-
-test("pointerdown is diagnosed before the Gmail tr row assumption", () => {
-  const context = gmailListRowContext();
-  context.pointerDown(context.orphan);
-  assert.deepEqual(JSON.parse(JSON.stringify(context.messages.at(-1))), {
-    diagnostic: {
-      ancestorDepth: 0,
-      ancestorRoles: ["none"],
-      ancestorTags: ["DIV"],
-      clickableMessageLinkPresent: false,
-      correlationId: "list-correlation-1",
-      dataLegacyThreadAttributePresent: false,
-      dataMessageAttributePresent: false,
-      dataThreadAttributePresent: false,
-      draggableAncestorPresent: false,
-      draggableAttributePresent: false,
-      handlerReached: true,
-      reason: "row_not_recognized",
-      rolePresent: false,
-      rowRecognized: false,
-      stage: "LIST_ROW_POINTERDOWN",
-      targetRole: null,
-      targetTag: "DIV",
-    },
-    type: "recordGmailListRowDiagnostic",
-  });
-  assert.deepEqual(JSON.parse(JSON.stringify(context.relayRecords.at(-1))), {
-    correlationId: "list-correlation-1",
-    stage: "LIST_ROW_POINTERDOWN",
-    status: "diagnostic_created",
-  });
-});
-
-test("list-row diagnostics expose metadata failure and missing native dragstart", () => {
-  const missingMetadata = gmailListRowContext("#inbox", { metadataPresent: false });
-  missingMetadata.pointerDown();
-  assert.deepEqual(JSON.parse(JSON.stringify(missingMetadata.messages.at(-1).diagnostic)), {
-    apiThreadPresent: false,
-    correlationId: "list-correlation-1",
-    draggableTargetPresent: true,
-    reason: "metadata_container_missing",
-    stage: "LIST_ROW_METADATA_RESOLVED",
-    success: false,
-    webThreadPresent: false,
-  });
-
-  const noDragstart = gmailListRowContext();
-  noDragstart.pointerDown();
-  noDragstart.pointerMove();
-  noDragstart.pointerUp();
-  assert.deepEqual(JSON.parse(JSON.stringify(noDragstart.messages.at(-1).diagnostic)), {
-    correlationId: "list-correlation-1",
-    fired: false,
-    metadataReady: true,
-    reason: "dragstart_not_fired",
-    stage: "LIST_ROW_DRAGSTART",
-  });
-});
-
-test("diagnostic transport failure is retained safely and cannot block list-row payload", async () => {
-  const context = gmailListRowContext("#inbox", { messagingFails: true });
-  const transfer = context.drag();
-  await Promise.resolve();
-  assert.ok(transfer.getData("text/uri-list").startsWith("https://mail.google.com/"));
-  assert.ok(transfer.getData("application/x-carnival-gmail"));
-  assert.equal(context.relayRecords.some((record) => (
-    record.status === "diagnostic_relay_failed" && record.reason === "runtime_message_failed"
-  )), true);
-  const serialized = JSON.stringify(context.relayRecords);
-  for (const prohibited of ["subject", "email", "url", "threadId", "html", "body"]) {
-    assert.equal(serialized.includes(prohibited), false);
-  }
 });
 
 test("Gmail content script stars only the exact open thread without navigation", () => {
@@ -701,7 +395,6 @@ test("omnibox Gmail URL drop requests exact-tab metadata for row-create", async 
   }));
   await Promise.resolve();
   await Promise.resolve();
-  await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.deepEqual(JSON.parse(JSON.stringify(request)), {
     accountIndex: 2,
@@ -714,7 +407,6 @@ test("omnibox Gmail URL drop requests exact-tab metadata for row-create", async 
     correlationId: "correlation-1",
     gmailApiThreadId: "api-thread-123",
     gmailApiThreadStrategy: "conversation_header",
-    gmailDragSource: "opened_conversation",
     gmailParticipants,
     subject: "Quarterly planning",
     targetPlayId: "play-1",
@@ -737,7 +429,6 @@ test("row-create waits for asynchronous exact-tab metadata and retains its targe
   resolveMetadata({
     gmailApiThreadId: "api-thread-123",
     gmailApiThreadStrategy: "conversation_header",
-    gmailDragSource: "opened_conversation",
     participants: {
       from: { email: "kayla@example.com", name: "Kayla" },
       to: [{ email: "me@example.com", name: "Me" }],
@@ -747,14 +438,12 @@ test("row-create waits for asynchronous exact-tab metadata and retains its targe
   });
   await Promise.resolve();
   await Promise.resolve();
-  await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.equal(context.dispatched().type, "carnival:gmail-row-create");
   assert.deepEqual(JSON.parse(context.dispatched().detail), {
     correlationId: "correlation-1",
     gmailApiThreadId: "api-thread-123",
     gmailApiThreadStrategy: "conversation_header",
-    gmailDragSource: "opened_conversation",
     gmailParticipants: {
       from: { email: "kayla@example.com", name: "Kayla" },
       to: [{ email: "me@example.com", name: "Me" }],
@@ -828,84 +517,6 @@ test("PlayHouse requests exact-thread unstar and preserves lifecycle context", a
   });
 });
 
-test("list-row structured drag creates through the existing PlayHouse row path", async () => {
-  const requests = [];
-  const context = playhouseContext(async (message) => {
-    requests.push(message);
-    return { status: "consumed" };
-  });
-  const payload = {
-    correlationId: "list-correlation-1",
-    gmailApiThreadId: "1a0ad6003af12a6b",
-    gmailApiThreadStrategy: "direct",
-    gmailDragSource: "list_row",
-    gmailParticipants: {
-      from: { email: "person@example.com", name: "Person" },
-      to: [],
-    },
-    subject: "List subject",
-    url: "https://mail.google.com/mail/u/2/#all/%23thread-f%3A123456789",
-  };
-
-  context.drop(dataTransfer({
-    "application/x-carnival-gmail": JSON.stringify(payload),
-    "text/uri-list": payload.url,
-  }));
-  await Promise.resolve();
-
-  assert.deepEqual(JSON.parse(context.dispatched().detail), {
-    correlationId: "list-correlation-1",
-    gmailApiThreadId: "1a0ad6003af12a6b",
-    gmailApiThreadStrategy: "direct",
-    gmailDragSource: "list_row",
-    gmailParticipants: payload.gmailParticipants,
-    subject: "List subject",
-    targetPlayId: "play-1",
-    url: payload.url,
-  });
-  assert.equal(context.dispatched().type, "carnival:gmail-row-create");
-  assert.deepEqual(JSON.parse(JSON.stringify(requests)), [{
-    correlationId: "list-correlation-1",
-    type: "consumeGmailListRowDrag",
-  }]);
-});
-
-test("list-row drag uses the session handoff when Chrome strips custom MIME", async () => {
-  const payload = {
-    correlationId: "list-correlation-1",
-    gmailApiThreadId: "1a0ad6003af12a6b",
-    gmailApiThreadStrategy: "direct",
-    gmailDragSource: "list_row",
-    subject: "List subject",
-    url: "https://mail.google.com/mail/u/2/#all/%23thread-f%3A123456789",
-  };
-  const requests = [];
-  const context = playhouseContext(async (message) => {
-    requests.push(message);
-    return message.type === "getGmailListRowDrag"
-      ? { payload, status: "found" }
-      : { status: "consumed" };
-  });
-
-  context.drop(dataTransfer({ "text/uri-list": payload.url }));
-  await new Promise((resolve) => setTimeout(resolve, 0));
-
-  assert.equal(context.dispatched().type, "carnival:gmail-row-create");
-  assert.deepEqual(JSON.parse(context.dispatched().detail), {
-    correlationId: "list-correlation-1",
-    gmailApiThreadId: "1a0ad6003af12a6b",
-    gmailApiThreadStrategy: "direct",
-    gmailDragSource: "list_row",
-    subject: "List subject",
-    targetPlayId: "play-1",
-    url: payload.url,
-  });
-  assert.deepEqual(JSON.parse(JSON.stringify(requests)), [
-    { type: "getGmailListRowDrag" },
-    { correlationId: "list-correlation-1", type: "consumeGmailListRowDrag" },
-  ]);
-});
-
 test("unstar returns a controlled stale-context failure without throwing", async () => {
   const context = playhouseContext(() => {
     throw new Error("Extension context invalidated.");
@@ -944,7 +555,6 @@ test("metadata failure emits no create event or malformed Play request", async (
   }));
   await Promise.resolve();
   await Promise.resolve();
-  await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.equal(context.dispatched().type, "carnival:gmail-row-create-metadata-failed");
   assert.deepEqual(JSON.parse(context.dispatched().detail), {

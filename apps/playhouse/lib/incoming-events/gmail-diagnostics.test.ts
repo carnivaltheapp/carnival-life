@@ -14,9 +14,6 @@ import {
 describe("Gmail pipeline diagnostics", () => {
   it("defines and instruments the complete Gmail lifecycle trail", () => {
     expect(GMAIL_DIAGNOSTIC_STAGES).toEqual([
-      "LIST_ROW_POINTERDOWN",
-      "LIST_ROW_METADATA_RESOLVED",
-      "LIST_ROW_DRAGSTART",
       "DRAG_METADATA_EXTRACTED",
       "DRAG_METADATA_RECEIVED",
       "PLAY_GMAIL_LINK_PERSISTED",
@@ -30,65 +27,10 @@ describe("Gmail pipeline diagnostics", () => {
     ]);
     const sources = [
       readFileSync(new URL("../../app/plays/actions.ts", import.meta.url), "utf8"),
-      readFileSync(new URL("../../app/api/diagnostics/gmail/route.ts", import.meta.url), "utf8"),
       readFileSync(new URL("./gmail-watch.server.ts", import.meta.url), "utf8"),
       readFileSync(new URL("./mongo-incoming-event-store.ts", import.meta.url), "utf8"),
-      readFileSync(new URL("../../../../extensions/chrome/gmail-drag-bridge.js", import.meta.url), "utf8"),
     ].join("\n");
     for (const stage of GMAIL_DIAGNOSTIC_STAGES) expect(sources).toContain(stage);
-  });
-
-  it("stores only privacy-safe list-row diagnostic fields", () => {
-    const document = gmailDiagnosticDocument({
-      ancestorDepth: 2,
-      ancestorRoles: ["none", "link", "row"],
-      ancestorTags: ["SPAN", "DIV", "DIV"],
-      clickableMessageLinkPresent: true,
-      correlationId: "list-row-1",
-      dataLegacyThreadAttributePresent: false,
-      dataMessageAttributePresent: false,
-      dataThreadAttributePresent: true,
-      draggableAncestorPresent: true,
-      draggableAttributePresent: false,
-      handlerReached: true,
-      ownerUserId: "owner-1",
-      reason: "row_not_recognized",
-      rolePresent: true,
-      rowRecognized: false,
-      source: "list_row",
-      stage: "LIST_ROW_POINTERDOWN",
-      targetRole: "link",
-      targetTag: "SPAN",
-      ...({
-        emailAddress: "private@example.com",
-        href: "https://mail.google.com/private",
-        rawHtml: "<div>private</div>",
-        subject: "private",
-      } as object),
-    });
-    expect(document).toMatchObject({
-      ancestor_depth: 2,
-      ancestor_roles: ["none", "link", "row"],
-      ancestor_tags: ["SPAN", "DIV", "DIV"],
-      clickable_message_link_present: true,
-      correlation_id: "list-row-1",
-      data_legacy_thread_attribute_present: false,
-      data_message_attribute_present: false,
-      data_thread_attribute_present: true,
-      draggable_ancestor_present: true,
-      draggable_attribute_present: false,
-      handler_reached: true,
-      reason: "row_not_recognized",
-      role_present: true,
-      row_recognized: false,
-      source: "list_row",
-      stage: "LIST_ROW_POINTERDOWN",
-      target_role: "link",
-      target_tag: "SPAN",
-    });
-    expect(JSON.stringify(document)).not.toContain("private");
-    expect(document).not.toHaveProperty("href");
-    expect(document).not.toHaveProperty("raw_html");
   });
 
   it("records outgoing lifecycle results without raw Gmail identifiers", () => {
@@ -123,7 +65,6 @@ describe("Gmail pipeline diagnostics", () => {
       ownerUserId: "owner-1",
       playId: "play-1",
       reason: "persisted",
-      source: "list_row",
       stage: "PLAY_GMAIL_LINK_PERSISTED",
       threadId: rawThreadId,
       webThreadPresent: true,
@@ -144,7 +85,6 @@ describe("Gmail pipeline diagnostics", () => {
       owner_user_id: "owner-1",
       play_id: "play-1",
       reason: "persisted",
-      source: "list_row",
       stage: "PLAY_GMAIL_LINK_PERSISTED",
       thread_fingerprint: gmailThreadFingerprint(rawThreadId),
       web_thread_present: true,
@@ -220,10 +160,6 @@ describe("Gmail pipeline diagnostics", () => {
     );
     expect(route).toContain("supabase.auth.getClaims()");
     expect(route).toContain('error: "unauthorized"');
-    expect(route).toContain("export async function POST");
-    expect(route).toContain("recordGmailDiagnostic({");
-    expect(route).toContain("diagnostic_unavailable");
-    expect(route).toContain('source: "list_row"');
     expect(route).toContain("ownerUserId,");
     expect(route).toContain('"Cache-Control": "private, no-store"');
     expect(route.indexOf("getClaims()")).toBeLessThan(route.indexOf(".list({"));

@@ -351,42 +351,6 @@ function PlayhouseShellView({
   const [gmailCreatePending, startGmailCreate] = useTransition();
   const localPlays = optimisticPlays?.source === plays ? optimisticPlays.value : plays;
   useEffect(() => {
-    const recordListRowDiagnostic = (event: Event) => {
-      const detail = (event as CustomEvent<unknown>).detail;
-      if (typeof detail !== "string") return;
-      let diagnostic: unknown;
-      let requestId: string;
-      try {
-        const request = JSON.parse(detail) as { diagnostic?: unknown; requestId?: unknown };
-        if (typeof request.requestId !== "string") return;
-        diagnostic = request.diagnostic;
-        requestId = request.requestId;
-      } catch {
-        return;
-      }
-      void fetch("/api/diagnostics/gmail", {
-        body: JSON.stringify(diagnostic),
-        cache: "no-store",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      }).then((response) => {
-        window.dispatchEvent(new CustomEvent("carnival:gmail-list-row-diagnostic-result", {
-          detail: JSON.stringify({ ok: response.ok, requestId }),
-        }));
-      }).catch(() => {
-        window.dispatchEvent(new CustomEvent("carnival:gmail-list-row-diagnostic-result", {
-          detail: JSON.stringify({ ok: false, requestId }),
-        }));
-      });
-    };
-    window.addEventListener("carnival:gmail-list-row-diagnostic", recordListRowDiagnostic);
-    return () => window.removeEventListener(
-      "carnival:gmail-list-row-diagnostic",
-      recordListRowDiagnostic,
-    );
-  }, []);
-  useEffect(() => {
     let active = true;
     let mutationToken: string | null = null;
     let requestPending = false;

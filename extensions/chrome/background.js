@@ -11,26 +11,16 @@ import {
   selectGmailMetadataTab,
   verifyVisibleGmailParticipants,
 } from "./gmail-tab-metadata.js";
-import {
-  consumeGmailListRowDrag,
-  getGmailListRowDrag,
-  storeGmailListRowDrag,
-} from "./gmail-list-row-drag.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
 const NATIVE_HOST_VERSION = "DRAWER-HOST-17";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
-const GET_GMAIL_LIST_ROW_DRAG = "getGmailListRowDrag";
-const GMAIL_LIST_ROW_RELAY_KEY = "carnivalGmailListRowDiagnosticRelay";
-const RECORD_GMAIL_LIST_ROW_DIAGNOSTIC = "recordGmailListRowDiagnostic";
 const STAR_GMAIL_THREAD = "starGmailThread";
 const STAR_VISIBLE_GMAIL_THREAD = "starVisibleGmailThread";
 const UNSTAR_GMAIL_THREAD = "unstarGmailThread";
 const UNSTAR_VISIBLE_GMAIL_THREAD = "unstarVisibleGmailThread";
-const STORE_GMAIL_LIST_ROW_DRAG = "storeGmailListRowDrag";
-const CONSUME_GMAIL_LIST_ROW_DRAG = "consumeGmailListRowDrag";
 const TAB_SAVE_DELAY_MS = 300;
 const DIAGNOSTIC_STORAGE_KEY = "carnivalWorkspaceDiagnostics";
 const DIAGNOSTIC_LIMIT = 500;
@@ -451,82 +441,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return false;
     }
     return true;
-  }
-  if (message?.type === STORE_GMAIL_LIST_ROW_DRAG) {
-    storeGmailListRowDrag(chrome.storage.session, message.payload)
-      .then(sendResponse)
-      .catch(() => sendResponse({ ok: false }));
-    return true;
-  }
-  if (message?.type === GET_GMAIL_LIST_ROW_DRAG) {
-    getGmailListRowDrag(chrome.storage.session)
-      .then(sendResponse)
-      .catch(() => sendResponse({ reason: "storage_failed", status: "missing" }));
-    return true;
-  }
-  if (message?.type === CONSUME_GMAIL_LIST_ROW_DRAG) {
-    consumeGmailListRowDrag(chrome.storage.session, message.correlationId)
-      .then(sendResponse)
-      .catch(() => sendResponse({ reason: "storage_failed", status: "missing" }));
-    return true;
-  }
-  if (message?.type === RECORD_GMAIL_LIST_ROW_DIAGNOSTIC) {
-    const relay = {
-      correlationId: message.diagnostic?.correlationId,
-      stage: message.diagnostic?.stage,
-    };
-    recordDiagnostic("info", "GMAIL_LIST_ROW_DIAGNOSTIC_RELAY", {
-      ...relay,
-      status: "diagnostic_created",
-    });
-    const retainRelayStatus = (status, reason) => chrome.storage.local.set({
-      [GMAIL_LIST_ROW_RELAY_KEY]: {
-        correlationId: relay.correlationId,
-        ...(reason ? { reason } : {}),
-        stage: relay.stage,
-        status,
-      },
-    }).catch(() => {});
-    void retainRelayStatus("diagnostic_created");
-    chrome.tabs.query({
-      url: ["https://carnival-playhouse.vercel.app/*", "http://localhost/*"],
-    }).then((tabs) => {
-      const playhouseTab = tabs.find((tab) => tab.active) ?? tabs[0];
-      if (playhouseTab?.id !== undefined) {
-        return chrome.tabs.sendMessage(playhouseTab.id, {
-          diagnostic: message.diagnostic,
-          type: RECORD_GMAIL_LIST_ROW_DIAGNOSTIC,
-        }).then((response) => {
-          recordDiagnostic(response?.ok ? "info" : "warn", "GMAIL_LIST_ROW_DIAGNOSTIC_RELAY", {
-            ...relay,
-            reason: response?.reason ?? (response?.ok ? "completed" : "diagnostic_post_failed"),
-            status: response?.ok
-              ? "diagnostic_relay_succeeded"
-              : "diagnostic_relay_failed",
-          });
-          void retainRelayStatus(
-            response?.ok ? "diagnostic_relay_succeeded" : "diagnostic_relay_failed",
-            response?.reason ?? (response?.ok ? "completed" : "diagnostic_post_failed"),
-          );
-        });
-      }
-      recordDiagnostic("warn", "GMAIL_LIST_ROW_DIAGNOSTIC_RELAY", {
-        ...relay,
-        reason: "playhouse_tab_missing",
-        status: "diagnostic_relay_failed",
-      });
-      void retainRelayStatus("diagnostic_relay_failed", "playhouse_tab_missing");
-      return null;
-    }).catch(() => {
-      recordDiagnostic("warn", "GMAIL_LIST_ROW_DIAGNOSTIC_RELAY", {
-        ...relay,
-        reason: "bridge_request_failed",
-        status: "diagnostic_relay_failed",
-      });
-      void retainRelayStatus("diagnostic_relay_failed", "bridge_request_failed");
-    });
-    sendResponse({ ok: true });
-    return false;
   }
   if (message?.type === UNSTAR_GMAIL_THREAD) {
     const diagnostic = {

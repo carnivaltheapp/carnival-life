@@ -1,15 +1,9 @@
-const CARNIVAL_GMAIL_DRAG_TYPE = "application/x-carnival-gmail";
-const CONSUME_GMAIL_LIST_ROW_DRAG = "consumeGmailListRowDrag";
-const GET_GMAIL_LIST_ROW_DRAG = "getGmailListRowDrag";
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
 const GET_VISIBLE_GMAIL_PARTICIPANTS = "getVisibleGmailParticipants";
-const GMAIL_LIST_ROW_RELAY_KEY = "carnivalGmailListRowDiagnosticRelay";
-const RECORD_GMAIL_LIST_ROW_DIAGNOSTIC = "recordGmailListRowDiagnostic";
 const STAR_GMAIL_THREAD = "starGmailThread";
 const STAR_VISIBLE_GMAIL_THREAD = "starVisibleGmailThread";
 const UNSTAR_GMAIL_THREAD = "unstarGmailThread";
 const UNSTAR_VISIBLE_GMAIL_THREAD = "unstarVisibleGmailThread";
-const STORE_GMAIL_LIST_ROW_DRAG = "storeGmailListRowDrag";
 
 const gmailExtensionMessaging = globalThis.CarnivalExtensionMessaging;
 
@@ -51,17 +45,9 @@ function parseGmailUrl(value) {
 }
 
 function gmailUrlFromTransfer(dataTransfer) {
-  for (const type of [CARNIVAL_GMAIL_DRAG_TYPE, "text/uri-list", "text/plain", "text/html"]) {
+  for (const type of ["text/uri-list", "text/plain", "text/html"]) {
     const raw = dataTransfer?.getData(type) ?? "";
     if (!raw) continue;
-    if (type === CARNIVAL_GMAIL_DRAG_TYPE) {
-      try {
-        const payload = JSON.parse(raw);
-        const attachment = typeof payload.url === "string" ? parseGmailUrl(payload.url) : null;
-        if (attachment) return attachment;
-      } catch {}
-      continue;
-    }
     const match = raw.replaceAll("&amp;", "&")
       .match(/https:\/\/mail\.google\.com\/[^\s"'<>]+/i)?.[0];
     const attachment = match ? parseGmailUrl(match) : null;
@@ -88,20 +74,6 @@ function latestVisibleGmailMessage() {
   }).at(-1) ?? null;
 }
 
-function sanitizedGmailApiThreadId(value) {
-  const normalized = value?.trim?.() ?? "";
-  return /^[a-zA-Z0-9_-]{1,200}$/.test(normalized) ? normalized : null;
-}
-
-function structuredGmailPayloadFromTransfer(dataTransfer) {
-  try {
-    const payload = JSON.parse(dataTransfer?.getData(CARNIVAL_GMAIL_DRAG_TYPE) ?? "");
-    return typeof payload?.url === "string" && parseGmailUrl(payload.url) ? payload : null;
-  } catch {
-    return null;
-  }
-}
-
 function visibleGmailApiThreadId(message) {
   const conversation = message?.closest?.("div[role='main']");
   const header = conversation?.querySelector?.("h2[data-legacy-thread-id]");
@@ -112,8 +84,10 @@ function visibleGmailApiThreadId(message) {
       ?.getAttribute?.("data-legacy-thread-id")],
   ];
   for (const [strategy, value] of candidates) {
-    const threadId = sanitizedGmailApiThreadId(value);
-    if (threadId) return { threadId, strategy };
+    const normalized = value?.trim?.() ?? "";
+    if (/^[a-zA-Z0-9_-]{1,200}$/.test(normalized)) {
+      return { threadId: normalized, strategy };
+    }
   }
   return { threadId: null, strategy: "missing" };
 }
@@ -140,141 +114,6 @@ function latestGmailParticipants() {
 function visibleGmailSubject() {
   const subject = document.querySelector("h2.hP")?.textContent?.trim() ?? "";
   return subject ? subject.slice(0, 500) : null;
-}
-
-function gmailAccountIndex() {
-  const match = /^\/mail\/u\/(\d+)\/?$/.exec(window.location.pathname);
-  const value = Number(match?.[1]);
-  return Number.isSafeInteger(value) && value >= 0 ? value : null;
-}
-
-function gmailListRowFromTarget(target) {
-  if (!(target instanceof Element)) return null;
-  if (target.closest("input, button, a, [role='checkbox'], [role='button']")) return null;
-  return target.closest("tr.zA[role='row']");
-}
-
-function sanitizedGmailWebThreadRef(value) {
-  const normalized = value?.trim?.() ?? "";
-  return /^[a-zA-Z0-9_:#-]{1,200}$/.test(normalized) ? normalized : null;
-}
-
-function gmailListRowMetadata(row) {
-  const identity = row.querySelector("[data-thread-id][data-legacy-thread-id]");
-  const threadRef = sanitizedGmailWebThreadRef(identity?.getAttribute("data-thread-id"));
-  const gmailApiThreadId = sanitizedGmailApiThreadId(
-    identity?.getAttribute("data-legacy-thread-id"),
-  );
-  const accountIndex = gmailAccountIndex();
-  const subject = row.querySelector(".bog")?.textContent?.trim().slice(0, 500) ?? "";
-  if (accountIndex === null || !threadRef || !gmailApiThreadId || !subject) return null;
-  const seen = new Set();
-  const participants = Array.from(row.querySelectorAll("[email], [data-hovercard-id*='@']"))
-    .map(gmailParticipant)
-    .filter((participant) => {
-      if (!participant || seen.has(participant.email)) return false;
-      seen.add(participant.email);
-      return true;
-    });
-  return {
-    gmailApiThreadId,
-    gmailApiThreadStrategy: "direct",
-    gmailDragSource: "list_row",
-    gmailParticipants: participants.length
-      ? { from: participants[0], to: participants.slice(1) }
-      : null,
-    subject,
-    url: `https://mail.google.com/mail/u/${accountIndex}/#all/${encodeURIComponent(threadRef)}`,
-  };
-}
-
-function gmailListRowMetadataResolution(row) {
-  const identity = row?.querySelector?.("[data-thread-id][data-legacy-thread-id]") ?? null;
-  const webThreadPresent = Boolean(sanitizedGmailWebThreadRef(
-    identity?.getAttribute?.("data-thread-id"),
-  ));
-  const apiThreadPresent = Boolean(sanitizedGmailApiThreadId(
-    identity?.getAttribute?.("data-legacy-thread-id"),
-  ));
-  const metadata = row ? gmailListRowMetadata(row) : null;
-  const reason = metadata
-    ? "completed"
-    : !identity
-      ? "metadata_container_missing"
-      : !webThreadPresent
-        ? "web_thread_missing"
-        : !apiThreadPresent
-          ? "api_thread_missing"
-          : "metadata_resolution_failed";
-  return { apiThreadPresent, metadata, reason, webThreadPresent };
-}
-
-function reportGmailListRowDiagnostic(detail) {
-  const retainRelayStatus = (status, reason) => {
-    try {
-      void globalThis.chrome?.storage?.local?.set({
-        [GMAIL_LIST_ROW_RELAY_KEY]: {
-          correlationId: detail.correlationId,
-          ...(reason ? { reason } : {}),
-          stage: detail.stage,
-          status,
-        },
-      });
-    } catch {}
-  };
-  retainRelayStatus("diagnostic_created");
-  void sendGmailExtensionMessage({
-    diagnostic: detail,
-    type: RECORD_GMAIL_LIST_ROW_DIAGNOSTIC,
-  }).then((result) => {
-    if (!result.ok) retainRelayStatus("diagnostic_relay_failed", "runtime_message_failed");
-  });
-}
-
-function gmailListRowStructure(target) {
-  const allowedRoles = new Set([
-    "button", "checkbox", "gridcell", "link", "main", "presentation", "row",
-  ]);
-  const ancestors = [];
-  const ancestorRoles = [];
-  let current = target;
-  let rolePresent = false;
-  let draggableAttributePresent = false;
-  let dataLegacyThreadAttributePresent = false;
-  let dataThreadAttributePresent = false;
-  let dataMessageAttributePresent = false;
-  for (let depth = 0; current instanceof Element && depth < 7; depth += 1) {
-    const rawTag = current.tagName?.toUpperCase?.() ?? "UNKNOWN";
-    ancestors.push(/^[A-Z][A-Z0-9-]{0,19}$/.test(rawTag) ? rawTag : "OTHER");
-    const currentRole = current.getAttribute?.("role")?.trim?.().toLowerCase?.() ?? null;
-    ancestorRoles.push(currentRole
-      ? (allowedRoles.has(currentRole) ? currentRole : "other")
-      : "none");
-    rolePresent ||= current.hasAttribute?.("role") === true;
-    draggableAttributePresent ||= current.hasAttribute?.("draggable") === true;
-    dataLegacyThreadAttributePresent ||=
-      current.hasAttribute?.("data-legacy-thread-id") === true;
-    dataThreadAttributePresent ||= current.hasAttribute?.("data-thread-id") === true;
-    dataMessageAttributePresent ||= current.hasAttribute?.("data-message-id") === true;
-    current = current.parentElement;
-  }
-  const rawRole = target.getAttribute?.("role")?.trim?.().toLowerCase?.() ?? null;
-  return {
-    ancestorDepth: Math.max(ancestors.length - 1, 0),
-    ancestorRoles,
-    ancestorTags: ancestors,
-    clickableMessageLinkPresent: Boolean(
-      target.closest?.("a, [role='link']") || target.querySelector?.("a, [role='link']"),
-    ),
-    dataLegacyThreadAttributePresent,
-    dataMessageAttributePresent,
-    dataThreadAttributePresent,
-    draggableAncestorPresent: Boolean(target.closest?.("[draggable='true']")),
-    draggableAttributePresent,
-    rolePresent,
-    targetRole: rawRole ? (allowedRoles.has(rawRole) ? rawRole : "other") : null,
-    targetTag: ancestors[0] ?? "UNKNOWN",
-  };
 }
 
 function starVisibleGmailThread(expectedThreadRef) {
@@ -335,133 +174,6 @@ function unstarVisibleGmailThread(expectedThreadRef) {
 }
 
 if (window.location.hostname === "mail.google.com") {
-  let preparedListRowDrag = null;
-  let listRowAttempt = null;
-
-  function reportMissingListRowDragstart() {
-    if (
-      !listRowAttempt ||
-      !listRowAttempt.moved ||
-      listRowAttempt.dragStarted ||
-      listRowAttempt.missingReported
-    ) return;
-    listRowAttempt.missingReported = true;
-    reportGmailListRowDiagnostic({
-      correlationId: listRowAttempt.correlationId,
-      fired: false,
-      metadataReady: listRowAttempt.metadataReady,
-      reason: "dragstart_not_fired",
-      stage: "LIST_ROW_DRAGSTART",
-    });
-  }
-
-  function clearPreparedListRowDrag() {
-    if (!preparedListRowDrag) return;
-    if (preparedListRowDrag.previousDraggable === null) {
-      preparedListRowDrag.row.removeAttribute("draggable");
-    } else {
-      preparedListRowDrag.row.setAttribute("draggable", preparedListRowDrag.previousDraggable);
-    }
-    preparedListRowDrag = null;
-  }
-
-  document.addEventListener?.("pointerdown", (event) => {
-    if (event.button !== 0) return;
-    clearPreparedListRowDrag();
-    listRowAttempt = null;
-    if (!(event.target instanceof Element)) return;
-    const correlationId = crypto.randomUUID();
-    const row = gmailListRowFromTarget(event.target);
-    const structure = gmailListRowStructure(event.target);
-    reportGmailListRowDiagnostic({
-      correlationId,
-      handlerReached: true,
-      reason: row ? "recognized" : "row_not_recognized",
-      rowRecognized: Boolean(row),
-      stage: "LIST_ROW_POINTERDOWN",
-      ...structure,
-    });
-    listRowAttempt = {
-      correlationId,
-      dragStarted: false,
-      metadataReady: false,
-      missingReported: false,
-      moved: false,
-      pointerX: Number.isFinite(event.clientX) ? event.clientX : 0,
-      pointerY: Number.isFinite(event.clientY) ? event.clientY : 0,
-      row,
-    };
-    if (!row) return;
-    const resolution = gmailListRowMetadataResolution(row);
-    reportGmailListRowDiagnostic({
-      apiThreadPresent: resolution.apiThreadPresent,
-      correlationId,
-      draggableTargetPresent: true,
-      reason: resolution.reason,
-      stage: "LIST_ROW_METADATA_RESOLVED",
-      success: Boolean(resolution.metadata),
-      webThreadPresent: resolution.webThreadPresent,
-    });
-    listRowAttempt.metadataReady = Boolean(resolution.metadata);
-    if (!resolution.metadata) return;
-    preparedListRowDrag = {
-      metadata: { ...resolution.metadata, correlationId },
-      previousDraggable: row.getAttribute("draggable"),
-      row,
-    };
-    row.setAttribute("draggable", "true");
-  }, true);
-
-  document.addEventListener?.("dragstart", (event) => {
-    const prepared = preparedListRowDrag;
-    const sourceRow = event.target instanceof Element
-      ? event.target.closest("tr.zA[role='row']")
-      : null;
-    if (listRowAttempt && (!listRowAttempt.row || sourceRow === listRowAttempt.row)) {
-      listRowAttempt.dragStarted = true;
-      reportGmailListRowDiagnostic({
-        correlationId: listRowAttempt.correlationId,
-        fired: true,
-        metadataReady: listRowAttempt.metadataReady,
-        reason: listRowAttempt.metadataReady ? "completed" : "metadata_not_ready",
-        stage: "LIST_ROW_DRAGSTART",
-      });
-    }
-    if (!event.dataTransfer || !prepared || sourceRow !== prepared.row) return;
-    const payload = prepared.metadata;
-    try { event.dataTransfer.setData("text/uri-list", payload.url); } catch {}
-    try { event.dataTransfer.setData("text/plain", payload.url); } catch {}
-    try {
-      event.dataTransfer.setData(CARNIVAL_GMAIL_DRAG_TYPE, JSON.stringify(payload));
-    } catch {}
-    try { event.dataTransfer.effectAllowed = "copy"; } catch {}
-    sendGmailExtensionMessage({ payload, type: STORE_GMAIL_LIST_ROW_DRAG });
-  }, true);
-  document.addEventListener?.("pointermove", (event) => {
-    if (!listRowAttempt || listRowAttempt.dragStarted) return;
-    const x = Number.isFinite(event.clientX) ? event.clientX : listRowAttempt.pointerX;
-    const y = Number.isFinite(event.clientY) ? event.clientY : listRowAttempt.pointerY;
-    if (Math.hypot(x - listRowAttempt.pointerX, y - listRowAttempt.pointerY) >= 5) {
-      listRowAttempt.moved = true;
-    }
-  }, true);
-  document.addEventListener?.("pointerout", (event) => {
-    if (event.relatedTarget === null) reportMissingListRowDragstart();
-  }, true);
-  document.addEventListener?.("dragend", () => {
-    clearPreparedListRowDrag();
-    listRowAttempt = null;
-  }, true);
-  document.addEventListener?.("pointercancel", () => {
-    clearPreparedListRowDrag();
-    listRowAttempt = null;
-  }, true);
-  document.addEventListener?.("pointerup", () => {
-    reportMissingListRowDragstart();
-    clearPreparedListRowDrag();
-    listRowAttempt = null;
-  }, true);
-
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === STAR_VISIBLE_GMAIL_THREAD) {
       sendResponse(starVisibleGmailThread(message.threadRef));
@@ -502,7 +214,6 @@ if (window.location.hostname === "mail.google.com") {
     event.stopImmediatePropagation();
     const correlationId = crypto.randomUUID();
     const dispatchAttachment = (response, messagingFailure = null) => {
-      const rowCreateCorrelationId = response?.correlationId ?? correlationId;
       const returnedThreadRef = response?.threadRef ?? response?.returnedThreadRef ?? null;
       const subject = response?.subject ?? response?.gmailSubject ?? null;
       const participants = response?.participants ?? response?.gmailParticipants ?? null;
@@ -522,14 +233,14 @@ if (window.location.hostname === "mail.google.com") {
           ? "thread_mismatch"
           : "subject_missing";
         console.warn("GMAIL_ROW_CREATE_FAILED", {
-          correlationId: rowCreateCorrelationId,
+          correlationId,
           reason,
           targetPlayId: playId,
         });
         window.dispatchEvent(new CustomEvent("carnival:gmail-row-create-metadata-failed", {
           detail: JSON.stringify({
             code: messagingFailure?.code,
-            correlationId: rowCreateCorrelationId,
+            correlationId,
             message: messagingFailure?.message,
             reason,
             targetPlayId: playId,
@@ -539,8 +250,7 @@ if (window.location.hostname === "mail.google.com") {
       }
       window.dispatchEvent(new CustomEvent("carnival:gmail-row-create", {
         detail: JSON.stringify({
-          correlationId: rowCreateCorrelationId,
-          gmailDragSource: response?.gmailDragSource ?? "opened_conversation",
+          correlationId,
           gmailApiThreadId: gmailApiThreadId ?? undefined,
           gmailApiThreadStrategy,
           gmailParticipants: participants ?? undefined,
@@ -560,23 +270,7 @@ if (window.location.hostname === "mail.google.com") {
       gmailThreadRef: transferredAttachment.threadRef,
       targetPlayId: playId,
     });
-    const structuredPayload = structuredGmailPayloadFromTransfer(event.dataTransfer);
-    const useStructuredPayload = (payload) => {
-      if (!payload || parseGmailUrl(payload.url)?.threadRef !== transferredAttachment.threadRef) {
-        return false;
-      }
-      dispatchAttachment({ ...payload, threadRef: transferredAttachment.threadRef });
-      if (payload.correlationId) {
-        sendGmailExtensionMessage({
-          correlationId: payload.correlationId,
-          type: CONSUME_GMAIL_LIST_ROW_DRAG,
-        });
-      }
-      return true;
-    };
-    if (useStructuredPayload(structuredPayload)) return;
-
-    const requestOpenedConversationMetadata = () => sendGmailExtensionMessage({
+    sendGmailExtensionMessage({
       accountIndex: transferredAttachment.accountIndex,
       canonicalUrl: transferredAttachment.canonicalUrl,
       correlationId,
@@ -590,11 +284,6 @@ if (window.location.hostname === "mail.google.com") {
       }
       dispatchAttachment(result.response);
     }).catch(() => dispatchAttachment(null, bridgeHandlerFailure()));
-
-    sendGmailExtensionMessage({ type: GET_GMAIL_LIST_ROW_DRAG }).then((result) => {
-      if (result.ok && useStructuredPayload(result.response?.payload)) return;
-      requestOpenedConversationMetadata();
-    }).catch(requestOpenedConversationMetadata);
   }, true);
 
   window.addEventListener("carnival:gmail-star-thread", (event) => {
