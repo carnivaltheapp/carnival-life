@@ -15,7 +15,7 @@ NEW-CONVERSATION RULE: ARCHITECTURE EXPLORATION ONLY. Do not modify GitHub, data
 - Frontend/runtime: Next.js + TypeScript PWA on Vercel.
 - Desktop: two ordinary Chrome windows, PlayHouse + Aux/context browser, coordinated by Chrome extension + native companion.
 - Known-working Gmail live-refresh baseline: P3-GMAIL-LIVE-REFRESH-110.
-- GitHub main read for this handoff: bcd890ba28ab3272b85c4a5b485e619cd02d611f / P3-GMAIL-LIST-ROLLBACK-118. Later lifecycle work discussed in conversation may still be pending until a newer commit is verified.
+- Current PlayHouse lifecycle implementation: commit f5028f1e2a9325d97ab7a5c45c1fbffefeeafe14 / P3-GMAIL-LIFECYCLE-119. Legacy CodeBase Gmail importer guard: f052987ac9e4c357557c3b1eab6d25da242fbaf9.
 
 ## 2. Vision and Core Vocabulary
 - A Play is Carnival's core unit: action, waiting, experience, context, delegation, relationship, or future planning.
@@ -92,17 +92,20 @@ NEW-CONVERSATION RULE: ARCHITECTURE EXPLORATION ONLY. Do not modify GitHub, data
 - It excludes bodies, subjects, addresses, credentials, raw provider payloads and tokens.
 - Authenticated GET /api/diagnostics/gmail retrieves trails and also supports interim live refresh.
 
-## 6. Done / Trash Lifecycle — Proven State and Pending Correction
-- Done persistence is correct: is_active=false, is_deleted=false.
-- Trash persistence is correct: is_active=false, is_deleted=true.
-- Current/older Gmail cleanup can fail because browser-extension unstar requires a web reference while older Plays may only have API thread identity.
-- Desired Done invariant: remain Done; if Gmail-linked, unstar Gmail; do NOT move Gmail to Trash.
-- Desired Trash invariant: remain Trashed; if Gmail-linked, unstar Gmail AND move the Gmail thread/conversation to Gmail Trash.
+## 6. Done / Trash Lifecycle — Implemented Correction and Verification Status
+- Done persistence is authoritative in Mongo: is_active=false, is_deleted=false.
+- Trash persistence is authoritative in Mongo: is_active=false, is_deleted=true.
+- P3-GMAIL-LIFECYCLE-119 moved lifecycle Gmail cleanup server-side using the stable Gmail API thread ID; it no longer requires an open Gmail tab or web thread reference.
+- Done persists first, then server-side Gmail API removes STARRED. Done never moves Gmail to Trash.
+- Trash persists first, then independently removes STARRED and calls Gmail's thread Trash API.
+- Gmail cleanup failures never reverse Mongo lifecycle state.
+- Current Gmail-derived creation checks owner + stable Gmail API thread ID across active, Done and Trashed Plays before creating. Existing inactive linkage suppresses recreation.
+- Privacy-safe lifecycle and creation-decision diagnostics were added.
 - A reported "trashed Play came back" was proven to be a NEW duplicate, not reactivation of the original trashed Mongo record.
-- The replacement appeared around the day boundary with legacy-shaped metadata. The responsible daily/legacy writer was not located in the current repository during diagnosis.
-- Required durable identity rule: before Gmail-derived creation/import, check owner + stable Gmail API thread ID across active, Done and Trashed records. Done/Trashed linkage suppresses recreation.
-- Architectural direction for lifecycle cleanup: server-side Gmail API using stable API thread ID, not dependence on an open Gmail browser tab.
-- A lifecycle implementation prompt was prepared after this diagnosis; verify repository history before assuming it has been implemented.
+- The external resurrection source was located in the separate legacy CodeBase repository: Code/Roller/Roller.ahk invokes MongoUpdate_fromGmail(), whose prior active-only comparison could recreate inactive Gmail Plays.
+- Legacy CodeBase commit f052987ac9e4c357557c3b1eab6d25da242fbaf9 adds an owner-scoped all-lifecycle lookup by stable Gmail API thread_id immediately before insertion. Active, Done and Trashed matches are suppressed without reactivation/restoration; lookup failure safely suppresses.
+- This closes the identified daily Roller.ahk → MongoUpdate_fromGmail() resurrection path in code. Real-world verification across the next importer cycle is still prudent before treating the lifecycle as operationally proven.
+- Carnival currently has two repositories participating in production behavior: carnival-life and the legacy CodeBase. Eliminating or absorbing this split is an architectural topic for the new discussion.
 
 ## 7. Roller Architecture
 - Roller remains a separate application/domain boundary.
@@ -133,7 +136,7 @@ NEW-CONVERSATION RULE: ARCHITECTURE EXPLORATION ONLY. Do not modify GitHub, data
 - 5-second polling: intentional Mongo-era bridge; replace with general realtime/push only during final Supabase migration.
 - Mongo + Supabase split: current reality. Avoid dual authority for Play state; Mongo remains operational Play authority.
 - Older GitHub docs: some still encode earlier Supabase-first assumptions and need reconciliation.
-- Legacy/daily writer: likely external source of Gmail-linked duplicate recreation; not yet located in current repository.
+- Legacy/daily writer: located in the separate CodeBase repository (Roller.ahk → MongoUpdate_fromGmail) and guarded in commit f052987ac9e4c357557c3b1eab6d25da242fbaf9. Two repositories participating in production behavior remains architectural debt.
 - Chrome DOM integration: necessary for some browser behaviors and inherently brittle; keep business logic server-side and diagnostics strong.
 - Gmail list-row drag: abandoned for current phases after native dragstart did not fire under Gmail's internal drag behavior.
 
@@ -143,6 +146,7 @@ NEW-CONVERSATION RULE: ARCHITECTURE EXPLORATION ONLY. Do not modify GitHub, data
 - P3-DETAIL-STICKY-SCOPE-113 — Detail view sticky/frozen scoping correction.
 - P3-GMAIL-STAR-TOOLTIP-114 — Gmail current tooltip="Starred"/"Not starred" DOM support.
 - P3-GMAIL-LIST-ROLLBACK-118 — list-row drag experiment removed; opened-message drag remains supported.
+- P3-GMAIL-LIFECYCLE-119 — server-side Gmail Done/Trash lifecycle cleanup plus current-repository Gmail duplicate suppression.
 
 Markers are behavioral baselines, not substitutes for checking the actual current Git commit and retained code.
 
@@ -151,7 +155,7 @@ Markers are behavioral baselines, not substitutes for checking the actual curren
 - How should the final Mongo→Supabase migration avoid a big-bang cutover while preserving known-working behavior?
 - What should replace 5-second polling at Supabase migration: database change feed, explicit domain-event broadcast, or hybrid?
 - Should Gmail, Calendar and Slack share one external-event ingestion and identity-resolution framework?
-- How should lifecycle identity/tombstones prevent resurrection/duplicate creation across all external importers?
+- How should lifecycle identity/tombstones prevent resurrection/duplicate creation across all external importers, and how should the legacy CodeBase importer be retired or absorbed?
 - How should Roller consume current state, external constraints and event history without coupling to PlayHouse persistence details?
 - Should materialized Play state + append history evolve toward event sourcing, or remain intentionally hybrid?
 - Where should background jobs/cron/queues live as Carnival grows beyond Vercel request lifetimes?
@@ -183,7 +187,8 @@ Markers are behavioral baselines, not substitutes for checking the actual curren
 - PHASE-1-START-HANDOFF.txt
 - desktop/workspace/README.md
 - apps/roller/README.md
-- Recent Git history through P3-GMAIL-LIST-ROLLBACK-118.
+- Recent carnival-life Git history through P3-GMAIL-LIFECYCLE-119.
+- Legacy CodeBase lifecycle guard commit f052987ac9e4c357557c3b1eab6d25da242fbaf9.
 
 ## 15. Suggested Opening Message for the New Conversation
 
