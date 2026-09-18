@@ -40,6 +40,7 @@ import {
 } from "./mongo-play-mapping";
 import type {
   AssignPlayerRequest,
+  CreateGmailPlayResult,
   CreateGmailPlayRequest,
   FlipPlayRankRequest,
   AttachGmailRequest,
@@ -49,6 +50,12 @@ import type {
   SavePlayRequest,
   UnlinkGmailRequest,
 } from "./play-repository";
+
+function gmailLifecycle(task: LegacyTaskDocument) {
+  if (task.is_deleted === true) return "trashed" as const;
+  if (task.is_active === false) return "done" as const;
+  return "active" as const;
+}
 import { mongoDiagnostic } from "./mongo-options";
 
 type ContactReferenceRow = {
@@ -99,7 +106,28 @@ export class MongoPlayRepository implements PlayRepository {
     return result.matchedCount === 1;
   }
 
-  async createGmail({ attachment, input, playerResourceName }: CreateGmailPlayRequest) {
+  async createGmail({
+    attachment,
+    input,
+    playerResourceName,
+  }: CreateGmailPlayRequest): Promise<CreateGmailPlayResult | null> {
+    if (attachment.apiThreadId) {
+      const existing = await this.dependencies.collection.findOne({
+        user_id: MONGO_LEGACY_USER_ID,
+        $or: [
+          { "carnival_google.gmail_api_thread_id": attachment.apiThreadId },
+          { "carnival_google.gmail_attachment.api_thread_id": attachment.apiThreadId },
+          { thread_id: attachment.apiThreadId },
+        ],
+      }, { projection: { is_active: 1, is_deleted: 1 } });
+      if (existing) {
+        return {
+          decision: "suppressed",
+          existingLifecycle: gmailLifecycle(existing),
+          existingPlayId: existing._id.toHexString(),
+        };
+      }
+    }
     const taskDate = legacyTaskDate(input, this.dependencies.baskets);
     const latest = await this.dependencies.collection.findOne(
       {
@@ -126,7 +154,9 @@ export class MongoPlayRepository implements PlayRepository {
     document.regarding = "email";
     document.thread_id = attachment.threadRef;
     const result = await this.dependencies.collection.insertOne(document);
-    return result.acknowledged ? result.insertedId.toHexString() : null;
+    return result.acknowledged
+      ? { decision: "created", playId: result.insertedId.toHexString() }
+      : null;
   }
 
   async unlinkGmail({ playId }: UnlinkGmailRequest) {

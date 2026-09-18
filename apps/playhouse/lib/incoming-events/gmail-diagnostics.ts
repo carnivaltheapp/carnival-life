@@ -17,6 +17,11 @@ export const GMAIL_DIAGNOSTIC_STAGES = [
   "PLAY_INCOMING_MUTATION",
   "GMAIL_OUTGOING_SYNC_REQUESTED",
   "GMAIL_OUTGOING_SYNC_RESULT",
+  "GMAIL_LIFECYCLE_REQUESTED",
+  "MONGO_LIFECYCLE_PERSISTED",
+  "GMAIL_LIFECYCLE_UNSTAR_RESULT",
+  "GMAIL_LIFECYCLE_TRASH_RESULT",
+  "GMAIL_CREATION_DECISION",
 ] as const;
 
 export type GmailDiagnosticStage = (typeof GMAIL_DIAGNOSTIC_STAGES)[number];
@@ -29,14 +34,25 @@ export type GmailMatchStrategy =
   | "legacy_thread_id"
   | "none";
 export type GmailOutgoingOperation = "star" | "unstar";
+export type GmailLifecycleAction = "done" | "trash";
+export type GmailExistingLifecycle = "active" | "done" | "none" | "trashed";
+export type GmailCreationDecision = "create" | "suppress";
 
 export type GmailDiagnosticInput = {
+  accountResolved?: boolean;
+  action?: GmailLifecycleAction;
   apiThreadPresent?: boolean;
+  attempted?: boolean;
   correlationId?: string | null;
+  decision?: GmailCreationDecision;
+  existingLifecycle?: GmailExistingLifecycle;
+  existingPlayFound?: boolean;
   extractionStrategy?: GmailExtractionStrategy;
   matchResult?: GmailMatchResult;
   matchStrategy?: GmailMatchStrategy;
   mutationAttempted?: boolean;
+  finalIsActive?: boolean;
+  finalIsDeleted?: boolean;
   operation?: GmailOutgoingOperation;
   ownerUserId: string;
   playId?: string | null;
@@ -52,10 +68,18 @@ export type GmailDiagnosticInput = {
 
 export type GmailDiagnosticDocument = {
   _id?: ObjectId;
+  account_resolved?: boolean;
+  action?: GmailLifecycleAction;
   api_thread_present?: boolean;
+  attempted?: boolean;
   correlation_id?: string;
   created_at: Date;
   extraction_strategy?: GmailExtractionStrategy;
+  decision?: GmailCreationDecision;
+  existing_lifecycle?: GmailExistingLifecycle;
+  existing_play_found?: boolean;
+  final_is_active?: boolean;
+  final_is_deleted?: boolean;
   identifier_type?: "gmail_api_thread_id";
   match_result?: GmailMatchResult;
   match_strategy?: GmailMatchStrategy;
@@ -109,11 +133,27 @@ export function gmailDiagnosticDocument(
     created_at: now,
     owner_user_id: input.ownerUserId,
     stage: input.stage,
+    ...(typeof input.accountResolved === "boolean"
+      ? { account_resolved: input.accountResolved }
+      : {}),
+    ...(input.action ? { action: input.action } : {}),
     ...(typeof input.apiThreadPresent === "boolean"
       ? { api_thread_present: input.apiThreadPresent }
       : {}),
+    ...(typeof input.attempted === "boolean" ? { attempted: input.attempted } : {}),
     ...(correlationId ? { correlation_id: correlationId } : {}),
+    ...(input.decision ? { decision: input.decision } : {}),
+    ...(input.existingLifecycle ? { existing_lifecycle: input.existingLifecycle } : {}),
+    ...(typeof input.existingPlayFound === "boolean"
+      ? { existing_play_found: input.existingPlayFound }
+      : {}),
     ...(input.extractionStrategy ? { extraction_strategy: input.extractionStrategy } : {}),
+    ...(typeof input.finalIsActive === "boolean"
+      ? { final_is_active: input.finalIsActive }
+      : {}),
+    ...(typeof input.finalIsDeleted === "boolean"
+      ? { final_is_deleted: input.finalIsDeleted }
+      : {}),
     ...(input.matchResult ? { match_result: input.matchResult } : {}),
     ...(input.matchStrategy ? { match_strategy: input.matchStrategy } : {}),
     ...(typeof input.mutationAttempted === "boolean"

@@ -12,9 +12,10 @@ describe("Play detail lifecycle actions", () => {
     expect(playForm).toMatch(/<form action=\{trashAction\}>[\s\S]*?Trash[\s\S]*?<\/form>/);
   });
 
-  it("closes and refreshes after either successful action, then preserves Gmail sync", () => {
-    expect(playForm).toMatch(/trashState\.status !== "success"[\s\S]*?requestGmailThreadUnstar\(play, "trash"\);[\s\S]*?removeAttribute\("open"\);[\s\S]*?router\.refresh\(\)/);
-    expect(playForm).toMatch(/doneState\.status !== "success"[\s\S]*?requestGmailThreadUnstar\(play, "done"\);[\s\S]*?removeAttribute\("open"\);[\s\S]*?router\.refresh\(\)/);
+  it("closes and refreshes after either successful server lifecycle action", () => {
+    expect(playForm).toMatch(/trashState\.status !== "success"[\s\S]*?trashState\.warning[\s\S]*?removeAttribute\("open"\);[\s\S]*?router\.refresh\(\)/);
+    expect(playForm).toMatch(/doneState\.status !== "success"[\s\S]*?doneState\.warning[\s\S]*?removeAttribute\("open"\);[\s\S]*?router\.refresh\(\)/);
+    expect(playForm).not.toContain("requestGmailThreadUnstar");
   });
 
   it("keeps lifecycle forms outside the edit form so drafts are not submitted", () => {

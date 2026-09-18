@@ -31,7 +31,6 @@ import {
 import { applySuccessfulPlaySave } from "./play-form-success";
 import { AllFolderNavigator } from "./all-folder-navigator";
 import { BranchPicker } from "./branch-picker";
-import { requestGmailThreadUnstar } from "./gmail-thread-sync";
 import { PlayerCombobox } from "./player-combobox";
 import { PlayerContactInfo } from "./player-contact-info";
 import { PlayerSlackField } from "./player-slack-field";
@@ -210,7 +209,11 @@ export function PlayForm({
       completedTrashStateRef.current === trashState
     ) return;
     completedTrashStateRef.current = trashState;
-    requestGmailThreadUnstar(play, "trash");
+    if (trashState.warning) {
+      window.dispatchEvent(new CustomEvent("carnival:play-lifecycle-warning", {
+        detail: trashState.warning,
+      }));
+    }
     detailsRef.current?.removeAttribute("open");
     router.refresh();
   }, [play, router, trashState]);
@@ -221,7 +224,11 @@ export function PlayForm({
       completedDoneStateRef.current === doneState
     ) return;
     completedDoneStateRef.current = doneState;
-    requestGmailThreadUnstar(play, "done");
+    if (doneState.warning) {
+      window.dispatchEvent(new CustomEvent("carnival:play-lifecycle-warning", {
+        detail: doneState.warning,
+      }));
+    }
     detailsRef.current?.removeAttribute("open");
     router.refresh();
   }, [doneState, play, router]);

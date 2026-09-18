@@ -20,6 +20,7 @@ import type { Database } from "../supabase/database.types";
 import type { SelectedView } from "./data";
 import type {
   AssignPlayerRequest,
+  CreateGmailPlayResult,
   CreateGmailPlayRequest,
   FlipPlayRankRequest,
   AttachGmailRequest,
@@ -83,7 +84,32 @@ export class SupabasePlayRepository implements PlayRepository {
     return !error && data?.id === playId;
   }
 
-  async createGmail({ attachment, input }: CreateGmailPlayRequest) {
+  async createGmail({
+    attachment,
+    input,
+  }: CreateGmailPlayRequest): Promise<CreateGmailPlayResult | null> {
+    if (attachment.apiThreadId) {
+      const { data: candidates, error: candidatesError } = await this.supabase
+        .from("plays")
+        .select("id, status, source_metadata")
+        .eq("owner_user_id", this.ownerUserId)
+        .eq("source_type", "gmail");
+      if (candidatesError) return null;
+      const existing = (candidates ?? []).find((candidate) =>
+        gmailApiThreadIdFromMetadata(candidate.source_metadata) === attachment.apiThreadId
+      );
+      if (existing) {
+        return {
+          decision: "suppressed",
+          existingLifecycle: existing.status === "trash"
+            ? "trashed"
+            : existing.status === "done"
+              ? "done"
+              : "active",
+          existingPlayId: existing.id,
+        };
+      }
+    }
     const { data, error } = await this.supabase
       .from("plays")
       .insert({
@@ -94,7 +120,7 @@ export class SupabasePlayRepository implements PlayRepository {
       })
       .select("id")
       .maybeSingle();
-    return error ? null : data?.id ?? null;
+    return error || !data?.id ? null : { decision: "created", playId: data.id };
   }
 
   async unlinkGmail({ playId }: UnlinkGmailRequest) {

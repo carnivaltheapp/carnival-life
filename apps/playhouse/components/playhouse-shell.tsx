@@ -99,7 +99,6 @@ import { PLAYER_SLACK_UPDATED_EVENT, usableSlackUrl } from "../lib/google/contac
 import { AccountMenu } from "./account-menu";
 import { BrowserTimeZone } from "./browser-time-zone";
 import { useGridFontSizePreference } from "./grid-settings";
-import { requestGmailThreadUnstar } from "./gmail-thread-sync";
 import { PlayForm } from "./play-form";
 import { PlayHouseIcon } from "./playhouse-icon";
 import { PlaySearch } from "./play-search";
@@ -350,6 +349,18 @@ function PlayhouseShellView({
   const [gmailAttachPending, startGmailAttach] = useTransition();
   const [gmailCreatePending, startGmailCreate] = useTransition();
   const localPlays = optimisticPlays?.source === plays ? optimisticPlays.value : plays;
+  useEffect(() => {
+    function showLifecycleWarning(event: Event) {
+      if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
+      setMoveError(event.detail);
+    }
+    window.addEventListener("carnival:play-lifecycle-warning", showLifecycleWarning);
+    return () => window.removeEventListener(
+      "carnival:play-lifecycle-warning",
+      showLifecycleWarning,
+    );
+  }, []);
+
   useEffect(() => {
     let active = true;
     let mutationToken: string | null = null;
@@ -1049,10 +1060,7 @@ function PlayhouseShellView({
       try {
         const result = await bulkSetPlayStatus({ playIds, status });
         if (result.status === "success") {
-          localPlays
-            .filter((play) => playIds.includes(play.id))
-            .forEach((play) => requestGmailThreadUnstar(play, status));
-          setMoveError(null);
+          setMoveError(result.warning ?? null);
           console.info("DRAG_ACTION_COMPLETE", { count: playIds.length, kind: status });
           return;
         }

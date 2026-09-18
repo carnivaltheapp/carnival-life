@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { GmailApiError, unstarGmailThread } from "./gmail";
+import { GmailApiError, trashGmailThread, unstarGmailThread } from "./gmail";
 import { GOOGLE_GMAIL_MODIFY_SCOPE, GOOGLE_OAUTH_SCOPES } from "./scopes";
 
 describe("Gmail thread labels", () => {
@@ -41,5 +41,22 @@ describe("Gmail thread labels", () => {
       request,
       threadId: "thread-1",
     })).rejects.toEqual(new GmailApiError(403));
+  });
+
+  it("moves the encoded Gmail thread to Trash", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response("{}"));
+
+    await trashGmailThread({
+      accessToken: "server-access-token",
+      request,
+      threadId: "thread/123",
+    });
+
+    const [requestUrl, init] = request.mock.calls[0];
+    expect((requestUrl as URL).toString()).toBe(
+      "https://gmail.googleapis.com/gmail/v1/users/me/threads/thread%2F123/trash",
+    );
+    expect(init).toMatchObject({ method: "POST" });
+    expect(init?.headers).toEqual({ Authorization: "Bearer server-access-token" });
   });
 });

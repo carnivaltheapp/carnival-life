@@ -47,6 +47,15 @@ export type CreateGmailPlayRequest = {
   playerResourceName: string | null;
 };
 
+export type GmailPlayLifecycle = "active" | "done" | "trashed";
+export type CreateGmailPlayResult =
+  | { decision: "created"; playId: string }
+  | {
+      decision: "suppressed";
+      existingLifecycle: GmailPlayLifecycle;
+      existingPlayId: string;
+    };
+
 export type UnlinkGmailRequest = {
   playId: string;
 };
@@ -60,7 +69,7 @@ export type AssignPlayerRequest = {
 export interface PlayRepository {
   readonly supportsWorkflows: boolean;
   attachGmail(request: AttachGmailRequest): Promise<boolean>;
-  createGmail(request: CreateGmailPlayRequest): Promise<string | null>;
+  createGmail(request: CreateGmailPlayRequest): Promise<CreateGmailPlayResult | null>;
   unlinkGmail(request: UnlinkGmailRequest): Promise<boolean>;
   assignPlayer(request: AssignPlayerRequest): Promise<boolean>;
   get(playId: string): Promise<PlayListItem | null>;

@@ -1,150 +1,65 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { applyPlayLifecycle } from "./gmail-lifecycle";
+import { applyPlayLifecycle, type GmailLifecycleCleanupResult } from "./gmail-lifecycle";
 
-describe("Gmail Play lifecycle", () => {
-  it("unstars a Gmail thread before applying local done semantics", async () => {
-    const order: string[] = [];
-    const unstarThread = vi.fn(async () => {
-      order.push("gmail");
-      return { success: true as const };
-    });
-    const setLocalStatus = vi.fn(async () => {
-      order.push("local");
-      return true;
-    });
+const completed: GmailLifecycleCleanupResult = {
+  accountResolved: true,
+  trash: null,
+  unstar: { attempted: true, reason: "completed", success: true },
+};
 
-    const result = await applyPlayLifecycle({
-      gmailThreadId: "thread-1",
-      setLocalStatus,
-      sourceType: "gmail",
-      status: "done",
-      unstarThread,
-    });
-
-    expect(result).toEqual({ success: true });
-    expect(order).toEqual(["gmail", "local"]);
-    expect(unstarThread).toHaveBeenCalledWith("thread-1");
-    expect(setLocalStatus).toHaveBeenCalledWith("done");
-  });
-
-  it("trashes locally before best-effort Gmail sync", async () => {
+describe("authoritative Play lifecycle", () => {
+  it("persists Mongo before Gmail cleanup", async () => {
     const order: string[] = [];
     const result = await applyPlayLifecycle({
-      gmailThreadId: "thread-1",
-      setLocalStatus: vi.fn(async () => {
-        order.push("local");
+      gmailLinked: true,
+      persist: vi.fn(async () => {
+        order.push("mongo");
         return true;
       }),
-      sourceType: "gmail",
-      status: "trash",
-      unstarThread: vi.fn(async () => {
+      syncGmail: vi.fn(async () => {
         order.push("gmail");
-        return { success: true as const };
+        return completed;
       }),
     });
 
-    expect(result).toEqual({ success: true });
-    expect(order).toEqual(["local", "gmail"]);
+    expect(result).toEqual({ cleanup: completed, persisted: true });
+    expect(order).toEqual(["mongo", "gmail"]);
   });
 
-  it("treats an already-unstarred successful response as idempotent", async () => {
-    const setLocalStatus = vi.fn().mockResolvedValue(true);
-    const result = await applyPlayLifecycle({
-      gmailThreadId: "thread-1",
-      setLocalStatus,
-      sourceType: "gmail",
-      status: "done",
-      unstarThread: vi.fn().mockResolvedValue({ success: true }),
-    });
+  it("keeps Mongo persisted when Gmail cleanup fails", async () => {
+    const failure: GmailLifecycleCleanupResult = {
+      accountResolved: true,
+      trash: { attempted: true, reason: "gmail_trash_failed", success: false },
+      unstar: { attempted: true, reason: "gmail_unstar_failed", success: false },
+    };
+    const persist = vi.fn().mockResolvedValue(true);
 
-    expect(result).toEqual({ success: true });
-    expect(setLocalStatus).toHaveBeenCalledOnce();
+    await expect(applyPlayLifecycle({
+      gmailLinked: true,
+      persist,
+      syncGmail: vi.fn().mockResolvedValue(failure),
+    })).resolves.toEqual({ cleanup: failure, persisted: true });
+    expect(persist).toHaveBeenCalledOnce();
   });
 
-  it("keeps the Play trashed when Gmail unstar fails", async () => {
-    const setLocalStatus = vi.fn().mockResolvedValue(true);
-    const result = await applyPlayLifecycle({
-      gmailThreadId: "thread-1",
-      setLocalStatus,
-      sourceType: "gmail",
-      status: "trash",
-      unstarThread: vi.fn().mockResolvedValue({
-        message: "Gmail failed. The Play was left active.",
-        success: false,
-      }),
-    });
-
-    expect(result).toEqual({
-      success: true,
-      warning: "Play trashed. Gmail sync could not be completed.",
-    });
-    expect(setLocalStatus).toHaveBeenCalledWith("trash");
+  it("does not contact Gmail when Mongo persistence fails", async () => {
+    const syncGmail = vi.fn();
+    await expect(applyPlayLifecycle({
+      gmailLinked: true,
+      persist: vi.fn().mockResolvedValue(false),
+      syncGmail,
+    })).resolves.toEqual({ persisted: false });
+    expect(syncGmail).not.toHaveBeenCalled();
   });
 
-  it("keeps the Play trashed when Gmail sync throws", async () => {
-    const setLocalStatus = vi.fn().mockResolvedValue(true);
-    const result = await applyPlayLifecycle({
-      gmailThreadId: "thread-1",
-      setLocalStatus,
-      sourceType: "gmail",
-      status: "trash",
-      unstarThread: vi.fn().mockRejectedValue(new Error("network unavailable")),
-    });
-
-    expect(result).toEqual({
-      success: true,
-      warning: "Play trashed. Gmail sync could not be completed.",
-    });
-    expect(setLocalStatus).toHaveBeenCalledWith("trash");
-  });
-
-  it("does not call Gmail when the local trash update fails", async () => {
-    const unstarThread = vi.fn();
-    const result = await applyPlayLifecycle({
-      gmailThreadId: "thread-1",
-      setLocalStatus: vi.fn().mockResolvedValue(false),
-      sourceType: "gmail",
-      status: "trash",
-      unstarThread,
-    });
-
-    expect(result).toEqual({
-      message: "The Play could not be updated. Refresh and try again.",
-      success: false,
-    });
-    expect(unstarThread).not.toHaveBeenCalled();
-  });
-
-  it("rejects a Gmail Play without a thread identifier", async () => {
-    const setLocalStatus = vi.fn().mockResolvedValue(true);
-    const unstarThread = vi.fn();
-    const result = await applyPlayLifecycle({
-      gmailThreadId: " ",
-      setLocalStatus,
-      sourceType: "gmail",
-      status: "done",
-      unstarThread,
-    });
-
-    expect(result.success).toBe(false);
-    expect(unstarThread).not.toHaveBeenCalled();
-    expect(setLocalStatus).not.toHaveBeenCalled();
-  });
-
-  it("does not call Gmail for a non-Gmail Play", async () => {
-    const setLocalStatus = vi.fn().mockResolvedValue(true);
-    const unstarThread = vi.fn();
-    const result = await applyPlayLifecycle({
-      gmailThreadId: "thread-ignored",
-      setLocalStatus,
-      sourceType: "user",
-      status: "done",
-      unstarThread,
-    });
-
-    expect(result).toEqual({ success: true });
-    expect(unstarThread).not.toHaveBeenCalled();
-    expect(setLocalStatus).toHaveBeenCalledOnce();
+  it("keeps non-Gmail lifecycle changes Mongo-only", async () => {
+    const syncGmail = vi.fn();
+    await expect(applyPlayLifecycle({
+      gmailLinked: false,
+      persist: vi.fn().mockResolvedValue(true),
+      syncGmail,
+    })).resolves.toEqual({ persisted: true });
+    expect(syncGmail).not.toHaveBeenCalled();
   });
 });

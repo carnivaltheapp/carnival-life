@@ -1,61 +1,46 @@
-import type { PlaySourceType } from "../../domain/play";
+export type GmailLifecycleAction = "done" | "trash";
+export type GmailLifecycleReason =
+  | "account_disconnected"
+  | "account_missing"
+  | "api_thread_missing"
+  | "completed"
+  | "gmail_permission_denied"
+  | "gmail_permission_missing"
+  | "gmail_trash_failed"
+  | "gmail_unstar_failed"
+  | "token_unavailable";
 
-export type GmailLifecycleResult =
-  | { success: true; warning?: string }
-  | { message: string; success: false };
+export type GmailLifecycleStepResult = {
+  attempted: boolean;
+  reason: GmailLifecycleReason;
+  success: boolean;
+};
+
+export type GmailLifecycleCleanupResult = {
+  accountResolved: boolean;
+  trash: GmailLifecycleStepResult | null;
+  unstar: GmailLifecycleStepResult;
+};
+
+export type PlayLifecycleResult = {
+  cleanup?: GmailLifecycleCleanupResult;
+  persisted: boolean;
+};
 
 export async function applyPlayLifecycle({
-  gmailThreadId,
-  setLocalStatus,
-  sourceType,
-  status,
-  unstarThread,
+  gmailLinked,
+  onPersisted,
+  persist,
+  syncGmail,
 }: {
-  gmailThreadId: string | null | undefined;
-  setLocalStatus: (status: "done" | "trash") => Promise<boolean>;
-  sourceType: PlaySourceType;
-  status: "done" | "trash";
-  unstarThread: (threadId: string) => Promise<GmailLifecycleResult>;
-}): Promise<GmailLifecycleResult> {
-  if (status === "trash") {
-    if (!await setLocalStatus(status)) {
-      return {
-        message: "The Play could not be updated. Refresh and try again.",
-        success: false,
-      };
-    }
-    if (sourceType !== "gmail") return { success: true };
-
-    const threadId = gmailThreadId?.trim();
-    if (!threadId) {
-      return { success: true, warning: "Play trashed. Gmail sync could not be completed." };
-    }
-    try {
-      const unstarred = await unstarThread(threadId);
-      return unstarred.success
-        ? { success: true }
-        : { success: true, warning: "Play trashed. Gmail sync could not be completed." };
-    } catch {
-      return { success: true, warning: "Play trashed. Gmail sync could not be completed." };
-    }
-  }
-
-  if (sourceType === "gmail") {
-    const threadId = gmailThreadId?.trim();
-    if (!threadId) {
-      return {
-        message: "This Gmail Play is missing its Gmail thread link and was left active.",
-        success: false,
-      };
-    }
-    const unstarred = await unstarThread(threadId);
-    if (!unstarred.success) return unstarred;
-  }
-
-  return await setLocalStatus(status)
-    ? { success: true }
-    : {
-        message: "The Play could not be updated. Refresh and try again.",
-        success: false,
-      };
+  gmailLinked: boolean;
+  onPersisted?: () => Promise<void>;
+  persist: () => Promise<boolean>;
+  syncGmail: () => Promise<GmailLifecycleCleanupResult>;
+}): Promise<PlayLifecycleResult> {
+  const persisted = await persist();
+  if (!persisted) return { persisted: false };
+  await onPersisted?.();
+  if (!gmailLinked) return { persisted: true };
+  return { cleanup: await syncGmail(), persisted: true };
 }

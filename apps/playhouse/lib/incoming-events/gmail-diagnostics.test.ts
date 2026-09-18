@@ -24,6 +24,11 @@ describe("Gmail pipeline diagnostics", () => {
       "PLAY_INCOMING_MUTATION",
       "GMAIL_OUTGOING_SYNC_REQUESTED",
       "GMAIL_OUTGOING_SYNC_RESULT",
+      "GMAIL_LIFECYCLE_REQUESTED",
+      "MONGO_LIFECYCLE_PERSISTED",
+      "GMAIL_LIFECYCLE_UNSTAR_RESULT",
+      "GMAIL_LIFECYCLE_TRASH_RESULT",
+      "GMAIL_CREATION_DECISION",
     ]);
     const sources = [
       readFileSync(new URL("../../app/plays/actions.ts", import.meta.url), "utf8"),
@@ -94,6 +99,44 @@ describe("Gmail pipeline diagnostics", () => {
     for (const forbidden of ["authorization", "emailAddress", "messageBody", "subject"]) {
       expect(serialized).not.toContain(forbidden);
     }
+  });
+
+  it("records privacy-safe lifecycle and creation decisions", () => {
+    const lifecycle = gmailDiagnosticDocument({
+      accountResolved: true,
+      action: "trash",
+      apiThreadPresent: true,
+      ownerUserId: "owner-1",
+      playId: "play-1",
+      stage: "GMAIL_LIFECYCLE_REQUESTED",
+      threadId: "private-api-thread",
+    });
+    const decision = gmailDiagnosticDocument({
+      decision: "suppress",
+      existingLifecycle: "trashed",
+      existingPlayFound: true,
+      ownerUserId: "owner-1",
+      playId: "play-1",
+      reason: "existing_trashed",
+      stage: "GMAIL_CREATION_DECISION",
+      threadId: "private-api-thread",
+    });
+
+    expect(lifecycle).toMatchObject({
+      account_resolved: true,
+      action: "trash",
+      api_thread_present: true,
+      play_id: "play-1",
+      stage: "GMAIL_LIFECYCLE_REQUESTED",
+    });
+    expect(decision).toMatchObject({
+      decision: "suppress",
+      existing_lifecycle: "trashed",
+      existing_play_found: true,
+      play_id: "play-1",
+      stage: "GMAIL_CREATION_DECISION",
+    });
+    expect(JSON.stringify([lifecycle, decision])).not.toContain("private-api-thread");
   });
 
   it("records stages and returns the latest trail in chronological order", async () => {

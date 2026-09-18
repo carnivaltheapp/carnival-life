@@ -88,7 +88,9 @@ describe("MongoPlayRepository mutations", () => {
 
   it("creates exactly one Gmail Headline with destination, attachment, and Player", async () => {
     const id = new ObjectId();
-    const findOne = vi.fn().mockResolvedValue({ priority_index: "10-00000128" });
+    const findOne = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ priority_index: "10-00000128" });
     const insertOne = vi.fn().mockResolvedValue({ acknowledged: true, insertedId: id });
     await expect(repository({
       findOne: findOne as never,
@@ -106,7 +108,7 @@ describe("MongoPlayRepository mutations", () => {
         title: "Quarterly planning",
       }),
       playerResourceName: "people/kayla",
-    })).resolves.toBe(id.toHexString());
+    })).resolves.toEqual({ decision: "created", playId: id.toHexString() });
     expect(insertOne).toHaveBeenCalledOnce();
     expect(insertOne.mock.calls[0][0]).toMatchObject({
       action_type: "Quarterly planning",
@@ -129,6 +131,67 @@ describe("MongoPlayRepository mutations", () => {
     expect(created.carnival_google?.gmail_api_thread_id).toBe("api-thread-123");
     expect(created.carnival_google?.gmail_attachment?.api_thread_id).toBe("api-thread-123");
     expect(created.carnival_google?.gmail_api_thread_id).not.toBe("unrelated-api-thread");
+  });
+
+  it.each([
+    [{ is_active: true, is_deleted: false }, "active"],
+    [{ is_active: false, is_deleted: false }, "done"],
+    [{ is_active: false, is_deleted: true }, "trashed"],
+  ] as const)("suppresses Gmail creation for an existing %s linkage", async (
+    existingState,
+    existingLifecycle,
+  ) => {
+    const existingId = new ObjectId();
+    const insertOne = vi.fn();
+    const findOne = vi.fn().mockResolvedValue({ _id: existingId, ...existingState });
+
+    await expect(repository({
+      findOne: findOne as never,
+      insertOne: insertOne as never,
+    }).createGmail({
+      attachment: {
+        accountIndex: 0,
+        apiThreadId: "api-thread-123",
+        canonicalUrl: "https://mail.google.com/mail/u/0/#all/FMnew",
+        threadRef: "FMnew",
+      },
+      input: playInput(),
+      playerResourceName: null,
+    })).resolves.toEqual({
+      decision: "suppressed",
+      existingLifecycle,
+      existingPlayId: existingId.toHexString(),
+    });
+    expect(findOne.mock.calls[0][0]).toEqual({
+      user_id: 43,
+      $or: [
+        { "carnival_google.gmail_api_thread_id": "api-thread-123" },
+        { "carnival_google.gmail_attachment.api_thread_id": "api-thread-123" },
+        { thread_id: "api-thread-123" },
+      ],
+    });
+    expect(insertOne).not.toHaveBeenCalled();
+  });
+
+  it("allows a different Gmail API thread linkage to create normally", async () => {
+    const insertedId = new ObjectId();
+    const findOne = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    const insertOne = vi.fn().mockResolvedValue({ acknowledged: true, insertedId });
+
+    await expect(repository({
+      findOne: findOne as never,
+      insertOne: insertOne as never,
+    }).createGmail({
+      attachment: {
+        accountIndex: 0,
+        apiThreadId: "different-api-thread",
+        canonicalUrl: "https://mail.google.com/mail/u/0/#all/FMdifferent",
+        threadRef: "FMdifferent",
+      },
+      input: playInput(),
+      playerResourceName: null,
+    })).resolves.toEqual({ decision: "created", playId: insertedId.toHexString() });
+    expect(insertOne).toHaveBeenCalledOnce();
   });
 
   it("assigns only the targeted Play without changing rank or placement", async () => {

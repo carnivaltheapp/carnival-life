@@ -32,3 +32,25 @@ export async function unstarGmailThread({
   );
   if (!response.ok) throw new GmailApiError(response.status);
 }
+
+export async function trashGmailThread({
+  accessToken,
+  request = fetch,
+  threadId,
+}: {
+  accessToken: string;
+  request?: typeof fetch;
+  threadId: string;
+}) {
+  const response = await request(
+    new URL(
+      `/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}/trash`,
+      GMAIL_API_ORIGIN,
+    ),
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      method: "POST",
+    },
+  );
+  if (!response.ok) throw new GmailApiError(response.status);
+}

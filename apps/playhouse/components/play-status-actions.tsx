@@ -14,7 +14,6 @@ import type {
 import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
 import { openSlackInAux } from "../lib/desktop/open-slack-in-aux";
 import { openInAuxAndWait } from "../lib/desktop/open-in-aux";
-import { requestGmailThreadUnstar } from "./gmail-thread-sync";
 import { routeAndHandleIncomingGmail } from "./incoming-gmail-action";
 
 export function DoneIcon() {
@@ -160,9 +159,14 @@ export function PlayStatusActions({
         : null;
     if (!status || syncedStatusRef.current === status) return;
     syncedStatusRef.current = status;
-    requestGmailThreadUnstar(play, status);
+    const warning = status === "done" ? doneState.warning : trashState.warning;
+    if (warning) {
+      window.dispatchEvent(new CustomEvent("carnival:play-lifecycle-warning", {
+        detail: warning,
+      }));
+    }
     router.refresh();
-  }, [doneState.status, play, router, trashState.status]);
+  }, [doneState.status, doneState.warning, router, trashState.status, trashState.warning]);
   const anyPending = donePending || trashPending || flipPending || incomingPending;
   const errorMessage =
     doneState.status === "error"

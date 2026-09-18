@@ -27,6 +27,15 @@ import {
 import { reminderContextDate } from "../../domain/reminder";
 import { resolveGmailAssigneeForParticipants } from "../../lib/google/gmail-assignee.server";
 import { changedPlayerSlackFromFormData } from "../../lib/google/contact-slack";
+import {
+  resolveGmailLifecycleContext,
+  syncGmailPlayLifecycle,
+  type GmailLifecycleContext,
+} from "../../lib/google/gmail-lifecycle.server";
+import {
+  applyPlayLifecycle,
+  type GmailLifecycleCleanupResult,
+} from "../../lib/google/gmail-lifecycle";
 import { recordGmailDiagnostic } from "../../lib/incoming-events/gmail-diagnostics";
 import { resolvePlayhouseDataSource } from "../../lib/playhouse/data-source";
 import { dateInTimeZone } from "../../lib/playhouse/data";
@@ -72,6 +81,137 @@ async function loadBaskets(
     slug: basket.slug,
     sortOrder: basket.sort_order,
   })) satisfies BasketSummary[];
+}
+
+function gmailLifecycleWarning(
+  action: "done" | "trash",
+  cleanup: GmailLifecycleCleanupResult,
+) {
+  if (action === "done") {
+    return cleanup.unstar.success
+      ? undefined
+      : "Play completed, but Gmail could not be unstarred.";
+  }
+  const unstarred = cleanup.unstar.success;
+  const trashed = cleanup.trash?.success === true;
+  if (unstarred && trashed) return undefined;
+  if (unstarred) {
+    return "Play trashed and Gmail unstarred, but Gmail could not be moved to Trash.";
+  }
+  if (trashed) {
+    return "Play moved to Gmail Trash, but Gmail could not be unstarred.";
+  }
+  return "Play trashed, but Gmail could not be unstarred or moved to Trash.";
+}
+
+async function persistPlayLifecycle({
+  ownerUserId,
+  persist,
+  play,
+  status,
+  supabase,
+}: {
+  ownerUserId: string;
+  persist: () => Promise<boolean>;
+  play: PlayListItem;
+  status: "done" | "trash";
+  supabase: NonNullable<Awaited<ReturnType<typeof authenticatedClient>>>["supabase"];
+}) {
+  const gmailLinked = play.sourceType === "gmail";
+  const apiThreadPresent = Boolean(play.gmailApiThreadId?.trim());
+  let context: GmailLifecycleContext = {
+    accountResolved: false,
+    googleAccountId: null,
+    reason: "api_thread_missing" as const,
+  };
+  if (gmailLinked && apiThreadPresent) {
+    try {
+      context = await resolveGmailLifecycleContext({
+        accountIndex: play.gmailAccountIndex,
+        ownerUserId,
+        supabase,
+      });
+    } catch {
+      context = {
+        accountResolved: false,
+        googleAccountId: null,
+        reason: "account_missing" as const,
+      };
+    }
+  }
+  if (gmailLinked) {
+    await recordGmailDiagnostic({
+      accountResolved: context.accountResolved,
+      action: status,
+      apiThreadPresent,
+      ownerUserId,
+      playId: play.id,
+      reason: context.reason ?? "ready",
+      stage: "GMAIL_LIFECYCLE_REQUESTED",
+      threadId: play.gmailApiThreadId,
+    });
+  }
+
+  const result = await applyPlayLifecycle({
+    gmailLinked,
+    onPersisted: gmailLinked
+      ? () => recordGmailDiagnostic({
+          action: status,
+          finalIsActive: false,
+          finalIsDeleted: status === "trash",
+          ownerUserId,
+          playId: play.id,
+          reason: "persisted",
+          stage: "MONGO_LIFECYCLE_PERSISTED",
+          threadId: play.gmailApiThreadId,
+        })
+      : undefined,
+    persist,
+    syncGmail: async () => {
+      try {
+        return await syncGmailPlayLifecycle({
+          action: status,
+          apiThreadId: play.gmailApiThreadId,
+          context,
+          ownerUserId,
+        });
+      } catch {
+        return {
+          accountResolved: context.accountResolved,
+          trash: status === "trash"
+            ? { attempted: false, reason: "token_unavailable" as const, success: false }
+            : null,
+          unstar: { attempted: false, reason: "token_unavailable" as const, success: false },
+        };
+      }
+    },
+  });
+  if (!result.persisted) return { persisted: false, warning: undefined };
+  if (!result.cleanup) return { persisted: true, warning: undefined };
+  const cleanup = result.cleanup;
+  await recordGmailDiagnostic({
+    action: status,
+    attempted: cleanup.unstar.attempted,
+    ownerUserId,
+    playId: play.id,
+    reason: cleanup.unstar.reason,
+    stage: "GMAIL_LIFECYCLE_UNSTAR_RESULT",
+    success: cleanup.unstar.success,
+    threadId: play.gmailApiThreadId,
+  });
+  if (status === "trash" && cleanup.trash) {
+    await recordGmailDiagnostic({
+      action: status,
+      attempted: cleanup.trash.attempted,
+      ownerUserId,
+      playId: play.id,
+      reason: cleanup.trash.reason,
+      stage: "GMAIL_LIFECYCLE_TRASH_RESULT",
+      success: cleanup.trash.success,
+      threadId: play.gmailApiThreadId,
+    });
+  }
+  return { persisted: true, warning: gmailLifecycleWarning(status, cleanup) };
 }
 
 async function savePlayInternal(
@@ -240,7 +380,18 @@ async function setPlayStatus(
     source: resolvePlayhouseDataSource(),
     supabase: auth.supabase,
   });
-  if (!await repository.setStatus(playId, status)) {
+  const play = await repository.get(playId);
+  if (!play) {
+    return errorState("This Play is no longer active. Refresh and try again.");
+  }
+  const result = await persistPlayLifecycle({
+    ownerUserId: auth.userId,
+    persist: () => repository.setStatus(playId, status),
+    play,
+    status,
+    supabase: auth.supabase,
+  });
+  if (!result.persisted) {
     return errorState(
       status === "done"
         ? "This Play could not be marked done. Refresh and try again."
@@ -251,6 +402,7 @@ async function setPlayStatus(
   return {
     message: status === "done" ? "Play marked done." : "Play moved to Trash.",
     status: "success",
+    ...(result.warning ? { warning: result.warning } : {}),
   };
 }
 
@@ -590,12 +742,20 @@ export async function createGmailPlayFromRow(
       }
     }
 
-    const playId = await repository.createGmail({
+    const creation = await repository.createGmail({
       attachment: parsed.attachment,
       input: { ...input, playerContactId },
       playerResourceName,
     });
-    if (!playId) {
+    if (!creation) {
+      await recordGmailDiagnostic({
+        ...gmailDiagnostic,
+        decision: "create",
+        existingLifecycle: "none",
+        existingPlayFound: false,
+        reason: "play_create_failed",
+        stage: "GMAIL_CREATION_DECISION",
+      });
       await recordGmailDiagnostic({
         ...gmailDiagnostic,
         playId: null,
@@ -605,6 +765,34 @@ export async function createGmailPlayFromRow(
       console.warn("GMAIL_ROW_CREATE_FAILED", { ...resolvedDiagnostic, reason: "create_failed" });
       return errorState("That Gmail Play could not be created.");
     }
+    if (creation.decision === "suppressed") {
+      await recordGmailDiagnostic({
+        ...gmailDiagnostic,
+        decision: "suppress",
+        existingLifecycle: creation.existingLifecycle,
+        existingPlayFound: true,
+        playId: creation.existingPlayId,
+        reason: `existing_${creation.existingLifecycle}`,
+        stage: "GMAIL_CREATION_DECISION",
+      });
+      return errorState(
+        creation.existingLifecycle === "active"
+          ? "This Gmail conversation already belongs to an active Play."
+          : creation.existingLifecycle === "done"
+            ? "This Gmail conversation already belongs to a completed Play."
+            : "This Gmail conversation already belongs to a trashed Play.",
+      );
+    }
+    const playId = creation.playId;
+    await recordGmailDiagnostic({
+      ...gmailDiagnostic,
+      decision: "create",
+      existingLifecycle: "none",
+      existingPlayFound: false,
+      playId,
+      reason: "no_existing_linkage",
+      stage: "GMAIL_CREATION_DECISION",
+    });
     await recordGmailDiagnostic({
       ...gmailDiagnostic,
       playId,
@@ -755,18 +943,30 @@ export async function bulkSetPlayStatus(request: {
       return errorState("One or more Plays are no longer active. Refresh and try again.");
     }
     const eligiblePlays = plays.filter((play) => play !== null);
-    const results = await Promise.all(
-      eligiblePlays.map((play) => repository.setStatus(play.id, request.status)),
-    );
-    if (results.some((success) => !success)) {
+    const results = await Promise.all(eligiblePlays.map((play) => persistPlayLifecycle({
+      ownerUserId: auth.userId,
+      persist: () => repository.setStatus(play.id, request.status),
+      play,
+      status: request.status,
+      supabase: auth.supabase,
+    })));
+    if (results.some(({ persisted }) => !persisted)) {
       return errorState("One or more Plays could not be updated. Refresh and try again.");
     }
+    const warnings = results.flatMap(({ warning }) => warning ? [warning] : []);
     revalidatePath("/");
     return {
       message: `${playIds.length} ${playIds.length === 1 ? "Play" : "Plays"} ${
         request.status === "done" ? "completed" : "trashed"
       }.`,
       status: "success",
+      ...(warnings.length
+        ? {
+            warning: playIds.length === 1
+              ? warnings[0]
+              : `${playIds.length} Plays updated, but ${warnings.length} Gmail cleanups failed.`,
+          }
+        : {}),
     };
   } catch {
     return errorState("PlayHouse could not update these Plays. Please try again.");

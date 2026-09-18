@@ -118,7 +118,7 @@ describe("Supabase Gmail attachment", () => {
         url: null,
       },
       playerResourceName: "people/1",
-    })).resolves.toBe("gmail-play-1");
+    })).resolves.toEqual({ decision: "created", playId: "gmail-play-1" });
     expect(insert.insert).toHaveBeenCalledWith(expect.objectContaining({
       owner_user_id: "owner-user",
       player_contact_id: "contact-1",

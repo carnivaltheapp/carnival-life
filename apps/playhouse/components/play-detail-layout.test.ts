@@ -51,8 +51,9 @@ describe("full-area Play detail", () => {
     expect(playForm).not.toContain("Trash Play");
     expect(playForm).toContain("<form action={doneAction}>");
     expect(playForm).toContain("<form action={trashAction}>");
-    expect(playForm).toContain('requestGmailThreadUnstar(play, "done")');
-    expect(playForm).toContain('requestGmailThreadUnstar(play, "trash")');
+    expect(playForm).toContain("doneState.warning");
+    expect(playForm).toContain("trashState.warning");
+    expect(playForm).not.toContain("requestGmailThreadUnstar");
   });
 
   it("adds exactly two points to Detail-owned typography without changing global type", () => {
