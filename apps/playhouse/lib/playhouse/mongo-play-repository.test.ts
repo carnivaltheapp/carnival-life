@@ -86,6 +86,99 @@ describe("MongoPlayRepository mutations", () => {
     expect(updateOne.mock.calls[0][1].$set).not.toHaveProperty("url");
   });
 
+  it("manually links a Headline without changing its date, rank, or order", async () => {
+    const id = new ObjectId();
+    const findOne = vi.fn().mockResolvedValue({ _id: id, task_type: "H" });
+    const find = vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) });
+    const bulkWrite = vi.fn().mockResolvedValue({ matchedCount: 1 });
+
+    await expect(repository({
+      bulkWrite: bulkWrite as never,
+      find: find as never,
+      findOne: findOne as never,
+    }).manualLinkGmail({
+      attachment: {
+        accountIndex: 0,
+        apiThreadId: "api-thread-x",
+        canonicalUrl: "https://mail.google.com/mail/u/0/#all/FMx",
+        threadRef: "FMx",
+      },
+      playId: id.toHexString(),
+    })).resolves.toEqual({
+      decision: "linked",
+      revived: [],
+      targetHadGmailLink: false,
+      targetPlayId: id.toHexString(),
+    });
+    const set = bulkWrite.mock.calls[0][0][0].updateOne.update.$set;
+    expect(set).toMatchObject({
+      "carnival_google.gmail_api_thread_id": "api-thread-x",
+      regarding: "email",
+      thread_id: "FMx",
+    });
+    expect(set).not.toHaveProperty("task_date");
+    expect(set).not.toHaveProperty("task_type");
+    expect(set).not.toHaveProperty("priority_index");
+  });
+
+  it("replaces the target link and revives every Done/Trashed Play sharing the API thread", async () => {
+    const targetId = new ObjectId();
+    const doneId = new ObjectId();
+    const trashedId = new ObjectId();
+    const findOne = vi.fn().mockResolvedValue({
+      _id: targetId,
+      carnival_google: { gmail_api_thread_id: "api-thread-y" },
+      task_type: "S",
+      thread_id: "FMy",
+    });
+    const find = vi.fn().mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([
+        { _id: doneId, is_active: false, is_deleted: false },
+        { _id: trashedId, is_active: false, is_deleted: true },
+      ]),
+    });
+    const bulkWrite = vi.fn().mockResolvedValue({ matchedCount: 3 });
+
+    const result = await repository({
+      bulkWrite: bulkWrite as never,
+      find: find as never,
+      findOne: findOne as never,
+    }).manualLinkGmail({
+      attachment: {
+        accountIndex: 1,
+        apiThreadId: "api-thread-x",
+        canonicalUrl: "https://mail.google.com/mail/u/1/#all/FMx",
+        threadRef: "FMx",
+      },
+      playId: targetId.toHexString(),
+    });
+
+    expect(result).toEqual({
+      decision: "replaced",
+      revived: [
+        { playId: doneId.toHexString(), priorLifecycle: "done" },
+        { playId: trashedId.toHexString(), priorLifecycle: "trashed" },
+      ],
+      targetHadGmailLink: true,
+      targetPlayId: targetId.toHexString(),
+    });
+    const operations = bulkWrite.mock.calls[0][0];
+    expect(operations).toHaveLength(3);
+    for (const operation of operations.slice(1)) {
+      expect(operation.updateOne.update.$set).toMatchObject({
+        is_active: true,
+        is_deleted: false,
+        thread_id: "FMx",
+      });
+    }
+    expect(operations.map((operation: { updateOne: { filter: { _id: ObjectId } } }) =>
+      operation.updateOne.filter._id.toHexString())).toEqual([
+        targetId.toHexString(),
+        doneId.toHexString(),
+        trashedId.toHexString(),
+      ]);
+  });
+
   it("creates exactly one Gmail Headline with destination, attachment, and Player", async () => {
     const id = new ObjectId();
     const findOne = vi.fn()

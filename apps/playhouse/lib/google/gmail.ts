@@ -33,6 +33,29 @@ export async function unstarGmailThread({
   if (!response.ok) throw new GmailApiError(response.status);
 }
 
+export async function starGmailThread({
+  accessToken,
+  request = fetch,
+  threadId,
+}: {
+  accessToken: string;
+  request?: typeof fetch;
+  threadId: string;
+}) {
+  const response = await request(
+    new URL(`/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}/modify`, GMAIL_API_ORIGIN),
+    {
+      body: JSON.stringify({ addLabelIds: ["STARRED"] }),
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    },
+  );
+  if (!response.ok) throw new GmailApiError(response.status);
+}
+
 export async function trashGmailThread({
   accessToken,
   request = fetch,
@@ -47,6 +70,25 @@ export async function trashGmailThread({
       `/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}/trash`,
       GMAIL_API_ORIGIN,
     ),
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      method: "POST",
+    },
+  );
+  if (!response.ok) throw new GmailApiError(response.status);
+}
+
+export async function untrashGmailThread({
+  accessToken,
+  request = fetch,
+  threadId,
+}: {
+  accessToken: string;
+  request?: typeof fetch;
+  threadId: string;
+}) {
+  const response = await request(
+    new URL(`/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}/untrash`, GMAIL_API_ORIGIN),
     {
       headers: { Authorization: `Bearer ${accessToken}` },
       method: "POST",

@@ -28,6 +28,7 @@ import { reminderContextDate } from "../../domain/reminder";
 import { resolveGmailAssigneeForParticipants } from "../../lib/google/gmail-assignee.server";
 import { changedPlayerSlackFromFormData } from "../../lib/google/contact-slack";
 import {
+  restoreGmailThreadForManualLink,
   resolveGmailLifecycleContext,
   syncGmailPlayLifecycle,
   type GmailLifecycleContext,
@@ -646,6 +647,119 @@ export async function attachGmailToPlay(request: {
     console.warn("GMAIL_ATTACHMENT_SAVE_FAILED", diagnostic);
     return errorState("Gmail could not be attached to this Play.");
   }
+}
+
+export async function manualLinkGmailToPlay(
+  request: GmailRowCreateRequest,
+): Promise<PlayMutationState & { revivedCount?: number }> {
+  const parsed = parseGmailRowCreateRequest(request);
+  if (!parsed) return errorState("That Gmail conversation could not be linked.");
+  const auth = await authenticatedClient();
+  if (!auth) return errorState("Your session expired. Refresh and sign in again.");
+  const source = resolvePlayhouseDataSource();
+  if (source === "supabase" && !isUuid(parsed.targetPlayId)) {
+    return errorState("That Play could not be identified. Refresh and try again.");
+  }
+  const repository = await createPlayRepository({
+    baskets: [],
+    ownerUserId: auth.userId,
+    source,
+    supabase: auth.supabase,
+  });
+  const target = await repository.get(parsed.targetPlayId);
+  if (!target || target.legacyTaskType === "A" || !["normal", "reminder"].includes(target.playType)) {
+    return errorState("Gmail can only be linked to an existing Headline or Reminder.");
+  }
+  await recordGmailDiagnostic({
+    apiThreadPresent: Boolean(parsed.attachment.apiThreadId),
+    correlationId: parsed.correlationId,
+    ownerUserId: auth.userId,
+    playId: parsed.targetPlayId,
+    reason: "manual_row_drop",
+    stage: "MANUAL_GMAIL_LINK_REQUESTED",
+    targetHadGmailLink: Boolean(target.gmailThreadId || target.gmailApiThreadId),
+    threadId: parsed.attachment.apiThreadId,
+  });
+  const linked = await repository.manualLinkGmail({
+    attachment: parsed.attachment,
+    playId: parsed.targetPlayId,
+  });
+  if (!linked) {
+    await recordGmailDiagnostic({
+      correlationId: parsed.correlationId,
+      ownerUserId: auth.userId,
+      playId: parsed.targetPlayId,
+      reason: "link_failed",
+      stage: "MANUAL_GMAIL_LINK_RESULT",
+      success: false,
+      threadId: parsed.attachment.apiThreadId,
+    });
+    return errorState("Gmail could not be linked to this Play.");
+  }
+  await recordGmailDiagnostic({
+    correlationId: parsed.correlationId,
+    ownerUserId: auth.userId,
+    playId: linked.targetPlayId,
+    reason: linked.decision,
+    stage: "MANUAL_GMAIL_LINK_RESULT",
+    success: true,
+    targetHadGmailLink: linked.targetHadGmailLink,
+    threadId: parsed.attachment.apiThreadId,
+  });
+  await Promise.all(linked.revived.map((revived) => recordGmailDiagnostic({
+    correlationId: parsed.correlationId,
+    ownerUserId: auth.userId,
+    playId: revived.playId,
+    priorLifecycle: revived.priorLifecycle,
+    reason: "revived_existing_play",
+    stage: "MANUAL_GMAIL_REVIVAL",
+    success: true,
+    threadId: parsed.attachment.apiThreadId,
+  })));
+
+  let context: GmailLifecycleContext;
+  try {
+    context = await resolveGmailLifecycleContext({
+      accountIndex: parsed.attachment.accountIndex,
+      ownerUserId: auth.userId,
+      supabase: auth.supabase,
+    });
+  } catch {
+    context = { accountResolved: false, googleAccountId: null, reason: "account_missing" };
+  }
+  const restored = await restoreGmailThreadForManualLink({
+    apiThreadId: parsed.attachment.apiThreadId,
+    context,
+    ownerUserId: auth.userId,
+  });
+  await recordGmailDiagnostic({
+    accountResolved: restored.accountResolved,
+    correlationId: parsed.correlationId,
+    ownerUserId: auth.userId,
+    playId: linked.targetPlayId,
+    reason: !restored.untrash.success
+      ? restored.untrash.reason
+      : !restored.star.success
+        ? restored.star.reason
+        : "completed",
+    stage: "GMAIL_MANUAL_RESTORE_RESULT",
+    starAttempted: restored.star.attempted,
+    starSuccess: restored.star.success,
+    success: restored.star.success && restored.untrash.success,
+    threadId: parsed.attachment.apiThreadId,
+    untrashAttempted: restored.untrash.attempted,
+    untrashSuccess: restored.untrash.success,
+  });
+  revalidatePath("/");
+  const warning = restored.star.success && restored.untrash.success
+    ? undefined
+    : "Play linked, but Gmail could not be fully restored and starred.";
+  return {
+    message: linked.decision === "replaced" ? "Gmail link replaced." : "Gmail linked.",
+    revivedCount: linked.revived.length,
+    status: "success",
+    ...(warning ? { warning } : {}),
+  };
 }
 
 export async function createGmailPlayFromRow(

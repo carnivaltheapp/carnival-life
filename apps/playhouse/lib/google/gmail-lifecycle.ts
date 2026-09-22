@@ -8,7 +8,15 @@ export type GmailLifecycleReason =
   | "gmail_permission_missing"
   | "gmail_trash_failed"
   | "gmail_unstar_failed"
+  | "gmail_star_failed"
+  | "gmail_untrash_failed"
   | "token_unavailable";
+
+export type GmailManualRestoreResult = {
+  accountResolved: boolean;
+  star: GmailLifecycleStepResult;
+  untrash: GmailLifecycleStepResult;
+};
 
 export type GmailLifecycleStepResult = {
   attempted: boolean;

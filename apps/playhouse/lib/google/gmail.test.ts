@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { GmailApiError, trashGmailThread, unstarGmailThread } from "./gmail";
+import {
+  GmailApiError,
+  starGmailThread,
+  trashGmailThread,
+  unstarGmailThread,
+  untrashGmailThread,
+} from "./gmail";
 import { GOOGLE_GMAIL_MODIFY_SCOPE, GOOGLE_OAUTH_SCOPES } from "./scopes";
 
 describe("Gmail thread labels", () => {
@@ -58,5 +64,28 @@ describe("Gmail thread labels", () => {
     );
     expect(init).toMatchObject({ method: "POST" });
     expect(init?.headers).toEqual({ Authorization: "Bearer server-access-token" });
+  });
+
+  it("restores and stars the encoded Gmail thread through supported APIs", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response("{}"));
+
+    await untrashGmailThread({
+      accessToken: "server-access-token",
+      request,
+      threadId: "thread/123",
+    });
+    await starGmailThread({
+      accessToken: "server-access-token",
+      request,
+      threadId: "thread/123",
+    });
+
+    expect((request.mock.calls[0][0] as URL).toString()).toBe(
+      "https://gmail.googleapis.com/gmail/v1/users/me/threads/thread%2F123/untrash",
+    );
+    expect((request.mock.calls[1][0] as URL).toString()).toBe(
+      "https://gmail.googleapis.com/gmail/v1/users/me/threads/thread%2F123/modify",
+    );
+    expect(request.mock.calls[1][1]?.body).toBe(JSON.stringify({ addLabelIds: ["STARRED"] }));
   });
 });

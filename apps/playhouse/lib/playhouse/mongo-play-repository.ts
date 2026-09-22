@@ -44,6 +44,7 @@ import type {
   CreateGmailPlayRequest,
   FlipPlayRankRequest,
   AttachGmailRequest,
+  ManualLinkGmailResult,
   PlayRepository,
   RepositoryPlayList,
   RepositionPlaysRequest,
@@ -104,6 +105,83 @@ export class MongoPlayRepository implements PlayRepository {
       },
     });
     return result.matchedCount === 1;
+  }
+
+  async manualLinkGmail({ attachment, playId }: AttachGmailRequest): Promise<ManualLinkGmailResult | null> {
+    if (!ObjectId.isValid(playId) || !attachment.apiThreadId) return null;
+    const targetId = new ObjectId(playId);
+    const target = await this.dependencies.collection.findOne({
+      ...mongoActiveFilter(),
+      _id: targetId,
+      task_type: { $in: ["H", "S"] },
+    }, { projection: { carnival_google: 1, thread_id: 1 } });
+    if (!target) return null;
+    const targetGoogle = target.carnival_google && typeof target.carnival_google === "object" &&
+        !Array.isArray(target.carnival_google)
+      ? target.carnival_google as Record<string, unknown>
+      : null;
+    const targetHadGmailLink = Boolean(target.thread_id || targetGoogle?.gmail_api_thread_id ||
+      targetGoogle?.gmail_attachment);
+    const linkage = {
+      account_index: attachment.accountIndex,
+      api_thread_id: attachment.apiThreadId,
+      canonical_url: attachment.canonicalUrl,
+      thread_ref: attachment.threadRef,
+    };
+    const linkedFilter: Filter<LegacyTaskDocument> = {
+      user_id: MONGO_LEGACY_USER_ID,
+      $and: [
+        { $or: [
+          { "carnival_google.gmail_api_thread_id": attachment.apiThreadId },
+          { "carnival_google.gmail_attachment.api_thread_id": attachment.apiThreadId },
+          { thread_id: attachment.apiThreadId },
+        ] },
+        { $or: [{ is_active: false }, { is_deleted: true }] },
+      ],
+    };
+    const inactive = await this.dependencies.collection.find(linkedFilter, {
+      projection: { _id: 1, is_active: 1, is_deleted: 1 },
+    }).toArray();
+    const updatedAt = new Date();
+    const operations = [
+      {
+        updateOne: {
+          filter: { ...mongoActiveFilter(), _id: targetId, task_type: { $in: ["H", "S"] } },
+          update: { $set: {
+            "carnival_google.gmail_api_thread_id": attachment.apiThreadId,
+            "carnival_google.gmail_attachment": linkage,
+            regarding: "email",
+            thread_id: attachment.threadRef,
+            updated_date: updatedAt,
+          } },
+        },
+      },
+      ...inactive.map((play) => ({
+        updateOne: {
+          filter: { _id: play._id, user_id: MONGO_LEGACY_USER_ID },
+          update: { $set: {
+            "carnival_google.gmail_api_thread_id": attachment.apiThreadId,
+            "carnival_google.gmail_attachment": linkage,
+            is_active: true,
+            is_deleted: false,
+            regarding: "email",
+            thread_id: attachment.threadRef,
+            updated_date: updatedAt,
+          } },
+        },
+      })),
+    ];
+    const result = await this.dependencies.collection.bulkWrite(operations);
+    if (result.matchedCount !== operations.length) return null;
+    return {
+      decision: targetHadGmailLink ? "replaced" : "linked",
+      revived: inactive.map((play) => ({
+        playId: play._id.toHexString(),
+        priorLifecycle: play.is_deleted === true ? "trashed" : "done",
+      })),
+      targetHadGmailLink,
+      targetPlayId: playId,
+    };
   }
 
   async createGmail({

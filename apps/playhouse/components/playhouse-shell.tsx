@@ -17,8 +17,8 @@ import {
 import {
   bulkSetPlayStatus,
   bulkUpdatePlays,
-  createGmailPlayFromRow,
   flipPlayRank,
+  manualLinkGmailToPlay,
   repositionPlays,
   recordGmailOutgoingSync,
   unlinkGmailFromPlay,
@@ -47,7 +47,7 @@ import {
 } from "../domain/gmail-attachment";
 import {
   claimGmailRowCreate,
-  mergeCreatedGmailPlay,
+  isManualGmailRowDropTarget,
   parseGmailRowCreateRequest,
 } from "../domain/gmail-row-create";
 import type { SelectedView } from "../lib/playhouse/data";
@@ -438,22 +438,6 @@ function PlayhouseShellView({
     window.addEventListener(PLAYER_SLACK_UPDATED_EVENT, update);
     return () => window.removeEventListener(PLAYER_SLACK_UPDATED_EVENT, update);
   }, []);
-  const gmailCreateListContextRef = useRef({
-    baskets,
-    localPlays,
-    plays,
-    searchQuery,
-    selectedView,
-  });
-  useEffect(() => {
-    gmailCreateListContextRef.current = {
-      baskets,
-      localPlays,
-      plays,
-      searchQuery,
-      selectedView,
-    };
-  }, [baskets, localPlays, plays, searchQuery, selectedView]);
   useEffect(() => {
     if (!gmailContextMenu) return;
     const closeOnPointerDown = (event: globalThis.PointerEvent) => {
@@ -644,7 +628,7 @@ function PlayhouseShellView({
       const parsed = parseGmailRowCreateRequest(request);
       if (!parsed) {
         console.warn("GMAIL_ROW_CREATE_FAILED", { reason: "metadata_or_target_missing" });
-        setMoveError("Gmail could not create a Play because its subject or target was missing.");
+        setMoveError("Gmail could not be linked because its metadata or target was missing.");
         clearDragState();
         return;
       }
@@ -657,73 +641,23 @@ function PlayhouseShellView({
       ) return;
       clearDragState();
       startGmailCreate(async () => {
-        const result = await createGmailPlayFromRow(request as Parameters<
-          typeof createGmailPlayFromRow
+        const result = await manualLinkGmailToPlay(request as Parameters<
+          typeof manualLinkGmailToPlay
         >[0]);
-        if (result.status !== "success" || !result.playId) {
+        if (result.status !== "success") {
           clearDragState();
           setMoveError(result.message);
           return;
         }
         clearDragState();
-        setMoveError(null);
-        if (result.play) {
-          const listContext = gmailCreateListContextRef.current;
-          console.info("GMAIL_ROW_CREATE_UI_INSERT_STARTED", {
-            createdPlayId: result.play.id,
-            destination: result.play.basketId ?? result.play.scheduledDate,
-            rank: playVisualForPlay(result.play).label,
-          });
-          const nextPlays = mergeCreatedGmailPlay({
-            baskets: listContext.baskets,
-            createdPlay: result.play,
-            plays: listContext.localPlays,
-            searchQuery: listContext.searchQuery,
-            selectedView: listContext.selectedView,
-          });
-          setOptimisticPlays({ source: listContext.plays, value: nextPlays });
-          console.info("GMAIL_ROW_CREATE_UI_INSERT_COMPLETE", {
-            createdPlayId: result.play.id,
-            destination: result.play.basketId ?? result.play.scheduledDate,
-            rank: playVisualForPlay(result.play).label,
-            visibleAfterInsert: nextPlays.some(({ id }) => id === result.play?.id),
-          });
-        } else {
-          router.refresh();
-        }
-        console.info("GMAIL_THREAD_STAR_STARTED", {
-          accountIndex: parsed.attachment.accountIndex,
-          correlationId: parsed.correlationId,
-          webThreadRefPresent: true,
-        });
-        void recordGmailOutgoingSync({
-          apiThreadIdPresent: Boolean(parsed.attachment.apiThreadId),
-          operation: "star",
-          playId: result.playId,
-          stage: "GMAIL_OUTGOING_SYNC_REQUESTED",
-          webThreadRefPresent: true,
-        });
-        gmailStarContextRef.current.set(parsed.correlationId, {
-          apiThreadIdPresent: Boolean(parsed.attachment.apiThreadId),
-          playId: result.playId,
-          webThreadRefPresent: true,
-        });
-        window.dispatchEvent(new CustomEvent("carnival:gmail-star-thread", {
-          detail: JSON.stringify({
-            accountIndex: parsed.attachment.accountIndex,
-            apiThreadIdPresent: Boolean(parsed.attachment.apiThreadId),
-            correlationId: parsed.correlationId,
-            playId: result.playId,
-            threadRef: parsed.attachment.threadRef,
-            webThreadRefPresent: true,
-          }),
-        }));
+        setMoveError(result.warning ?? null);
+        router.refresh();
       });
     }
 
     function acceptGmailMetadataFailure(event: Event) {
       if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
-      setMoveError("Gmail could not create a Play because its subject or target was missing.");
+      setMoveError("Gmail could not be linked because its metadata or target was missing.");
       clearDragState();
     }
 
@@ -1674,7 +1608,7 @@ function PlayhouseShellView({
                 {visiblePlays.map((play) => {
                   const playVisual = playVisualForPlay(play);
                   const isPlaceContext = play.contextType === "place";
-                  const isGmailRowTemplate = !isPlaceContext && play.legacyTaskType !== "A";
+                  const isGmailRowTemplate = isManualGmailRowDropTarget(play);
                   return (
                 <li
                   className={`playRow ${playVisual.className}`}

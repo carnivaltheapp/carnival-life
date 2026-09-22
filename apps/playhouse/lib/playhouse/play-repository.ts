@@ -41,6 +41,18 @@ export type AttachGmailRequest = {
   playId: string;
 };
 
+export type GmailRevivedPlay = {
+  playId: string;
+  priorLifecycle: "done" | "trashed";
+};
+
+export type ManualLinkGmailResult = {
+  decision: "linked" | "replaced";
+  revived: GmailRevivedPlay[];
+  targetHadGmailLink: boolean;
+  targetPlayId: string;
+};
+
 export type CreateGmailPlayRequest = {
   attachment: GmailAttachment;
   input: PlayInput;
@@ -74,6 +86,7 @@ export interface PlayRepository {
   assignPlayer(request: AssignPlayerRequest): Promise<boolean>;
   get(playId: string): Promise<PlayListItem | null>;
   getLifecycleIdentity(playId: string): Promise<Pick<PlayListItem, "gmailThreadId" | "sourceType"> | null>;
+  manualLinkGmail(request: AttachGmailRequest): Promise<ManualLinkGmailResult | null>;
   list(selectedView?: SelectedView): Promise<RepositoryPlayList>;
   reconcileDueReminders(todayDate: string): Promise<boolean>;
   flipRank(request: FlipPlayRankRequest): Promise<boolean>;

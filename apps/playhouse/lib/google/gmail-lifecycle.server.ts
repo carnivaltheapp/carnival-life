@@ -3,13 +3,20 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "../supabase/database.types";
-import { GmailApiError, trashGmailThread, unstarGmailThread } from "./gmail";
+import {
+  GmailApiError,
+  starGmailThread,
+  trashGmailThread,
+  unstarGmailThread,
+  untrashGmailThread,
+} from "./gmail";
 import { GOOGLE_GMAIL_MODIFY_SCOPE } from "./scopes";
 import { GoogleAccountReconnectRequiredError } from "./token-broker";
 import { getGoogleAccessToken } from "./token-broker.server";
 import type {
   GmailLifecycleAction,
   GmailLifecycleCleanupResult,
+  GmailManualRestoreResult,
   GmailLifecycleReason,
   GmailLifecycleStepResult,
 } from "./gmail-lifecycle";
@@ -22,6 +29,72 @@ export type GmailLifecycleContext = {
 
 function unavailableStep(reason: GmailLifecycleReason): GmailLifecycleStepResult {
   return { attempted: false, reason, success: false };
+}
+
+export async function restoreGmailThreadForManualLink({
+  apiThreadId,
+  context,
+  ownerUserId,
+}: {
+  apiThreadId: string | null | undefined;
+  context: GmailLifecycleContext;
+  ownerUserId: string;
+}): Promise<GmailManualRestoreResult> {
+  const threadId = apiThreadId?.trim();
+  if (!threadId) {
+    return {
+      accountResolved: context.accountResolved,
+      star: unavailableStep("api_thread_missing"),
+      untrash: unavailableStep("api_thread_missing"),
+    };
+  }
+  if (!context.googleAccountId || context.reason) {
+    const reason = context.reason ?? "account_missing";
+    return {
+      accountResolved: context.accountResolved,
+      star: unavailableStep(reason),
+      untrash: unavailableStep(reason),
+    };
+  }
+  let accessToken: string;
+  try {
+    accessToken = await getGoogleAccessToken({
+      googleAccountId: context.googleAccountId,
+      ownerUserId,
+    });
+  } catch (error) {
+    const reason: GmailLifecycleReason = error instanceof GoogleAccountReconnectRequiredError
+      ? "account_disconnected"
+      : "token_unavailable";
+    return {
+      accountResolved: context.accountResolved,
+      star: unavailableStep(reason),
+      untrash: unavailableStep(reason),
+    };
+  }
+  let untrash: GmailLifecycleStepResult;
+  try {
+    await untrashGmailThread({ accessToken, threadId });
+    untrash = { attempted: true, reason: "completed", success: true };
+  } catch (error) {
+    untrash = failedStep(
+      error instanceof GmailApiError && (error.status === 401 || error.status === 403)
+        ? "gmail_permission_denied"
+        : "gmail_untrash_failed",
+    );
+  }
+  let star: GmailLifecycleStepResult;
+  try {
+    await starGmailThread({ accessToken, threadId });
+    star = { attempted: true, reason: "completed", success: true };
+  } catch (error) {
+    star = failedStep(
+      error instanceof GmailApiError && (error.status === 401 || error.status === 403)
+        ? "gmail_permission_denied"
+        : "gmail_star_failed",
+    );
+  }
+  return { accountResolved: context.accountResolved, star, untrash };
 }
 
 function failedStep(reason: GmailLifecycleReason): GmailLifecycleStepResult {

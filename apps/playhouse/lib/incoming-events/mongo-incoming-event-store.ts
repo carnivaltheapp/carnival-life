@@ -14,7 +14,7 @@ import type {
   IncomingEventStore,
   NormalizedIncomingEvent,
 } from "../../domain/incoming-event";
-import { incomingHeadlineOrderUpdates } from "../../domain/incoming-event";
+import { incomingHeadlineGroupOrderUpdates } from "../../domain/incoming-event";
 import { gmailThreadUrl } from "../../domain/play-display";
 import { recordGmailDiagnostic, type GmailMatchStrategy } from "./gmail-diagnostics";
 import {
@@ -43,6 +43,7 @@ type IncomingEventDocument = {
   external_thread_id: string | null;
   handled_at: Date | null;
   linked_play_id: string | null;
+  linked_play_ids?: string[];
   match_status: IncomingMatchStatus;
   occurred_at: Date;
   owner_user_id: string;
@@ -145,6 +146,19 @@ function gmailCandidateMatchStrategy(
   return "none";
 }
 
+export function selectGmailMatchCandidates(
+  candidates: GmailCandidate[],
+  externalThreadId: string | null,
+  relationshipIds: string[],
+) {
+  if (!externalThreadId) return candidates;
+  const apiThreadMatches = candidates.filter((candidate) => {
+    const strategy = gmailCandidateMatchStrategy(candidate, externalThreadId, relationshipIds);
+    return strategy === "api_thread_canonical" || strategy === "api_thread_attachment";
+  });
+  return apiThreadMatches.length ? apiThreadMatches : candidates;
+}
+
 export class MongoIncomingEventService implements IncomingEventMatchEngine, IncomingEventStore {
   async match(event: NormalizedIncomingEvent): Promise<IncomingEventMatch> {
     assertMongoUserMapping(event.ownerUserId);
@@ -184,7 +198,7 @@ export class MongoIncomingEventService implements IncomingEventMatchEngine, Inco
       });
       return { status: "unmatched" };
     }
-    const tasks = await (await getCarnivalMongoDatabase())
+    const candidates = await (await getCarnivalMongoDatabase())
       .collection<LegacyTaskDocument>("tasks_task")
       .find({
         ...mongoActiveFilter(),
@@ -201,8 +215,8 @@ export class MongoIncomingEventService implements IncomingEventMatchEngine, Inco
           thread_id: 1,
         },
       })
-      .limit(2)
       .toArray() as GmailCandidate[];
+    const tasks = selectGmailMatchCandidates(candidates, externalThreadId, relationshipIds);
     if (tasks.length === 0) {
       await recordGmailDiagnostic({
         apiThreadPresent: Boolean(externalThreadId),
@@ -215,45 +229,49 @@ export class MongoIncomingEventService implements IncomingEventMatchEngine, Inco
       });
       return { status: "unmatched" };
     }
-    if (tasks.length > 1) {
+    const matchStrategy = gmailCandidateMatchStrategy(tasks[0], externalThreadId, relationshipIds);
+    if (tasks.length > 1 && !matchStrategy.startsWith("api_thread_")) {
       await recordGmailDiagnostic({
         apiThreadPresent: Boolean(externalThreadId),
         matchResult: "ambiguous",
-        matchStrategy: "none",
+        matchStrategy,
+        matchedPlayCount: tasks.length,
+        matchedPlayIds: tasks.map((task) => task._id.toHexString()),
         ownerUserId: event.ownerUserId,
-        reason: "multiple_candidates",
+        reason: "multiple_legacy_candidates",
         stage: "GMAIL_MATCH_RESULT",
         threadId: externalThreadId,
       });
       return { candidateCount: tasks.length, status: "ambiguous" };
     }
-    const playId = tasks[0]._id.toHexString();
+    const matches = tasks.map((task) => ({
+      playId: task._id.toHexString(),
+      routingUrl: accountIndexAndUrl(task, externalThreadId),
+    }));
     await recordGmailDiagnostic({
       apiThreadPresent: Boolean(externalThreadId),
       matchResult: "matched",
-      matchStrategy: gmailCandidateMatchStrategy(tasks[0], externalThreadId, relationshipIds),
+      matchStrategy,
+      matchedPlayCount: matches.length,
+      matchedPlayIds: matches.map(({ playId }) => playId),
       ownerUserId: event.ownerUserId,
-      playId,
-      reason: "candidate_found",
+      playId: matches[0].playId,
+      reason: matches.length > 1 ? "multiple_intentional_matches" : "candidate_found",
       stage: "GMAIL_MATCH_RESULT",
       threadId: externalThreadId,
     });
-    return {
-      playId,
-      routingUrl: accountIndexAndUrl(tasks[0], externalThreadId),
-      status: "matched",
-    };
+    return { matches, status: "matched" };
   }
 
   async record(
     event: NormalizedIncomingEvent,
     match: IncomingEventMatch,
-    mutation: IncomingEventPolicyMutation | null,
+    mutation: IncomingEventPolicyMutation[] | null,
   ): Promise<IncomingEventProcessResult> {
     const events = await defaultEventCollection();
     const client = await getCarnivalMongoClient();
     const session = client.startSession();
-    let mutatedPlay = false;
+    let mutatedPlayCount = 0;
     let resultPriority: string | null = null;
     try {
       await session.withTransaction(async () => {
@@ -266,12 +284,15 @@ export class MongoIncomingEventService implements IncomingEventMatchEngine, Inco
           external_item_id: event.externalItemId,
           external_thread_id: event.externalThreadId,
           handled_at: null,
-          linked_play_id: match.status === "matched" ? match.playId : null,
+          linked_play_id: match.status === "matched" ? match.matches[0]?.playId ?? null : null,
+          linked_play_ids: match.status === "matched"
+            ? match.matches.map(({ playId }) => playId)
+            : [],
           match_status: match.status,
           occurred_at: new Date(event.occurredAt),
           owner_user_id: event.ownerUserId,
           received_at: new Date(event.receivedAt),
-          routing_url: match.status === "matched" ? match.routingUrl : null,
+          routing_url: match.status === "matched" ? match.matches[0]?.routingUrl ?? null : null,
           source: event.source,
           source_metadata: event.sourceMetadata,
           status: "unhandled",
@@ -280,44 +301,45 @@ export class MongoIncomingEventService implements IncomingEventMatchEngine, Inco
           eventId: eventId.toHexString(),
           source: event.source,
         });
-        if (!mutation || match.status !== "matched") return;
-        const objectId = ObjectId.isValid(mutation.playId)
-          ? new ObjectId(mutation.playId)
-          : null;
-        if (!objectId) throw new Error("matched_play_identifier_invalid");
+        if (!mutation?.length || match.status !== "matched") return;
+        const objectIds = mutation.map(({ playId }) => ObjectId.isValid(playId)
+          ? new ObjectId(playId)
+          : null);
+        if (objectIds.some((id) => !id)) throw new Error("matched_play_identifier_invalid");
+        const matchedObjectIds = objectIds as ObjectId[];
         const tasks = (await getCarnivalMongoDatabase())
           .collection<LegacyTaskDocument>("tasks_task");
-        const current = await tasks.findOne({
+        const currentPlays = await tasks.find({
           ...mongoActiveFilter(),
-          _id: objectId,
+          _id: { $in: matchedObjectIds },
           task_type: { $ne: "A" },
         }, {
           projection: { carnival_incoming: 1, priority_index: 1, task_date: 1 },
           session,
-        });
-        if (!current) throw new Error("matched_play_no_longer_active");
-        const currentIncoming = objectValue(current.carnival_incoming);
-        const existingCount = typeof currentIncoming?.gmail_unhandled_count === "number"
-          ? currentIncoming.gmail_unhandled_count
-          : 0;
-        const today = new Date(`${mutation.scheduledDate}T00:00:00.000Z`);
+        }).toArray();
+        if (currentPlays.length !== mutation.length) throw new Error("matched_play_no_longer_active");
+        const currentById = new Map(currentPlays.map((play) => [play._id.toHexString(), play]));
+        const today = new Date(`${mutation[0].scheduledDate}T00:00:00.000Z`);
         const tomorrow = new Date(today);
         tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
         const existingHeadlines = await tasks.find({
           ...mongoActiveFilter(),
-          _id: { $ne: objectId },
+          _id: { $nin: matchedObjectIds },
           task_date: { $gte: today, $lt: tomorrow },
           task_type: { $nin: ["A", "S"] },
         }, { session }).sort({ priority_index: 1, created_date: 1, _id: 1 }).toArray();
-        const orderById = new Map(incomingHeadlineOrderUpdates({
+        const orderById = new Map(incomingHeadlineGroupOrderUpdates({
           existingHeadlines: existingHeadlines.map((task, index) => ({
             id: task._id.toHexString(),
             order: legacyPriorityNumber(task.priority_index, (index + 1) * 0x100),
           })),
-          incomingPlay: {
-            id: mutation.playId,
-            order: legacyPriorityNumber(current.priority_index, 10 * 0x100000000 + 0x100),
-          },
+          incomingPlays: mutation.map(({ playId }, index) => ({
+            id: playId,
+            order: legacyPriorityNumber(
+              currentById.get(playId)?.priority_index,
+              10 * 0x100000000 + (index + 1) * 0x100,
+            ),
+          })),
         }).map((item) => [item.id, legacyPriorityValue(item.order)]));
         const updatedAt = new Date();
         const operations = [
@@ -337,64 +359,85 @@ export class MongoIncomingEventService implements IncomingEventMatchEngine, Inco
                 }]
               : [];
           }),
-          {
-            updateOne: {
-              filter: {
-                ...mongoActiveFilter(),
-                _id: objectId,
-                task_type: { $ne: "A" },
-              },
-              update: {
-                $set: {
-                  "carnival_google.gmail_api_thread_id": event.externalThreadId,
-                  "carnival_incoming.gmail_latest_event_id": eventId.toHexString(),
-                  "carnival_incoming.gmail_latest_message_id": event.externalItemId,
-                  "carnival_incoming.gmail_latest_thread_id": event.externalThreadId,
-                  "carnival_incoming.gmail_latest_url": match.routingUrl,
-                  "carnival_incoming.gmail_unhandled_count": existingCount + 1,
-                  "carnival_incoming.priority": true,
-                  priority_index: orderById.get(mutation.playId),
-                  task_date: today,
-                  task_type: "H",
-                  updated_date: updatedAt,
+          ...mutation.map(({ playId }) => {
+            const current = currentById.get(playId)!;
+            const currentIncoming = objectValue(current.carnival_incoming);
+            const existingCount = typeof currentIncoming?.gmail_unhandled_count === "number"
+              ? currentIncoming.gmail_unhandled_count
+              : 0;
+            const routingUrl = match.matches.find((item) => item.playId === playId)?.routingUrl ?? null;
+            return {
+              updateOne: {
+                filter: {
+                  ...mongoActiveFilter(),
+                  _id: current._id,
+                  task_type: { $ne: "A" },
+                },
+                update: {
+                  $set: {
+                    "carnival_google.gmail_api_thread_id": event.externalThreadId,
+                    "carnival_incoming.gmail_latest_event_id": eventId.toHexString(),
+                    "carnival_incoming.gmail_latest_message_id": event.externalItemId,
+                    "carnival_incoming.gmail_latest_thread_id": event.externalThreadId,
+                    "carnival_incoming.gmail_latest_url": routingUrl,
+                    "carnival_incoming.gmail_unhandled_count": existingCount + 1,
+                    "carnival_incoming.priority": true,
+                    priority_index: orderById.get(playId),
+                    task_date: today,
+                    task_type: "H",
+                    updated_date: updatedAt,
+                  },
                 },
               },
-            },
-          },
+            };
+          }),
         ];
         const update = await tasks.bulkWrite(operations, { session });
         if (update.matchedCount !== operations.length) {
           throw new Error("matched_play_update_failed");
         }
-        mutatedPlay = true;
-        resultPriority = orderById.get(mutation.playId) ?? null;
-        const wasToday = current.task_date instanceof Date &&
-          current.task_date.toISOString().slice(0, 10) === mutation.scheduledDate;
-        console.info(
-          `CARNIVAL_INCOMING_EVENT ${wasToday ? "PLAY_ALREADY_TODAY" : "PLAY_PROMOTED"}`,
-          { playId: mutation.playId },
-        );
-        console.info("CARNIVAL_INCOMING_EVENT GMAIL_INDICATOR_SET", {
-          count: existingCount + 1,
-          playId: mutation.playId,
-        });
+        mutatedPlayCount = mutation.length;
+        resultPriority = orderById.get(mutation[0].playId) ?? null;
+        for (const { playId, scheduledDate } of mutation) {
+          const current = currentById.get(playId)!;
+          const currentIncoming = objectValue(current.carnival_incoming);
+          const existingCount = typeof currentIncoming?.gmail_unhandled_count === "number"
+            ? currentIncoming.gmail_unhandled_count
+            : 0;
+          const wasToday = current.task_date instanceof Date &&
+            current.task_date.toISOString().slice(0, 10) === scheduledDate;
+          console.info(
+            `CARNIVAL_INCOMING_EVENT ${wasToday ? "PLAY_ALREADY_TODAY" : "PLAY_PROMOTED"}`,
+            { playId },
+          );
+          console.info("CARNIVAL_INCOMING_EVENT GMAIL_INDICATOR_SET", {
+            count: existingCount + 1,
+            playId,
+          });
+        }
       });
+      const matchedPlayIds = match.status === "matched"
+        ? match.matches.map(({ playId }) => playId)
+        : [];
       await recordGmailDiagnostic({
-        mutationAttempted: Boolean(mutation && match.status === "matched"),
+        matchedPlayCount: matchedPlayIds.length,
+        matchedPlayIds,
+        mutationAttempted: Boolean(mutation?.length && match.status === "matched"),
         ownerUserId: event.ownerUserId,
-        playId: match.status === "matched" ? match.playId : null,
-        reason: mutatedPlay ? "mutation_complete" : "not_matched",
-        resultDate: mutatedPlay ? mutation?.scheduledDate : null,
+        playId: matchedPlayIds[0] ?? null,
+        reason: mutatedPlayCount ? "mutation_complete" : "not_matched",
+        resultDate: mutatedPlayCount ? mutation?.[0]?.scheduledDate : null,
         resultPriority,
-        resultTaskType: mutatedPlay ? "H" : null,
+        resultTaskType: mutatedPlayCount ? "H" : null,
         stage: "PLAY_INCOMING_MUTATION",
         threadId: event.externalThreadId,
       });
       return {
         duplicate: false,
-        linkedPlayId: match.status === "matched" ? match.playId : null,
+        linkedPlayId: matchedPlayIds[0] ?? null,
+        linkedPlayIds: matchedPlayIds,
         matchStatus: match.status,
-        mutatedPlay,
+        mutatedPlay: mutatedPlayCount > 0,
       };
     } catch (error) {
       if (error instanceof MongoServerError && error.code === 11000) {
@@ -405,22 +448,25 @@ export class MongoIncomingEventService implements IncomingEventMatchEngine, Inco
         await recordGmailDiagnostic({
           mutationAttempted: false,
           ownerUserId: event.ownerUserId,
-          playId: match.status === "matched" ? match.playId : null,
+          playId: match.status === "matched" ? match.matches[0]?.playId ?? null : null,
           reason: "duplicate_event",
           stage: "PLAY_INCOMING_MUTATION",
           threadId: event.externalThreadId,
         });
         return {
           duplicate: true,
-          linkedPlayId: match.status === "matched" ? match.playId : null,
+          linkedPlayId: match.status === "matched" ? match.matches[0]?.playId ?? null : null,
+          linkedPlayIds: match.status === "matched"
+            ? match.matches.map(({ playId }) => playId)
+            : [],
           matchStatus: match.status,
           mutatedPlay: false,
         };
       }
       await recordGmailDiagnostic({
-        mutationAttempted: Boolean(mutation && match.status === "matched"),
+        mutationAttempted: Boolean(mutation?.length && match.status === "matched"),
         ownerUserId: event.ownerUserId,
-        playId: match.status === "matched" ? match.playId : null,
+        playId: match.status === "matched" ? match.matches[0]?.playId ?? null : null,
         reason: "mutation_failed",
         stage: "PLAY_INCOMING_MUTATION",
         threadId: event.externalThreadId,
@@ -440,23 +486,32 @@ export class MongoIncomingEventService implements IncomingEventMatchEngine, Inco
     let handled = false;
     try {
       await session.withTransaction(async () => {
-        const result = await events.updateMany({
-          linked_play_id: playId,
+        const pending = await events.find({
           owner_user_id: ownerUserId,
           source: "gmail",
+          status: "unhandled",
+          $or: [{ linked_play_id: playId }, { linked_play_ids: playId }],
+        }, { projection: { linked_play_id: 1, linked_play_ids: 1 }, session }).toArray();
+        if (!pending.length) return;
+        const linkedPlayIds = Array.from(new Set(pending.flatMap((item) => [
+          ...(item.linked_play_ids ?? []),
+          ...(item.linked_play_id ? [item.linked_play_id] : []),
+        ])));
+        const result = await events.updateMany({
+          _id: { $in: pending.flatMap(({ _id }) => _id ? [_id] : []) },
+          owner_user_id: ownerUserId,
           status: "unhandled",
         }, { $set: { handled_at: new Date(), status: "handled" } }, { session });
         if (result.modifiedCount === 0) return;
         const tasks = (await getCarnivalMongoDatabase())
           .collection<LegacyTaskDocument>("tasks_task");
-        const update = await tasks.updateOne({
+        await tasks.updateMany({
           ...mongoActiveFilter(),
-          _id: new ObjectId(playId),
+          _id: { $in: linkedPlayIds.filter(ObjectId.isValid).map((id) => new ObjectId(id)) },
         }, {
           $unset: { carnival_incoming: "" },
           $set: { updated_date: new Date() },
         }, { session });
-        if (update.matchedCount !== 1) throw new Error("incoming_indicator_clear_failed");
         handled = true;
       });
       if (handled) console.info("CARNIVAL_INCOMING_EVENT EVENT_HANDLED", { playId });

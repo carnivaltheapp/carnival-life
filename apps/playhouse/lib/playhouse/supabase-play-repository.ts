@@ -24,6 +24,7 @@ import type {
   CreateGmailPlayRequest,
   FlipPlayRankRequest,
   AttachGmailRequest,
+  ManualLinkGmailResult,
   PlayRepository,
   RepositoryPlayList,
   RepositionPlaysRequest,
@@ -82,6 +83,71 @@ export class SupabasePlayRepository implements PlayRepository {
       .select("id")
       .maybeSingle();
     return !error && data?.id === playId;
+  }
+
+  async manualLinkGmail({ attachment, playId }: AttachGmailRequest): Promise<ManualLinkGmailResult | null> {
+    if (!attachment.apiThreadId) return null;
+    const { data: target, error: targetError } = await this.supabase
+      .from("plays")
+      .select("id, play_type, source_metadata")
+      .eq("id", playId)
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", "open")
+      .maybeSingle();
+    if (targetError || !target || !["normal", "reminder"].includes(target.play_type)) return null;
+    const metadata = target.source_metadata && typeof target.source_metadata === "object" &&
+        !Array.isArray(target.source_metadata)
+      ? target.source_metadata
+      : {};
+    const targetHadGmailLink = Boolean(gmailApiThreadIdFromMetadata(metadata));
+    const { data: inactive, error: inactiveError } = await this.supabase
+      .from("plays")
+      .select("id, status, source_metadata")
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("source_type", "gmail")
+      .in("status", ["done", "trash"]);
+    if (inactiveError) return null;
+    const linkedInactive = (inactive ?? []).filter((play) =>
+      gmailApiThreadIdFromMetadata(play.source_metadata) === attachment.apiThreadId
+    );
+    const { data: updatedTarget, error: updateError } = await this.supabase
+      .from("plays")
+      .update({
+        source_metadata: gmailMetadataWithAttachment(metadata, attachment),
+        source_type: "gmail",
+      })
+      .eq("id", playId)
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", "open")
+      .select("id")
+      .maybeSingle();
+    if (updateError || updatedTarget?.id !== playId) return null;
+    for (const play of linkedInactive) {
+      const sourceMetadata = play.source_metadata && typeof play.source_metadata === "object" &&
+          !Array.isArray(play.source_metadata)
+        ? play.source_metadata
+        : {};
+      const { error } = await this.supabase
+        .from("plays")
+        .update({
+          source_metadata: gmailMetadataWithAttachment(sourceMetadata, attachment),
+          source_type: "gmail",
+          status: "open",
+        })
+        .eq("id", play.id)
+        .eq("owner_user_id", this.ownerUserId)
+        .in("status", ["done", "trash"]);
+      if (error) return null;
+    }
+    return {
+      decision: targetHadGmailLink ? "replaced" : "linked",
+      revived: linkedInactive.map((play) => ({
+        playId: play.id,
+        priorLifecycle: play.status === "trash" ? "trashed" : "done",
+      })),
+      targetHadGmailLink,
+      targetPlayId: playId,
+    };
   }
 
   async createGmail({

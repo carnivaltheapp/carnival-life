@@ -4,6 +4,7 @@ import type { PlayListItem } from "./play";
 import {
   claimGmailRowCreate,
   gmailRowCreateInput,
+  isManualGmailRowDropTarget,
   mergeCreatedGmailPlay,
   parseGmailRowCreateRequest,
 } from "./gmail-row-create";
@@ -98,6 +99,14 @@ describe("Gmail row-create input", () => {
     const processed = new Set<string>();
     expect(claimGmailRowCreate(processed, "drop-1")).toBe(true);
     expect(claimGmailRowCreate(processed, "drop-1")).toBe(false);
+  });
+
+  it("accepts only existing Headline and Reminder rows as manual Gmail targets", () => {
+    expect(isManualGmailRowDropTarget(target({ playType: "normal" }))).toBe(true);
+    expect(isManualGmailRowDropTarget(target({ playType: "reminder" }))).toBe(true);
+    expect(isManualGmailRowDropTarget(target({ legacyTaskType: "A" }))).toBe(false);
+    expect(isManualGmailRowDropTarget(target({ contextType: "place" }))).toBe(false);
+    expect(isManualGmailRowDropTarget(null)).toBe(false);
   });
 
   it("inserts a created Play immediately in natural rank order without duplicates", () => {

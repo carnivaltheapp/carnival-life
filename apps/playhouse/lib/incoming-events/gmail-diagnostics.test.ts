@@ -29,6 +29,10 @@ describe("Gmail pipeline diagnostics", () => {
       "GMAIL_LIFECYCLE_UNSTAR_RESULT",
       "GMAIL_LIFECYCLE_TRASH_RESULT",
       "GMAIL_CREATION_DECISION",
+      "MANUAL_GMAIL_LINK_REQUESTED",
+      "MANUAL_GMAIL_LINK_RESULT",
+      "MANUAL_GMAIL_REVIVAL",
+      "GMAIL_MANUAL_RESTORE_RESULT",
     ]);
     const sources = [
       readFileSync(new URL("../../app/plays/actions.ts", import.meta.url), "utf8"),
@@ -137,6 +141,35 @@ describe("Gmail pipeline diagnostics", () => {
       stage: "GMAIL_CREATION_DECISION",
     });
     expect(JSON.stringify([lifecycle, decision])).not.toContain("private-api-thread");
+  });
+
+  it("records manual linking and one-to-many matching without raw Gmail identifiers", () => {
+    const rawThreadId = "private-api-thread";
+    const document = gmailDiagnosticDocument({
+      matchedPlayCount: 2,
+      matchedPlayIds: ["play-a", "play-b"],
+      ownerUserId: "owner-1",
+      playId: "play-b",
+      priorLifecycle: "trashed",
+      reason: "revived_existing_play",
+      stage: "MANUAL_GMAIL_REVIVAL",
+      success: true,
+      targetHadGmailLink: true,
+      threadId: rawThreadId,
+    });
+
+    expect(document).toMatchObject({
+      matched_play_count: 2,
+      matched_play_ids: ["play-a", "play-b"],
+      play_id: "play-b",
+      prior_lifecycle: "trashed",
+      reason: "revived_existing_play",
+      stage: "MANUAL_GMAIL_REVIVAL",
+      success: true,
+      target_had_gmail_link: true,
+      thread_fingerprint: gmailThreadFingerprint(rawThreadId),
+    });
+    expect(JSON.stringify(document)).not.toContain(rawThreadId);
   });
 
   it("records stages and returns the latest trail in chronological order", async () => {

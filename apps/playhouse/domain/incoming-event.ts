@@ -32,7 +32,10 @@ export type NormalizedIncomingEvent = {
 
 export type IncomingEventMatch =
   | { status: "ambiguous"; candidateCount: number }
-  | { status: "matched"; playId: string; routingUrl: string | null }
+  | {
+      status: "matched";
+      matches: Array<{ playId: string; routingUrl: string | null }>;
+    }
   | { status: "unmatched" };
 
 export type IncomingEventPolicyMutation = {
@@ -46,6 +49,7 @@ export type IncomingEventPolicyMutation = {
 export type IncomingEventProcessResult = {
   duplicate: boolean;
   linkedPlayId: string | null;
+  linkedPlayIds?: string[];
   matchStatus: IncomingEventMatch["status"];
   mutatedPlay: boolean;
 };
@@ -58,22 +62,22 @@ export interface IncomingEventStore {
   record(
     event: NormalizedIncomingEvent,
     match: IncomingEventMatch,
-    mutation: IncomingEventPolicyMutation | null,
+    mutation: IncomingEventPolicyMutation[] | null,
   ): Promise<IncomingEventProcessResult>;
 }
 
 export function incomingCommunicationPolicy(
   match: IncomingEventMatch,
   todayDate: string,
-): IncomingEventPolicyMutation | null {
+): IncomingEventPolicyMutation[] | null {
   return match.status === "matched"
-    ? {
+    ? match.matches.map(({ playId }) => ({
         incomingPriority: true,
         placeAtTop: true,
-        playId: match.playId,
+        playId,
         playType: "normal",
         scheduledDate: todayDate,
-      }
+      }))
     : null;
 }
 
@@ -84,16 +88,29 @@ export function incomingHeadlineOrderUpdates({
   existingHeadlines: OrderedPlay[];
   incomingPlay: OrderedPlay;
 }) {
+  return incomingHeadlineGroupOrderUpdates({
+    existingHeadlines,
+    incomingPlays: [incomingPlay],
+  });
+}
+
+export function incomingHeadlineGroupOrderUpdates({
+  existingHeadlines,
+  incomingPlays,
+}: {
+  existingHeadlines: OrderedPlay[];
+  incomingPlays: OrderedPlay[];
+}) {
   const orderedHeadlines = [...existingHeadlines].sort(
     (left, right) => left.order - right.order || left.id.localeCompare(right.id),
   );
-  const referenceOrder = orderedHeadlines[0]?.order ?? incomingPlay.order;
+  const referenceOrder = orderedHeadlines[0]?.order ?? incomingPlays[0]?.order ?? 0;
   const lowerBound = Math.floor(referenceOrder / 0x100000000) * 0x100000000;
   return orderUpdatesForInsertion({
     beforePlayId: orderedHeadlines[0]?.id ?? null,
     destination: orderedHeadlines,
     lowerBound,
-    movingPlayIds: [incomingPlay.id],
+    movingPlayIds: incomingPlays.map(({ id }) => id),
     step: 0x100,
   });
 }
@@ -115,7 +132,10 @@ export async function processIncomingEvent({
   });
   const match = await matchEngine.match(event);
   if (match.status === "matched") {
-    console.info("CARNIVAL_INCOMING_EVENT MATCHED", { playId: match.playId, source: event.source });
+    console.info("CARNIVAL_INCOMING_EVENT MATCHED", {
+      playIds: match.matches.map(({ playId }) => playId),
+      source: event.source,
+    });
   } else if (match.status === "ambiguous") {
     console.warn("CARNIVAL_INCOMING_EVENT AMBIGUOUS", {
       candidateCount: match.candidateCount,

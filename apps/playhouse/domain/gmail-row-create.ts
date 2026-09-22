@@ -46,6 +46,15 @@ export function claimGmailRowCreate(processed: Set<string>, correlationId: strin
   return true;
 }
 
+export function isManualGmailRowDropTarget(play: PlayListItem | null | undefined) {
+  return Boolean(
+    play &&
+    play.contextType !== "place" &&
+    play.legacyTaskType !== "A" &&
+    (play.playType === "normal" || play.playType === "reminder"),
+  );
+}
+
 export function mergeCreatedGmailPlay({
   baskets,
   createdPlay,

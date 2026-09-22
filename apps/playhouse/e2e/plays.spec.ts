@@ -172,7 +172,7 @@ test("Email and URL row actions route to Aux without changing PlayHouse", async 
   await expect(row).toBeVisible();
 });
 
-test("Gmail URL row drop creates one Play from the target without modifying it", async ({ auth }) => {
+test("Gmail URL row drop links the existing target without creating a Play", async ({ auth }) => {
   await auth.page.goto("/");
   await createPlay(auth.page, "Gmail row template", { url: "https://example.com/context" });
   const edit = await openEditPlay(auth.page, "Gmail row template");
@@ -210,15 +210,13 @@ test("Gmail URL row drop creates one Play from the target without modifying it",
   await target.dispatchEvent("dragover", { dataTransfer: transfer });
   await expect(target).toHaveAttribute("data-gmail-drop-target", "true");
   await auth.page.evaluate((request) => {
-    sessionStorage.removeItem("gmail-row-star-request");
-    window.addEventListener("carnival:gmail-star-thread", (event) => {
-      sessionStorage.setItem("gmail-row-star-request", (event as CustomEvent<string>).detail);
-    });
     const detail = JSON.stringify(request);
     window.dispatchEvent(new CustomEvent("carnival:gmail-row-create", { detail }));
     window.dispatchEvent(new CustomEvent("carnival:gmail-row-create", { detail }));
   }, {
     correlationId: "gmail-row-create-e2e",
+    gmailApiThreadId: "api-thread-first",
+    gmailApiThreadStrategy: "conversation_header",
     gmailParticipants: {
       from: { email: auth.contacts[0].email, name: auth.contacts[0].displayName },
       to: [],
@@ -228,33 +226,35 @@ test("Gmail URL row drop creates one Play from the target without modifying it",
     url: "https://mail.google.com/mail/u/2/#all/FMfirst",
   });
 
-  const createdRow = playRow(auth.page, "Gmail-created Headline");
-  await expect(createdRow).toBeVisible();
   await expect(target).not.toHaveAttribute("data-gmail-drop-target", "true");
-  await expect(createdRow.getByRole("button", { name: "Open Gmail thread" })).toBeVisible();
-  await expect(createdRow.getByTestId("play-player")).toHaveText(auth.contacts[0].displayName);
-  await expect(target.getByRole("button", { name: "Open Gmail thread" })).toHaveCount(0);
+  await expect(target.getByRole("button", { name: "Open Gmail thread" })).toBeVisible();
+  await expect(target.getByTestId("play-player")).toHaveText(auth.contacts[0].displayName);
   await expect(other.getByRole("button", { name: "Open Gmail thread" })).toHaveCount(0);
-  await expect.poll(() => auth.page.evaluate(
-    () => sessionStorage.getItem("gmail-row-star-request"),
-  )).toContain('"threadRef":"FMfirst"');
 
-  const { data: created } = await auth.user
+  const { count: targetCount, data: linkedTarget } = await auth.user
     .from("plays")
-    .select("basket_id, player_contact_id, play_type, push_rule, scheduled_date, source_metadata")
-    .eq("owner_user_id", auth.userId)
-    .eq("title", "Gmail-created Headline")
+    .select("basket_id, player_contact_id, play_type, push_rule, scheduled_date, source_metadata, url", {
+      count: "exact",
+    })
+    .eq("id", targetPlayId!)
     .single();
-  expect(created).toMatchObject({
+  expect(targetCount).toBe(1);
+  expect(linkedTarget).toMatchObject({
     basket_id: before?.basket_id,
     player_contact_id: originalContactId,
     play_type: before?.play_type,
-    push_rule: "everyday",
+    push_rule: before?.push_rule,
     scheduled_date: before?.scheduled_date,
     source_metadata: {
       external_ids: { thread_id: "FMfirst" },
-      gmail_attachment: { account_index: 2, thread_ref: "FMfirst" },
+      gmail_api_thread_id: "api-thread-first",
+      gmail_attachment: {
+        account_index: 2,
+        api_thread_id: "api-thread-first",
+        thread_ref: "FMfirst",
+      },
     },
+    url: before?.url,
   });
   const { count: canonicalContactCount, data: canonicalContact } = await auth.user
     .from("contact_references")
@@ -268,7 +268,7 @@ test("Gmail URL row drop creates one Play from the target without modifying it",
     provider_resource_name: auth.contacts[0].resourceName,
   });
 
-  const createdEdit = await openEditPlay(auth.page, "Gmail-created Headline");
+  const linkedEdit = await openEditPlay(auth.page, "Gmail row template");
   await auth.page.evaluate(() => {
     window.addEventListener("message", (event) => {
       if (event.data?.source !== "carnival-playhouse" || event.data?.type !== "openInAux") return;
@@ -281,27 +281,21 @@ test("Gmail URL row drop creates one Play from the target without modifying it",
       }, window.location.origin);
     }, { once: true });
   });
-  await createdEdit.form.getByRole("button", {
+  await linkedEdit.form.getByRole("button", {
     name: "Open Player in Google Contacts",
   }).click();
-  await expect(createdEdit.form).toBeVisible();
+  await expect(linkedEdit.form).toBeVisible();
   await expect.poll(() => auth.page.evaluate(
     () => sessionStorage.getItem("gmail-player-contact-route"),
   )).toBe(`https://contacts.google.com/person/${auth.contacts[0].resourceName.slice("people/".length)}`);
-  await createdEdit.disclosure.locator("summary").click();
+  await linkedEdit.disclosure.locator("summary").click();
 
   const { count } = await auth.user
     .from("plays")
     .select("id", { count: "exact", head: true })
     .eq("owner_user_id", auth.userId)
-    .eq("title", "Gmail-created Headline");
+    .eq("title", "Gmail row template");
   expect(count).toBe(1);
-  const { data: unchangedTarget } = await auth.user
-    .from("plays")
-    .select("basket_id, player_contact_id, play_type, push_rule, scheduled_date, source_metadata, url")
-    .eq("id", targetPlayId!)
-    .single();
-  expect(unchangedTarget).toEqual(before);
 
   await auth.page.reload();
   await auth.page.evaluate(() => {
@@ -311,7 +305,7 @@ test("Gmail URL row drop creates one Play from the target without modifying it",
       }
     });
   });
-  const gmailButton = playRow(auth.page, "Gmail-created Headline")
+  const gmailButton = playRow(auth.page, "Gmail row template")
     .getByRole("button", { name: "Open Gmail thread" });
   await expect(gmailButton).toBeVisible();
   await gmailButton.click();
@@ -319,13 +313,13 @@ test("Gmail URL row drop creates one Play from the target without modifying it",
     () => sessionStorage.getItem("gmail-drop-route"),
   )).toBe("https://mail.google.com/mail/u/2/#all/FMfirst");
 
-  await playRow(auth.page, "Gmail row template").click({ button: "right" });
+  await playRow(auth.page, "Other selected Play").click({ button: "right" });
   const menu = auth.page.getByRole("menu", { name: "Play actions" });
   await expect(menu.getByRole("menuitem")).toHaveText("Unlink email");
   await expect(menu.getByRole("menuitem")).toBeDisabled();
   await auth.page.getByRole("heading", { name: /Today|PlayHouse/ }).first().click();
 
-  const attachedRow = playRow(auth.page, "Gmail-created Headline");
+  const attachedRow = playRow(auth.page, "Gmail row template");
   await attachedRow.click({ button: "right" });
   await expect(menu.getByRole("menuitem", { name: "Unlink email" })).toBeEnabled();
   await auth.page.keyboard.press("Escape");
@@ -351,14 +345,14 @@ test("Gmail URL row drop creates one Play from the target without modifying it",
       .from("plays")
       .select("player_contact_id, play_type, source_metadata, url")
       .eq("owner_user_id", auth.userId)
-      .eq("title", "Gmail-created Headline")
+      .eq("title", "Gmail row template")
       .single();
     return data;
   }).toMatchObject({
     player_contact_id: null,
     play_type: "normal",
     source_metadata: { external_ids: {} },
-    url: null,
+    url: "https://example.com/context",
   });
   const { data: retainedContact } = await auth.user
     .from("contact_references")
@@ -369,12 +363,6 @@ test("Gmail URL row drop creates one Play from the target without modifying it",
     display_name: auth.contacts[0].displayName,
     id: originalContactId,
   });
-  const { data: finalTarget } = await auth.user
-    .from("plays")
-    .select("basket_id, player_contact_id, play_type, push_rule, scheduled_date, source_metadata, url")
-    .eq("id", targetPlayId!)
-    .single();
-  expect(finalTarget).toEqual(before);
 });
 
 test("invalid Create stays open and preserves every entered value", async ({ auth }) => {
@@ -453,7 +441,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-GMAIL-LIFECYCLE-119", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-GMAIL-MANUAL-LINK-120", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');

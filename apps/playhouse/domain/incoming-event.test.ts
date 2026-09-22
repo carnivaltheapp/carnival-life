@@ -8,6 +8,7 @@ import type {
 } from "./incoming-event";
 import {
   incomingCommunicationPolicy,
+  incomingHeadlineGroupOrderUpdates,
   incomingHeadlineOrderUpdates,
   processIncomingEvent,
 } from "./incoming-event";
@@ -29,18 +30,17 @@ function event(source: NormalizedIncomingEvent["source"] = "slack"): NormalizedI
 describe("Carnival Incoming Events core", () => {
   it("moves a matched event to Today as a Headline regardless of its prior placement or rank", async () => {
     const match: IncomingEventMatch = {
-      playId: "play-1",
-      routingUrl: "https://example.com/thread-1",
+      matches: [{ playId: "play-1", routingUrl: "https://example.com/thread-1" }],
       status: "matched",
     };
     const matchEngine = { match: vi.fn().mockResolvedValue(match) };
     const record = vi.fn(async (
       _event: NormalizedIncomingEvent,
       storedMatch: IncomingEventMatch,
-      mutation: IncomingEventPolicyMutation | null,
+      mutation: IncomingEventPolicyMutation[] | null,
     ) => ({
       duplicate: false,
-      linkedPlayId: storedMatch.status === "matched" ? storedMatch.playId : null,
+      linkedPlayId: storedMatch.status === "matched" ? storedMatch.matches[0]?.playId ?? null : null,
       matchStatus: storedMatch.status,
       mutatedPlay: Boolean(mutation),
     }));
@@ -52,13 +52,13 @@ describe("Carnival Incoming Events core", () => {
       todayDate: "2026-09-16",
     });
 
-    expect(record).toHaveBeenCalledWith(event(), match, {
+    expect(record).toHaveBeenCalledWith(event(), match, [{
       incomingPriority: true,
       placeAtTop: true,
       playId: "play-1",
       playType: "normal",
       scheduledDate: "2026-09-16",
-    });
+    }]);
     expect(result).toMatchObject({ linkedPlayId: "play-1", mutatedPlay: true });
   });
 
@@ -98,6 +98,35 @@ describe("Carnival Incoming Events core", () => {
     }]);
   });
 
+  it("creates one Today/Headline mutation for every intentionally linked active Play", () => {
+    expect(incomingCommunicationPolicy({
+      matches: [
+        { playId: "play-a", routingUrl: null },
+        { playId: "play-b", routingUrl: null },
+      ],
+      status: "matched",
+    }, "2026-09-16")).toEqual([
+      expect.objectContaining({ playId: "play-a", scheduledDate: "2026-09-16" }),
+      expect.objectContaining({ playId: "play-b", scheduledDate: "2026-09-16" }),
+    ]);
+  });
+
+  it("places every intentionally linked Play ahead of unrelated Headlines", () => {
+    expect(incomingHeadlineGroupOrderUpdates({
+      existingHeadlines: [
+        { id: "headline-1", order: 10 * 0x100000000 + 0x300 },
+        { id: "headline-2", order: 10 * 0x100000000 + 0x400 },
+      ],
+      incomingPlays: [
+        { id: "play-a", order: 20 * 0x100000000 + 0x100 },
+        { id: "play-b", order: 30 * 0x100000000 + 0x100 },
+      ],
+    })).toEqual([
+      { id: "play-a", order: 10 * 0x100000000 + 0x100 },
+      { id: "play-b", order: 10 * 0x100000000 + 0x200 },
+    ]);
+  });
+
   it("rebalances Headlines without changing their relative order when no gap exists", () => {
     expect(incomingHeadlineOrderUpdates({
       existingHeadlines: [
@@ -122,7 +151,7 @@ describe("Carnival Incoming Events core", () => {
       expect(`${core}\n${store}`).not.toContain(forbidden);
     }
     expect(store).toContain('"carnival_incoming.gmail_unhandled_count": existingCount + 1');
-    expect(store).toContain("priority_index: orderById.get(mutation.playId)");
+    expect(store).toContain("priority_index: orderById.get(playId)");
     expect(store).toContain("task_date: today");
     expect(store).toContain('task_type: "H"');
     expect(store).toContain('{ "carnival_google.gmail_api_thread_id": externalThreadId }');

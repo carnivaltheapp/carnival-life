@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-const { getGoogleAccessToken, trashGmailThread, unstarGmailThread } = vi.hoisted(() => ({
+const { getGoogleAccessToken, starGmailThread, trashGmailThread, unstarGmailThread, untrashGmailThread } = vi.hoisted(() => ({
   getGoogleAccessToken: vi.fn().mockResolvedValue("access-token"),
+  starGmailThread: vi.fn().mockResolvedValue(undefined),
   trashGmailThread: vi.fn().mockResolvedValue(undefined),
   unstarGmailThread: vi.fn().mockResolvedValue(undefined),
+  untrashGmailThread: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./token-broker.server", () => ({ getGoogleAccessToken }));
@@ -15,11 +17,14 @@ vi.mock("./gmail", () => ({
       super("gmail error");
     }
   },
+  starGmailThread,
   trashGmailThread,
   unstarGmailThread,
+  untrashGmailThread,
 }));
 
 import {
+  restoreGmailThreadForManualLink,
   resolveGmailLifecycleContext,
   syncGmailPlayLifecycle,
 } from "./gmail-lifecycle.server";
@@ -41,6 +46,8 @@ describe("server Gmail lifecycle cleanup", () => {
     getGoogleAccessToken.mockClear();
     trashGmailThread.mockClear();
     unstarGmailThread.mockClear();
+    starGmailThread.mockClear();
+    untrashGmailThread.mockClear();
   });
 
   it("resolves the owner-scoped connected account with gmail.modify", async () => {
@@ -125,5 +132,25 @@ describe("server Gmail lifecycle cleanup", () => {
     expect(result.trash).toEqual(result.unstar);
     expect(unstarGmailThread).not.toHaveBeenCalled();
     expect(trashGmailThread).not.toHaveBeenCalled();
+  });
+
+  it("restores and stars a manually linked Gmail API thread", async () => {
+    await expect(restoreGmailThreadForManualLink({
+      apiThreadId: "api-thread-1",
+      context: { accountResolved: true, googleAccountId: "account-1", reason: null },
+      ownerUserId: "owner-1",
+    })).resolves.toEqual({
+      accountResolved: true,
+      star: { attempted: true, reason: "completed", success: true },
+      untrash: { attempted: true, reason: "completed", success: true },
+    });
+    expect(untrashGmailThread).toHaveBeenCalledWith({
+      accessToken: "access-token",
+      threadId: "api-thread-1",
+    });
+    expect(starGmailThread).toHaveBeenCalledWith({
+      accessToken: "access-token",
+      threadId: "api-thread-1",
+    });
   });
 });

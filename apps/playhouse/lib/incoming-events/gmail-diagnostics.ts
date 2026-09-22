@@ -22,6 +22,10 @@ export const GMAIL_DIAGNOSTIC_STAGES = [
   "GMAIL_LIFECYCLE_UNSTAR_RESULT",
   "GMAIL_LIFECYCLE_TRASH_RESULT",
   "GMAIL_CREATION_DECISION",
+  "MANUAL_GMAIL_LINK_REQUESTED",
+  "MANUAL_GMAIL_LINK_RESULT",
+  "MANUAL_GMAIL_REVIVAL",
+  "GMAIL_MANUAL_RESTORE_RESULT",
 ] as const;
 
 export type GmailDiagnosticStage = (typeof GMAIL_DIAGNOSTIC_STAGES)[number];
@@ -50,17 +54,25 @@ export type GmailDiagnosticInput = {
   extractionStrategy?: GmailExtractionStrategy;
   matchResult?: GmailMatchResult;
   matchStrategy?: GmailMatchStrategy;
+  matchedPlayCount?: number;
+  matchedPlayIds?: string[];
   mutationAttempted?: boolean;
   finalIsActive?: boolean;
   finalIsDeleted?: boolean;
   operation?: GmailOutgoingOperation;
   ownerUserId: string;
   playId?: string | null;
+  priorLifecycle?: "done" | "trashed";
   reason?: string | null;
   resultDate?: string | null;
   resultPriority?: string | null;
   resultTaskType?: string | null;
   success?: boolean;
+  targetHadGmailLink?: boolean;
+  untrashAttempted?: boolean;
+  untrashSuccess?: boolean;
+  starAttempted?: boolean;
+  starSuccess?: boolean;
   stage: GmailDiagnosticStage;
   threadId?: string | null;
   webThreadPresent?: boolean;
@@ -83,16 +95,24 @@ export type GmailDiagnosticDocument = {
   identifier_type?: "gmail_api_thread_id";
   match_result?: GmailMatchResult;
   match_strategy?: GmailMatchStrategy;
+  matched_play_count?: number;
+  matched_play_ids?: string[];
   mutation_attempted?: boolean;
   operation?: GmailOutgoingOperation;
   owner_user_id: string;
   play_id?: string;
+  prior_lifecycle?: "done" | "trashed";
   reason?: string;
   result_date?: string;
   result_priority?: string;
   result_task_type?: string;
   stage: GmailDiagnosticStage;
   success?: boolean;
+  target_had_gmail_link?: boolean;
+  untrash_attempted?: boolean;
+  untrash_success?: boolean;
+  star_attempted?: boolean;
+  star_success?: boolean;
   thread_fingerprint?: string;
   web_thread_present?: boolean;
 };
@@ -156,16 +176,36 @@ export function gmailDiagnosticDocument(
       : {}),
     ...(input.matchResult ? { match_result: input.matchResult } : {}),
     ...(input.matchStrategy ? { match_strategy: input.matchStrategy } : {}),
+    ...(typeof input.matchedPlayCount === "number"
+      ? { matched_play_count: input.matchedPlayCount }
+      : {}),
+    ...(input.matchedPlayIds?.length
+      ? { matched_play_ids: input.matchedPlayIds.map((id) => safeText(id, 100)).filter(Boolean) as string[] }
+      : {}),
     ...(typeof input.mutationAttempted === "boolean"
       ? { mutation_attempted: input.mutationAttempted }
       : {}),
     ...(input.operation ? { operation: input.operation } : {}),
     ...(playId ? { play_id: playId } : {}),
+    ...(input.priorLifecycle ? { prior_lifecycle: input.priorLifecycle } : {}),
     ...(reason ? { reason } : {}),
     ...(resultDate ? { result_date: resultDate } : {}),
     ...(resultPriority ? { result_priority: resultPriority } : {}),
     ...(resultTaskType ? { result_task_type: resultTaskType } : {}),
     ...(typeof input.success === "boolean" ? { success: input.success } : {}),
+    ...(typeof input.targetHadGmailLink === "boolean"
+      ? { target_had_gmail_link: input.targetHadGmailLink }
+      : {}),
+    ...(typeof input.untrashAttempted === "boolean"
+      ? { untrash_attempted: input.untrashAttempted }
+      : {}),
+    ...(typeof input.untrashSuccess === "boolean"
+      ? { untrash_success: input.untrashSuccess }
+      : {}),
+    ...(typeof input.starAttempted === "boolean"
+      ? { star_attempted: input.starAttempted }
+      : {}),
+    ...(typeof input.starSuccess === "boolean" ? { star_success: input.starSuccess } : {}),
     ...(threadFingerprint
       ? { identifier_type: "gmail_api_thread_id" as const, thread_fingerprint: threadFingerprint }
       : {}),
