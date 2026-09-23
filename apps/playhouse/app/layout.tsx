@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-PH-TABS-DIAG-126
+          P3-MISC-127
         </small>
       </body>
     </html>

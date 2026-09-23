@@ -83,6 +83,52 @@ test("content script receives the page request and forwards canonical openInAux"
   }]);
 });
 
+test("content script forwards the compact Aux/Misc switch through the existing bridge", async () => {
+  let messageListener;
+  const messages = [];
+  const pageMessages = [];
+  const pageWindow = {
+    addEventListener(type, listener) { if (type === "message") messageListener = listener; },
+    location: { origin: "https://carnival-playhouse.vercel.app" },
+    postMessage(message, origin) { pageMessages.push({ message, origin }); },
+  };
+  vm.runInNewContext(`${messagingSource}\n${bridgeSource}`, {
+    chrome: {
+      runtime: {
+        async sendMessage(message) {
+          messages.push(message);
+          return { ok: true, rightSurface: "misc" };
+        },
+      },
+    },
+    console: { error() {}, info() {}, warn() {} },
+    Error,
+    window: pageWindow,
+  });
+
+  messageListener({
+    data: {
+      requestId: "surface-1",
+      source: "carnival-playhouse",
+      type: "toggleRightSurface",
+    },
+    origin: pageWindow.location.origin,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(JSON.parse(JSON.stringify(messages)), [{ type: "toggleRightSurface" }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(pageMessages)), [{
+    message: {
+      ok: true,
+      requestId: "surface-1",
+      rightSurface: "misc",
+      source: "carnival-playhouse-bridge",
+      type: "toggleRightSurfaceResult",
+    },
+    origin: pageWindow.location.origin,
+  }]);
+});
+
 test("stale content script reports unavailable runtime without an uncaught exception", async () => {
   let messageListener;
   const logs = [];

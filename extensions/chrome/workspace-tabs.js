@@ -9,11 +9,20 @@ export const AUX_ROLE_URLS = {
 
 export const HOT_TAB_ROLES = Object.freeze({
   calendar: "calendar",
-  drive: "drive",
+  drive: "misc",
   gmail: "gmail",
+  contacts: "contacts",
   slack: "slack",
   url: "misc",
 });
+
+export const AUX_HOT_TAB_ORDER = Object.freeze([
+  "calendar",
+  "gmail",
+  "contacts",
+  "slack",
+  "misc",
+]);
 
 const AUX_ROLES = new Set(Object.keys(AUX_ROLE_URLS));
 const PLAYHOUSE_ORIGIN = "https://carnival-playhouse.vercel.app";
@@ -149,11 +158,18 @@ export function isRestorableTabUrl(value) {
 export function defaultAuxTabs() {
   return {
     activeIndex: 0,
-    tabs: [
-      { pinned: false, role: "calendar", url: AUX_ROLE_URLS.calendar },
-      { pinned: false, role: "gmail", url: AUX_ROLE_URLS.gmail },
-      { pinned: false, role: "misc", url: AUX_ROLE_URLS.misc },
-    ],
+    tabs: AUX_HOT_TAB_ORDER.map((role) => ({
+      pinned: false,
+      role,
+      url: AUX_ROLE_URLS[role],
+    })),
+  };
+}
+
+export function defaultMiscTabs() {
+  return {
+    activeIndex: 0,
+    tabs: [{ pinned: false, role: null, url: AUX_ROLE_URLS.misc }],
   };
 }
 
@@ -170,7 +186,7 @@ export function validSavedTabs(value, kind) {
     if (!isRestorableTabUrl(tab?.url)) return [];
     const role = kind === "playhouse"
       ? tab.role === "ph-primary" || tab.role === "playhouse" ? "ph-primary" : null
-      : AUX_ROLES.has(tab.role) ? tab.role : null;
+      : kind === "context" && AUX_ROLES.has(tab.role) ? tab.role : null;
     return [{ pinned: tab.pinned === true, role, sourceIndex, url: tab.url }];
   });
   if (!tabs.length) return null;

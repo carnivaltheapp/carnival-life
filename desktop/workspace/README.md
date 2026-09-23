@@ -5,10 +5,10 @@ Carnival safe extension messaging layer. Page-world code must not use privileged
 The headless Chromium gate exercises live PlayHouse/Gmail messaging and a true extension reload;
 Aux routing itself remains unit-tested because it intentionally reparents the browser test windows.
 
-This slice coordinates two ordinary Chrome windows:
+This slice coordinates PlayHouse plus one selected right-hand Chrome window:
 
 - left: [Carnival PlayHouse](https://carnival-playhouse.vercel.app/)
-- right: a normal Chrome context window, initially Google Calendar
+- right: either the deterministic five-tab Aux window or the unrestricted Misc window
 
 The Chrome extension owns window/tab identity, repair, saved bounds, and
 validated context navigation. The resident Windows companion watches the global
@@ -114,10 +114,21 @@ pixel workspace and the rightmost available pixel becomes the monitor-aware
 fallback. The next hot-corner or toolbar activation reuses the same tabs,
 browser history, and authentication.
 
-The right window remains an ordinary Chrome window with its normal cookies,
-authentication, tabs, Back, Forward, Refresh, and address bar. Internal extension
-callers can send `{ type: "openCarnivalContext", url }`; only HTTP(S) destinations
-are accepted. No PlayHouse bridge invokes that message in this foundation slice.
+Aux contains exactly five self-healing Hot Tabs in canonical order: Calendar,
+Gmail, Google Contacts, Slack, and Play/Chrome. PlayHouse actions select Aux and
+route through those existing tabs. An arbitrary tab created or moved into Aux is
+moved intact to Misc, made active there, and reveals Misc instead of replacing a
+Hot Tab.
+
+Misc is an unrestricted ordinary Chrome window with normal cookies,
+authentication, tabs, Back, Forward, Refresh, and address bar. Its safe HTTP(S)
+URLs, exact order, active tab, and pinned state persist locally across window,
+Chrome, extension, and Windows restarts. The compact **Aux ⇄ Misc** PlayHouse
+control (or `Alt+Shift+M`) swaps only the right-hand window in the shared slot;
+it does not move PlayHouse or run the Drawer animation. The saved `rightSurface`
+selects which right window participates in the next hot-corner rollout. Internal
+extension callers can send `{ type: "openCarnivalContext", url }`; only HTTP(S)
+destinations are accepted, and that path always selects Aux before routing.
 
 After updating the checked-out extension or native-host source, reload the
 extension at `chrome://extensions` and rerun the platform installer before
@@ -129,9 +140,12 @@ records pointer-monitor startup, hot-corner entry/cancellation/activation,
 bridge availability, and retract-zone activation without logging pointer motion
 continuously.
 
-Hot-corner rollout prepares the existing PlayHouse/Aux pair in the foreground
-before its first animation frame. PlayHouse content actions only reveal the
-existing Aux window and route its content; they do not summon the drawer.
+Hot-corner rollout prepares PlayHouse and the saved right surface in the
+foreground before its first animation frame. The verified P3-PH-TABS-DIAG-126
+z-order, animation, PlayHouse geometry, and routing path remain unchanged apart
+from supplying Aux or Misc as that existing right-window parameter. PlayHouse
+content actions only reveal Aux and route its content; they do not summon the
+drawer.
 
 The PlayHouse window's logical tab session is stored locally by the extension.
 When that window must be recreated, safe HTTP(S) tab URLs, exact order, active

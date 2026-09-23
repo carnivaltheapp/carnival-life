@@ -15,6 +15,8 @@ import {
 } from "./workspace-controller.js";
 import { createWorkspaceActions } from "./workspace-summon.js";
 import {
+  AUX_HOT_TAB_ORDER,
+  AUX_ROLE_URLS,
   createPhSessionDiagnosticTrail,
   defaultAuxTabs,
   defaultPlayhouseTabs,
@@ -26,7 +28,7 @@ function fakeChrome() {
   let nextTabId = 10;
   const windows = new Map();
   const tabs = new Map();
-  const calls = { createTab: [], createWindow: [], updateTab: [], updateWindow: [] };
+  const calls = { createTab: [], createWindow: [], moveTab: [], updateTab: [], updateWindow: [] };
   function chromeEvent() {
     const listeners = new Set();
     return {
@@ -130,6 +132,28 @@ function fakeChrome() {
       async get(id) {
         if (!tabs.has(id)) throw new Error("missing tab");
         return tabs.get(id);
+      },
+      async move(ids, options) {
+        const requested = Array.isArray(ids) ? ids : [ids];
+        calls.moveTab.push({ ids: requested, options });
+        const movedTabs = [];
+        for (const id of requested) {
+          const current = tabs.get(id);
+          if (!current) throw new Error("missing tab");
+          const oldWindowId = current.windowId;
+          const windowId = Number.isInteger(options.windowId) ? options.windowId : oldWindowId;
+          tabs.delete(id);
+          syncWindowTabs(oldWindowId);
+          const destination = windowTabs(windowId);
+          const index = options.index < 0
+            ? destination.length
+            : Math.min(options.index, destination.length);
+          destination.splice(index, 0, { ...current, windowId });
+          destination.forEach((tab, tabIndex) => tabs.set(tab.id, { ...tab, index: tabIndex }));
+          syncWindowTabs(windowId);
+          movedTabs.push(tabs.get(id));
+        }
+        return Array.isArray(ids) ? movedTabs : movedTabs[0];
       },
       async query({ url, windowId } = {}) {
         let matches = [...tabs.values()];
@@ -321,6 +345,8 @@ test("repeated summons reuse both identified Chrome windows", async () => {
   assert.deepEqual(chrome.calls.createWindow[1].url, [
     DEFAULT_CONTEXT_URL,
     "https://mail.google.com/mail/u/0/#inbox",
+    "https://contacts.google.com/",
+    "https://app.slack.com/",
     "https://www.google.com/",
   ]);
 });
@@ -369,7 +395,7 @@ test("repeated Email and Chrome routing reuse their durable Aux role tabs withou
   assert.equal(chrome.getTab(initial.playhouseTabId).url, PLAYHOUSE_URL);
 });
 
-test("repeated Google Contacts routing creates one durable Aux role tab and reuses it", async () => {
+test("repeated Google Contacts routing reuses its canonical Aux Hot Tab", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
@@ -380,13 +406,13 @@ test("repeated Google Contacts routing creates one durable Aux role tab and reus
   await workspace.openCarnivalContext("https://contacts.google.com/person/c456", workArea, "display-1");
   const afterSecond = await workspace.state();
 
-  assert.equal(chrome.calls.createTab.length, 1);
+  assert.equal(chrome.calls.createTab.length, 0);
   assert.equal(afterFirst.contextRoleTabIds.contacts, afterSecond.contextRoleTabIds.contacts);
   assert.equal(chrome.getTab(afterSecond.contextRoleTabIds.contacts).url, "https://contacts.google.com/person/c456");
-  assert.equal(chrome.getTabs(initial.contextWindowId).length, 4);
+  assert.equal(chrome.getTabs(initial.contextWindowId).length, 5);
 });
 
-test("Google Contacts routing adopts an existing locale/query tab without creating a duplicate", async () => {
+test("an extra Contacts tab is handed to Misc while the canonical Contacts Hot Tab routes", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
@@ -400,11 +426,12 @@ test("Google Contacts routing adopts an existing locale/query tab without creati
   const state = await workspace.state();
 
   assert.equal(chrome.calls.createTab.length, 0);
-  assert.equal(state.contextRoleTabIds.contacts, contacts.id);
-  assert.equal(chrome.getTab(contacts.id).url, "https://contacts.google.com/person/c123");
+  assert.notEqual(state.contextRoleTabIds.contacts, contacts.id);
+  assert.equal(chrome.getTab(state.contextRoleTabIds.contacts).url, "https://contacts.google.com/person/c123");
+  assert.equal(chrome.getTab(contacts.id).windowId, state.miscWindowId);
 });
 
-test("Google Contacts routing prefers the active matching tab among multiple matches", async () => {
+test("multiple extra Contacts tabs move to Misc without replacing the canonical Hot Tab", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
@@ -420,8 +447,10 @@ test("Google Contacts routing prefers the active matching tab among multiple mat
   const state = await workspace.state();
 
   assert.equal(chrome.calls.createTab.length, 0);
-  assert.equal(state.contextRoleTabIds.contacts, active.id);
-  assert.equal(chrome.getTab(active.id).url, "https://contacts.google.com/person/selected");
+  assert.notEqual(state.contextRoleTabIds.contacts, active.id);
+  assert.equal(chrome.getTab(state.contextRoleTabIds.contacts).url, "https://contacts.google.com/person/selected");
+  assert.equal(chrome.getTab(active.id).windowId, state.miscWindowId);
+  assert.equal(chrome.getTab(first.id).windowId, state.miscWindowId);
   assert.equal(chrome.getTab(first.id).url, "https://contacts.google.com/person/first");
 });
 
@@ -437,11 +466,11 @@ test("Google Contacts routing ignores unrelated Google and Gmail tabs", async ()
   await workspace.openCarnivalContext("https://contacts.google.com/person/c123", workArea, "display-1");
   const state = await workspace.state();
 
-  assert.equal(chrome.calls.createTab.length, 1);
+  assert.equal(chrome.calls.createTab.length, 0);
   assert.equal(chrome.getTab(state.contextRoleTabIds.contacts).url, "https://contacts.google.com/person/c123");
 });
 
-test("Slack routing reuses its durable role tab without creating duplicates", async () => {
+test("Slack routing reuses its canonical Hot Tab without creating duplicates", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
@@ -452,13 +481,13 @@ test("Slack routing reuses its durable role tab without creating duplicates", as
   await workspace.openCarnivalContext("https://carnival.slack.com/archives/C2", workArea, "display-1");
   const second = await workspace.state();
 
-  assert.equal(chrome.calls.createTab.length, 1);
+  assert.equal(chrome.calls.createTab.length, 0);
   assert.equal(first.contextRoleTabIds.slack, second.contextRoleTabIds.slack);
   assert.equal(chrome.getTab(second.contextRoleTabIds.slack).url, "https://carnival.slack.com/archives/C2");
-  assert.equal(chrome.getTabs(initial.contextWindowId).length, 4);
+  assert.equal(chrome.getTabs(initial.contextWindowId).length, 5);
 });
 
-test("Slack routing adopts an existing Slack-host Aux tab when no role is saved", async () => {
+test("an extra Slack tab moves to Misc while the canonical Slack Hot Tab routes", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
@@ -469,44 +498,168 @@ test("Slack routing adopts an existing Slack-host Aux tab when no role is saved"
   const state = await workspace.state();
 
   assert.equal(chrome.calls.createTab.length, 0);
-  assert.equal(state.contextRoleTabIds.slack, slack.id);
-  assert.equal(chrome.getTab(slack.id).url, "https://app.slack.com/client/T1/NEW");
+  assert.notEqual(state.contextRoleTabIds.slack, slack.id);
+  assert.equal(chrome.getTab(state.contextRoleTabIds.slack).url, "https://app.slack.com/client/T1/NEW");
+  assert.equal(chrome.getTab(slack.id).windowId, state.miscWindowId);
 });
 
-test("Aux tab order, active tab, pins, roles, and user tabs restore after window close", async () => {
+test("an arbitrary Aux tab moves to persistent Misc without changing the five Hot Tabs", async () => {
   const chrome = fakeChrome();
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
   const first = await controller(chrome).summon(workArea, "display-1");
   const userTab = chrome.addTab(first.contextWindowId, "https://docs.google.com/document/d/example", {
     active: true,
   });
-  chrome.moveTab(userTab.id, 1);
-  chrome.moveTab(first.contextRoleTabIds.gmail, 0);
   await chrome.tabs.update(userTab.id, { pinned: true });
-  await controller(chrome).rememberWorkspaceTabs(first.contextWindowId);
-  chrome.closeWindow(first.contextWindowId);
+  await controller(chrome).reconcileAuxTabs(first.contextWindowId, { revealMisc: true });
+  const handedOff = await controller(chrome).state();
+  assert.equal(handedOff.rightSurface, "misc");
+  assert.equal(chrome.getTab(userTab.id).active, true);
+  assert.equal(chrome.getWindow(first.contextWindowId).state, "minimized");
+  await controller(chrome).rememberWorkspaceTabs(handedOff.miscWindowId);
+  chrome.closeWindow(handedOff.miscWindowId);
+  await controller(chrome).handleWindowClosed(handedOff.miscWindowId);
 
   const restarted = controller(chrome);
-  await restarted.summon(workArea, "display-1");
-  await restarted.openCarnivalContext(
-    "https://mail.google.com/mail/u/0/#all/restored-thread",
-    workArea,
-    "display-1",
-  );
+  await restarted.switchRightSurface("misc", workArea);
   const restored = await restarted.state();
-  const restoredTabs = chrome.getTabs(restored.contextWindowId);
+  const restoredTabs = chrome.getTabs(restored.miscWindowId);
 
-  assert.deepEqual(restoredTabs.map(({ url }) => url), [
-    "https://mail.google.com/mail/u/0/#all/restored-thread",
-    DEFAULT_CONTEXT_URL,
-    "https://docs.google.com/document/d/example",
-    "https://www.google.com/",
-  ]);
-  assert.equal(restoredTabs[0].active, true);
-  assert.equal(restoredTabs[2].pinned, true);
-  assert.equal(chrome.getTab(restored.contextRoleTabIds.calendar).url, DEFAULT_CONTEXT_URL);
-  assert.equal(chrome.getTab(restored.contextRoleTabIds.gmail).url, "https://mail.google.com/mail/u/0/#all/restored-thread");
-  assert.equal(chrome.getTab(restored.contextRoleTabIds.misc).url, "https://www.google.com/");
+  assert.equal(restoredTabs.some(({ url }) => url === "https://docs.google.com/document/d/example"), true);
+  assert.equal(restoredTabs.find(({ url }) => url.includes("docs.google.com"))?.pinned, true);
+  assert.deepEqual(chrome.getTabs(restored.auxWindowId).map(({ url }) => url),
+    defaultAuxTabs().tabs.map(({ url }) => url));
+});
+
+test("Aux and Misc swap in one right slot without moving PlayHouse or animating", async () => {
+  const chrome = fakeChrome();
+  const animations = [];
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { warn() {} },
+    nativeAnimate: async (animation) => {
+      animations.push(animation);
+      return true;
+    },
+  });
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  const playhouseBefore = { ...chrome.getWindow(opened.phWindowId) };
+  const auxBefore = { ...chrome.getWindow(opened.auxWindowId) };
+  const animationCount = animations.length;
+
+  const misc = await workspace.switchRightSurface("misc", workArea);
+  const miscWindowId = misc.miscWindowId;
+  assert.equal(misc.rightSurface, "misc");
+  assert.equal(chrome.getWindow(opened.auxWindowId).state, "minimized");
+  assert.deepEqual(
+    (({ height, left, top, width }) => ({ height, left, top, width }))(chrome.getWindow(miscWindowId)),
+    (({ height, left, top, width }) => ({ height, left, top, width }))(auxBefore),
+  );
+  assert.deepEqual(chrome.getWindow(opened.phWindowId), playhouseBefore);
+
+  const aux = await workspace.toggleRightSurface(workArea);
+  assert.equal(aux.rightSurface, "aux");
+  assert.equal(chrome.getWindow(miscWindowId).state, "minimized");
+  assert.equal(chrome.getWindow(opened.auxWindowId).state, "normal");
+  assert.deepEqual(chrome.getWindow(opened.phWindowId), playhouseBefore);
+  assert.equal(animations.length, animationCount);
+  assert.equal(chrome.calls.createWindow.length, 3);
+  assert.equal((await controller(chrome).state()).rightSurface, "aux");
+});
+
+test("saved Misc is reused and the hot corner passes it to the verified native rollout", async () => {
+  const chrome = fakeChrome();
+  const animations = [];
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { warn() {} },
+    nativeAnimate: async (animation) => {
+      animations.push(animation);
+      return true;
+    },
+  });
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  await workspace.summon(workArea, "display-1");
+  const switched = await workspace.switchRightSurface("misc", workArea);
+  const miscWindowId = switched.miscWindowId;
+  const created = chrome.calls.createWindow.length;
+  await workspace.retract();
+
+  const reopened = await workspace.summon(workArea, "display-1", { source: "native hot corner" });
+
+  assert.equal(reopened.rightSurface, "misc");
+  assert.equal(reopened.miscWindowId, miscWindowId);
+  assert.equal(animations.at(-1).contextWindowId, miscWindowId);
+  assert.equal(animations.at(-1).playhouseWindowId, reopened.phWindowId);
+  assert.equal(chrome.calls.createWindow.length, created);
+});
+
+test("stale Misc runtime IDs adopt the matching restored session without a duplicate", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  await workspace.summon(workArea, "display-1");
+  const misc = await workspace.switchRightSurface("misc", workArea);
+  chrome.addTab(misc.miscWindowId, "https://example.com/persisted", { active: true, pinned: true });
+  await workspace.rememberWorkspaceTabs(misc.miscWindowId, "stale-id-test");
+  await workspace.switchRightSurface("aux", workArea);
+  const saved = await workspace.state();
+  chrome.setWorkspaceState({ ...saved, miscWindowId: 99999 });
+  const created = chrome.calls.createWindow.length;
+
+  const restored = await controller(chrome).switchRightSurface("misc", workArea);
+
+  assert.equal(restored.miscWindowId, misc.miscWindowId);
+  assert.equal(chrome.calls.createWindow.length, created);
+  assert.equal(chrome.getTabs(restored.miscWindowId).at(-1).url, "https://example.com/persisted");
+  assert.equal(chrome.getTabs(restored.miscWindowId).at(-1).pinned, true);
+});
+
+test("a PlayHouse route swaps Misc for Aux without drawer animation", async () => {
+  const chrome = fakeChrome();
+  const animations = [];
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { warn() {} },
+    nativeAnimate: async (animation) => {
+      animations.push(animation);
+      return true;
+    },
+  });
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  const playhouseBefore = { ...chrome.getWindow(opened.phWindowId) };
+  const misc = await workspace.switchRightSurface("misc", workArea);
+  const animationCount = animations.length;
+
+  await workspace.openCarnivalContext("https://mail.google.com/mail/u/0/#all/thread", workArea, "display-1");
+  const routed = await workspace.state();
+
+  assert.equal(routed.rightSurface, "aux");
+  assert.equal(chrome.getWindow(misc.miscWindowId).state, "minimized");
+  assert.equal(chrome.getWindow(routed.auxWindowId).state, "normal");
+  assert.equal(chrome.getTab(routed.auxRoleTabIds.gmail).url,
+    "https://mail.google.com/mail/u/0/#all/thread");
+  assert.deepEqual(chrome.getWindow(opened.phWindowId), playhouseBefore);
+  assert.equal(animations.length, animationCount);
+});
+
+test("Aux repairs reordered and externally moved Hot Tabs back to canonical order", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  const misc = await workspace.switchRightSurface("misc", workArea);
+  await workspace.switchRightSurface("aux", workArea);
+  const before = await workspace.state();
+  chrome.moveTab(before.auxRoleTabIds.gmail, 4);
+  await chrome.tabs.move(before.auxRoleTabIds.slack, { index: -1, windowId: misc.miscWindowId });
+
+  await workspace.reconcileAuxTabs(opened.auxWindowId);
+  const repaired = await workspace.state();
+
+  assert.deepEqual(chrome.getTabs(opened.auxWindowId).map(({ id }) => id),
+    AUX_HOT_TAB_ORDER.map((role) => repaired.auxRoleTabIds[role]));
+  assert.equal(chrome.getTab(repaired.auxRoleTabIds.slack).windowId, opened.auxWindowId);
+  assert.equal(chrome.getTabs(opened.auxWindowId).length, 5);
 });
 
 test("PlayHouse URL order, active tab, and pinned state restore after controller restart", async () => {
@@ -722,11 +875,8 @@ test("Aux restore suppresses reconstruction events until its role set is verifie
   const chrome = fakeChrome();
   const { events, workspace } = diagnosticController(chrome);
   const tabs = {
-    activeIndex: 3,
-    tabs: [
-      ...defaultAuxTabs().tabs,
-      { pinned: true, role: null, url: "https://docs.google.com/document/d/example" },
-    ],
+    activeIndex: 4,
+    tabs: defaultAuxTabs().tabs,
   };
   const geometry = { left: 1000, width: 600 };
   const restored = await workspace.createWindowFromTabs(
@@ -748,7 +898,7 @@ test("Aux restore suppresses reconstruction events until its role set is verifie
   assert.equal(events.some(({ event }) => event === "AUX_SESSION_SAVE_COMPLETE"), false);
   await workspace.finalizeRestoredWindow("context", restored, "AUX-4-TABS");
 
-  assert.equal((await workspace.state()).auxSession.tabs.tabs.length, 4);
+  assert.equal((await workspace.state()).auxSession.tabs.tabs.length, 5);
   assert.equal(events.filter(({ event }) => event === "AUX_RESTORE_VERIFIED").length, 1);
   assert.equal(events.filter(({ event }) => event === "AUX_RESTORE_FINAL_SAVE").length, 1);
 });
@@ -801,28 +951,18 @@ test("restore and animation bounds never replace geometry until a later user mov
   )).length, 3);
 });
 
-test("a deliberately closed Gmail role is recreated only when Gmail routing needs it", async () => {
+test("a deliberately closed Gmail Hot Tab is self-healed", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
   const initial = await workspace.summon(workArea, "display-1");
   chrome.closeTab(initial.contextRoleTabIds.gmail);
-  await workspace.rememberWorkspaceTabs(initial.contextWindowId);
-  const countAfterClose = chrome.getTabs(initial.contextWindowId).length;
-
-  await workspace.summon(workArea, "display-1");
-  assert.equal(chrome.getTabs(initial.contextWindowId).length, countAfterClose);
-
-  await workspace.openCarnivalContext(
-    "https://mail.google.com/mail/u/0/#all/thread-restored",
-    workArea,
-    "display-1",
-  );
+  await workspace.reconcileAuxTabs(initial.contextWindowId);
   const state = await workspace.state();
-  assert.equal(chrome.getTabs(initial.contextWindowId).length, countAfterClose + 1);
+  assert.equal(chrome.getTabs(initial.contextWindowId).length, 5);
   assert.equal(
     chrome.getTab(state.contextRoleTabIds.gmail).url,
-    "https://mail.google.com/mail/u/0/#all/thread-restored",
+    AUX_ROLE_URLS.gmail,
   );
 });
 
@@ -846,7 +986,7 @@ test("opening in Aux restores a minimized or offscreen Aux and focuses it", asyn
   });
 });
 
-test("Drive routing reuses one Carnival role tab without touching windows or unrelated Drive tabs", async () => {
+test("Drive routing reuses the Play/Chrome Hot Tab without touching unrelated windows", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
@@ -879,10 +1019,9 @@ test("Drive routing reuses one Carnival role tab without touching windows or unr
   const afterSecond = await workspace.state();
 
   assert.equal(chrome.calls.createWindow.length, 0);
-  assert.equal(chrome.calls.createTab.length, 1);
-  assert.equal(chrome.calls.updateWindow.length, 0);
-  assert.equal(afterFirst.auxRoleTabIds.drive, afterSecond.auxRoleTabIds.drive);
-  assert.equal(chrome.getTab(afterSecond.auxRoleTabIds.drive).url,
+  assert.equal(chrome.calls.createTab.length, 0);
+  assert.equal(afterFirst.auxRoleTabIds.misc, afterSecond.auxRoleTabIds.misc);
+  assert.equal(chrome.getTab(afterSecond.auxRoleTabIds.misc).url,
     "https://drive.google.com/drive/folders/XYZ789");
   assert.equal(chrome.getTab(unrelatedDrive.id).url,
     "https://drive.google.com/drive/folders/UNRELATED");
@@ -1088,6 +1227,25 @@ test("restored Aux routing leaves unrelated Chrome windows untouched", async () 
   assert.deepEqual(chrome.getWindow(unrelated.id), before);
 });
 
+test("an arbitrary tab cannot replace a missing Play/Chrome Hot Tab", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const initial = await workspace.summon(workArea, "display-1");
+  chrome.closeTab(initial.contextRoleTabIds.misc);
+  const arbitrary = chrome.addTab(initial.contextWindowId, "https://example.com/arbitrary", {
+    active: true,
+  });
+
+  await workspace.reconcileAuxTabs(initial.contextWindowId, { revealMisc: true });
+  const state = await workspace.state();
+
+  assert.equal(chrome.getTab(state.contextRoleTabIds.misc).url, AUX_ROLE_URLS.misc);
+  assert.equal(chrome.getTab(arbitrary.id).windowId, state.miscWindowId);
+  assert.equal(state.rightSurface, "misc");
+  assert.equal(chrome.getTabs(initial.contextWindowId).length, 5);
+});
+
 test("PlayHouse routes Calendar, Gmail, Contacts, Slack, and URLs by revealing only existing Aux", async () => {
   const chrome = fakeChrome();
   const animations = [];
@@ -1149,7 +1307,7 @@ test("PlayHouse routes Calendar, Gmail, Contacts, Slack, and URLs by revealing o
   assert.equal(chrome.getTab(after.auxRoleTabIds.misc).url, "https://example.com/play");
 });
 
-test("PlayHouse routing does not recreate a missing Aux", async () => {
+test("PlayHouse routing recreates a missing Aux without moving PlayHouse", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
@@ -1158,13 +1316,13 @@ test("PlayHouse routing does not recreate a missing Aux", async () => {
   chrome.calls.createWindow.length = 0;
   chrome.calls.updateWindow.length = 0;
 
-  await assert.rejects(
-    workspace.openCarnivalContext("https://example.com/recreated", workArea, "display-1"),
-    /Aux must already be open/,
-  );
+  const playhouseBefore = { ...chrome.getWindow(initial.playhouseWindowId) };
+  await workspace.openCarnivalContext("https://example.com/recreated", workArea, "display-1");
+  const state = await workspace.state();
 
-  assert.equal(chrome.calls.createWindow.length, 0);
-  assert.equal(chrome.calls.updateWindow.length, 0);
+  assert.equal(chrome.calls.createWindow.length, 1);
+  assert.equal(chrome.getTab(state.auxRoleTabIds.misc).url, "https://example.com/recreated");
+  assert.deepEqual(chrome.getWindow(initial.playhouseWindowId), playhouseBefore);
 });
 
 test("a missing workspace side is repaired without duplicating the surviving window", async () => {
@@ -1443,6 +1601,8 @@ test("both closed workspace windows are recreated with saved geometry and contex
   assert.deepEqual(chrome.calls.createWindow.at(-1).url, [
     "https://calendar.google.com/calendar/u/0/r/week",
     "https://mail.google.com/mail/u/0/#inbox",
+    "https://contacts.google.com/",
+    "https://app.slack.com/",
     "https://www.google.com/",
   ]);
   assert.deepEqual(animations.at(-1).playhouse.to, {
@@ -1482,7 +1642,7 @@ test("concurrent PH and Aux close events clear only live identities and retain b
   assert.deepEqual(after.auxSession, before.auxSession);
 });
 
-test("role sessions restore user tabs, active tabs, and unswapped geometry after both windows close", async () => {
+test("PH and Misc sessions restore independently while Aux remains canonical", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1800 };
@@ -1491,40 +1651,50 @@ test("role sessions restore user tabs, active tabs, and unswapped geometry after
   chrome.addTab(opened.playhouseWindowId, "https://example.com/b", { active: true });
   chrome.addTab(opened.contextWindowId, "https://youtube.com/", { active: true });
   await workspace.rememberWorkspaceTabs(opened.playhouseWindowId);
-  await workspace.rememberWorkspaceTabs(opened.contextWindowId);
+  await workspace.reconcileAuxTabs(opened.contextWindowId, { revealMisc: true });
+  const withMisc = await workspace.state();
+  await workspace.rememberWorkspaceTabs(withMisc.miscWindowId);
   chrome.resizeWindow(opened.playhouseWindowId, { left: 120, width: 700 });
-  chrome.resizeWindow(opened.contextWindowId, { left: 900, width: 650 });
+  chrome.resizeWindow(withMisc.miscWindowId, { left: 900, width: 650 });
   await workspace.rememberVisibleBounds();
   chrome.closeWindow(opened.playhouseWindowId);
   chrome.closeWindow(opened.contextWindowId);
+  chrome.closeWindow(withMisc.miscWindowId);
   await Promise.all([
     workspace.handleWindowClosed(opened.playhouseWindowId),
     workspace.handleWindowClosed(opened.contextWindowId),
+    workspace.handleWindowClosed(withMisc.miscWindowId),
   ]);
 
   const restored = await controller(chrome).summon(workArea, "display-1");
   const phTabs = chrome.getTabs(restored.phWindowId);
-  const auxTabs = chrome.getTabs(restored.auxWindowId);
+  const miscTabs = chrome.getTabs(restored.miscWindowId);
 
   assert.deepEqual(phTabs.map(({ url }) => url), [PLAYHOUSE_URL, "https://example.com/a", "https://example.com/b"]);
   assert.equal(phTabs[2].active, true);
+  const restoredController = controller(chrome);
+  await restoredController.switchRightSurface("aux", workArea);
+  const withAux = await restoredController.state();
+  const auxTabs = chrome.getTabs(withAux.auxWindowId);
   assert.deepEqual(auxTabs.map(({ url }) => url), [
     DEFAULT_CONTEXT_URL,
     "https://mail.google.com/mail/u/0/#inbox",
+    "https://contacts.google.com/",
+    "https://app.slack.com/",
     "https://www.google.com/",
-    "https://youtube.com/",
   ]);
-  assert.equal(auxTabs[3].active, true);
+  assert.deepEqual(miscTabs.map(({ url }) => url), ["https://www.google.com/", "https://youtube.com/"]);
+  assert.equal(miscTabs[1].active, true);
   assert.deepEqual(
     { left: chrome.getWindow(restored.phWindowId).left, width: chrome.getWindow(restored.phWindowId).width },
     { left: 0, width: 700 },
   );
   assert.deepEqual(
-    { left: chrome.getWindow(restored.auxWindowId).left, width: chrome.getWindow(restored.auxWindowId).width },
+    { left: chrome.getWindow(withAux.auxWindowId).left, width: chrome.getWindow(withAux.auxWindowId).width },
     { left: 900, width: 650 },
   );
   assert.equal(chrome.getTab(restored.phPrimaryTabId).url, PLAYHOUSE_URL);
-  assert.equal(chrome.getTab(restored.auxRoleTabIds.gmail).url, "https://mail.google.com/mail/u/0/#inbox");
+  assert.equal(chrome.getTab(withAux.auxRoleTabIds.gmail).url, "https://mail.google.com/mail/u/0/#inbox");
 });
 
 test("a PlayHouse URL in Aux is never adopted as the PH window", async () => {

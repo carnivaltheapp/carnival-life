@@ -27,3 +27,10 @@ test("extension manifest retains bridge, Gmail, display, and native permissions"
     matches.includes("http://localhost/*")
   )));
 });
+
+test("extension manifest exposes the compact Aux/Misc keyboard toggle", () => {
+  assert.deepEqual(manifest.commands["toggle-right-surface"], {
+    description: "Toggle the Carnival Aux and Misc windows",
+    suggested_key: { default: "Alt+Shift+M" },
+  });
+});

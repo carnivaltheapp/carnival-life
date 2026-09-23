@@ -5,6 +5,7 @@ import {
 } from "./workspace-controller.js";
 import { createWorkspaceActions } from "./workspace-summon.js";
 import { isOpenInAuxMessage, routeOpenInAuxMessage } from "./aux-routing.js";
+import { isToggleRightSurfaceMessage, toggleRightSurface } from "./right-surface.js";
 import { createWindowTrace } from "./window-trace.js";
 import { createPhSessionDiagnosticTrail } from "./workspace-tabs.js";
 import {
@@ -396,6 +397,13 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 chrome.tabs.onCreated.addListener((tab) => {
   windowTrace.tabEvent("CHROME_TAB_ON_CREATED", tab);
   scheduleTabSave(tab.windowId, "tab-created");
+  controller.reconcileAuxTabs(tab.windowId, { revealMisc: true })
+    .catch((error) => console.error("Carnival Aux tab handoff failed", error));
+});
+chrome.commands.onCommand.addListener((command) => {
+  if (command !== "toggle-right-surface") return;
+  toggleRightSurface({ controller, currentWorkArea, reportDrawerState })
+    .catch((error) => console.error("Carnival right-surface toggle failed", error));
 });
 chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
   if (removeInfo.isWindowClosing) {
@@ -403,10 +411,24 @@ chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
       .catch((error) => console.error("Carnival closing-tab diagnostic failed", error));
   } else {
     scheduleTabSave(removeInfo.windowId, "tab-removed");
+    controller.reconcileAuxTabs(removeInfo.windowId)
+      .catch((error) => console.error("Carnival Aux tab repair failed", error));
   }
 });
 chrome.tabs.onActivated.addListener(({ windowId }) => scheduleTabSave(windowId, "tab-activated"));
-chrome.tabs.onMoved.addListener((_tabId, moveInfo) => scheduleTabSave(moveInfo.windowId, "tab-moved"));
+chrome.tabs.onMoved.addListener((_tabId, moveInfo) => {
+  scheduleTabSave(moveInfo.windowId, "tab-moved");
+  controller.reconcileAuxTabs(moveInfo.windowId)
+    .catch((error) => console.error("Carnival Aux tab order repair failed", error));
+});
+chrome.tabs.onAttached.addListener((_tabId, attachInfo) => {
+  controller.reconcileAuxTabs(attachInfo.newWindowId, { revealMisc: true })
+    .catch((error) => console.error("Carnival Aux attached-tab handoff failed", error));
+});
+chrome.tabs.onDetached.addListener((_tabId, detachInfo) => {
+  controller.reconcileAuxTabs(detachInfo.oldWindowId)
+    .catch((error) => console.error("Carnival Aux detached-tab repair failed", error));
+});
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "carnivalBridgeHealth") {
     sendResponse({ ok: true });
@@ -450,6 +472,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse({ ok: false, branches: [] });
       return false;
     }
+    return true;
+  }
+  if (isToggleRightSurfaceMessage(message)) {
+    toggleRightSurface({ controller, currentWorkArea, reportDrawerState })
+      .then((state) => sendResponse({ ok: true, rightSurface: state.rightSurface }))
+      .catch((error) => sendResponse({ error: error.message, ok: false }));
     return true;
   }
   if (message?.type === UNSTAR_GMAIL_THREAD) {

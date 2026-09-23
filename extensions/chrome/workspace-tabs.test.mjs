@@ -7,6 +7,7 @@ import {
   auxRoleForUrl,
   createPhSessionDiagnosticTrail,
   defaultAuxTabs,
+  defaultMiscTabs,
   isGoogleContactsUrl,
   isSlackUrl,
   isRestorableTabUrl,
@@ -71,12 +72,14 @@ test("PH session diagnostic recording is ordered, persistent, and failure-safe",
   await assert.doesNotReject(failingTrail.drain());
 });
 
-test("fresh Aux defines Calendar, Gmail, and Misc role tabs in order", () => {
+test("fresh Aux defines exactly five canonical Hot Tabs in order", () => {
   assert.deepEqual(defaultAuxTabs(), {
     activeIndex: 0,
     tabs: [
       { pinned: false, role: "calendar", url: AUX_ROLE_URLS.calendar },
       { pinned: false, role: "gmail", url: AUX_ROLE_URLS.gmail },
+      { pinned: false, role: "contacts", url: AUX_ROLE_URLS.contacts },
+      { pinned: false, role: "slack", url: AUX_ROLE_URLS.slack },
       { pinned: false, role: "misc", url: AUX_ROLE_URLS.misc },
     ],
   });
@@ -85,10 +88,18 @@ test("fresh Aux defines Calendar, Gmail, and Misc role tabs in order", () => {
 test("Hot Tabs have canonical durable roles while URL retains the compatible Misc role", () => {
   assert.deepEqual(HOT_TAB_ROLES, {
     calendar: "calendar",
-    drive: "drive",
+    drive: "misc",
     gmail: "gmail",
+    contacts: "contacts",
     slack: "slack",
     url: "misc",
+  });
+});
+
+test("fresh Misc is an unrestricted restorable browser session", () => {
+  assert.deepEqual(defaultMiscTabs(), {
+    activeIndex: 0,
+    tabs: [{ pinned: false, role: null, url: AUX_ROLE_URLS.misc }],
   });
 });
 

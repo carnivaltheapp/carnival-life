@@ -102,6 +102,7 @@ import { useGridFontSizePreference } from "./grid-settings";
 import { PlayForm } from "./play-form";
 import { PlayHouseIcon } from "./playhouse-icon";
 import { PlaySearch } from "./play-search";
+import { WorkspaceSurfaceToggle } from "./workspace-surface-toggle";
 import {
   DoneIcon,
   FlipRankIcon,
@@ -1163,6 +1164,7 @@ function PlayhouseShellView({
         </div>
         <h1 className="headerDetailTitle">Details</h1>
         <div className="headerActions">
+          <WorkspaceSurfaceToggle />
           <PlaySearch initialQuery={searchQuery} />
           <label className="branchFilter">
             <span>Show Branch</span>

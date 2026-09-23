@@ -1,8 +1,10 @@
 import {
+  AUX_HOT_TAB_ORDER,
   AUX_ROLE_URLS,
   HOT_TAB_ROLES,
   auxRoleForUrl,
   defaultAuxTabs,
+  defaultMiscTabs,
   defaultPlayhouseTabs,
   isGoogleContactsUrl,
   snapshotTabs,
@@ -121,6 +123,60 @@ function legacySession(state, role) {
   return { geometry, tabs };
 }
 
+function canonicalAuxSession(state) {
+  const source = legacySession(state, "aux");
+  const defaults = defaultAuxTabs();
+  const byRole = new Map(source.tabs?.tabs.map((tab, index) => [tab.role, { ...tab, index }]) ?? []);
+  const activeRole = source.tabs?.tabs[source.tabs.activeIndex]?.role ?? "calendar";
+  const tabs = AUX_HOT_TAB_ORDER.map((role) => ({
+    pinned: false,
+    role,
+    url: byRole.get(role)?.url ?? AUX_ROLE_URLS[role],
+  }));
+  return {
+    geometry: source.geometry,
+    tabs: {
+      activeIndex: Math.max(0, AUX_HOT_TAB_ORDER.indexOf(activeRole)),
+      tabs: tabs.length ? tabs : defaults.tabs,
+    },
+  };
+}
+
+function miscSession(state) {
+  const explicit = validSavedTabs(state.miscSession?.tabs ?? state.miscTabs, "misc");
+  const legacyAux = legacySession(state, "aux").tabs;
+  const legacyExtras = legacyAux?.tabs.filter((tab) => (
+    !AUX_HOT_TAB_ORDER.includes(tab.role) || tab.role === null
+  )) ?? [];
+  const migrated = legacyExtras.length ? {
+    activeIndex: Math.max(0, legacyExtras.findIndex((tab) => (
+      tab.url === legacyAux.tabs[legacyAux.activeIndex]?.url
+    ))),
+    tabs: legacyExtras.map((tab) => ({ pinned: tab.pinned, role: null, url: tab.url })),
+  } : null;
+  return {
+    geometry: storedGeometry(state.miscSession?.geometry) ??
+      storedGeometry(state.rightSlotGeometry) ?? legacySession(state, "aux").geometry,
+    tabs: explicit ?? migrated,
+  };
+}
+
+function normalizedRightSurface(value) {
+  return value === "misc" ? "misc" : "aux";
+}
+
+function selectedRightWindowId(state) {
+  return normalizedRightSurface(state.rightSurface) === "misc"
+    ? state.miscWindowId
+    : state.auxWindowId;
+}
+
+function selectedRightSession(state) {
+  return normalizedRightSurface(state.rightSurface) === "misc"
+    ? state.miscSession
+    : state.auxSession;
+}
+
 function normalizedWorkspaceState(raw) {
   const phWindowId = Object.hasOwn(raw, "phWindowId") ? raw.phWindowId : raw.playhouseWindowId ?? null;
   const auxWindowId = Object.hasOwn(raw, "auxWindowId") ? raw.auxWindowId : raw.contextWindowId ?? null;
@@ -135,11 +191,17 @@ function normalizedWorkspaceState(raw) {
     ? { ...phSession, geometry: { ...phSession.geometry, left: raw.workArea.left } }
     : phSession;
   const storedPlayhouseBounds = storedBounds(raw.playhouseBounds);
+  const rightSurface = normalizedRightSurface(raw.rightSurface);
+  const normalizedAuxSession = canonicalAuxSession(raw);
+  const normalizedMiscSession = miscSession(raw);
+  const rightSlotGeometry = storedGeometry(raw.rightSlotGeometry) ??
+    storedGeometry(rightSurface === "misc" ? normalizedMiscSession.geometry : normalizedAuxSession.geometry) ??
+    storedGeometry(normalizedAuxSession.geometry) ?? storedGeometry(normalizedMiscSession.geometry);
   return {
     ...raw,
     auxActiveTabId,
     auxRoleTabIds,
-    auxSession: legacySession(raw, "aux"),
+    auxSession: normalizedAuxSession,
     auxWindowId,
     contextRoleTabIds: auxRoleTabIds,
     contextTabId: auxActiveTabId,
@@ -147,6 +209,10 @@ function normalizedWorkspaceState(raw) {
     phPrimaryTabId,
     phSession: anchoredPhSession,
     phWindowId,
+    miscSession: normalizedMiscSession,
+    miscWindowId: Number.isInteger(raw.miscWindowId) ? raw.miscWindowId : null,
+    rightSlotGeometry,
+    rightSurface,
     ...(validWorkArea(raw.workArea) && storedPlayhouseBounds ? {
       playhouseBounds: getAnchoredPlayhouseGeometry(raw.workArea, storedPlayhouseBounds.width),
     } : {}),
@@ -185,7 +251,9 @@ export function canonicalWorkspaceLayout(prior, workArea) {
   const phGeometry = storedGeometry(prior.phSession?.geometry) ?? geometryFromBounds(
     prior.savedVisibleBounds?.playhouse ?? prior.playhouseBounds,
   );
-  const auxGeometry = storedGeometry(prior.auxSession?.geometry) ?? geometryFromBounds(
+  const auxGeometry = storedGeometry(prior.rightSlotGeometry) ??
+    storedGeometry(selectedRightSession(prior)?.geometry) ??
+    storedGeometry(prior.auxSession?.geometry) ?? geometryFromBounds(
     prior.savedVisibleBounds?.context ?? prior.contextBounds,
   );
   if (!phGeometry || !auxGeometry) return fallback;
@@ -292,6 +360,14 @@ function logicalTabState(tabs) {
   };
 }
 
+function orderedUrlsMatch(tabs, savedTabs) {
+  const saved = validSavedTabs(savedTabs, "misc");
+  if (!saved || tabs.length !== saved.tabs.length) return false;
+  return [...tabs]
+    .sort((left, right) => (left.index ?? 0) - (right.index ?? 0))
+    .every((tab, index) => tab.url === saved.tabs[index].url);
+}
+
 function diagnosticSession(session) {
   return {
     activeIndex: session?.tabs?.activeIndex ?? null,
@@ -319,6 +395,8 @@ export class CarnivalWorkspaceController {
     this.movingWindowIds = new Set();
     this.phRestoreInProgress = false;
     this.auxRestoreInProgress = false;
+    this.miscRestoreInProgress = false;
+    this.auxRepairInProgress = false;
     this.restoreWindowRoles = new Map();
     this.systemGeometryWindowIds = new Set();
     this.systemGeometryTimers = new Map();
@@ -352,7 +430,8 @@ export class CarnivalWorkspaceController {
   isRestoreInProgress(windowId) {
     const role = this.restoreRoleForWindow(windowId);
     return role === "playhouse" ? this.phRestoreInProgress
-      : role === "context" ? this.auxRestoreInProgress : false;
+      : role === "context" ? this.auxRestoreInProgress
+        : role === "misc" ? this.miscRestoreInProgress : false;
   }
 
   isSystemGeometryChange(windowId) {
@@ -362,7 +441,8 @@ export class CarnivalWorkspaceController {
 
   logRestoreSaveSkipped(windowId, reason) {
     const role = this.restoreRoleForWindow(windowId);
-    const eventPrefix = role === "playhouse" ? "PH" : role === "context" ? "AUX" : "WORKSPACE";
+    const eventPrefix = role === "playhouse" ? "PH"
+      : role === "context" ? "AUX" : role === "misc" ? "MISC" : "WORKSPACE";
     this.logger.info?.(`${eventPrefix}_SESSION_SAVE_SKIPPED`, {
       reason: "restore-in-progress",
       source: reason,
@@ -437,8 +517,9 @@ export class CarnivalWorkspaceController {
     recreationPath = "default_ph_create",
   ) {
     const validSaved = validSavedTabs(savedTabs, kind);
-    let definitions = validSaved ??
-      (kind === "playhouse" ? defaultPlayhouseTabs(PLAYHOUSE_URL) : defaultAuxTabs());
+    let definitions = validSaved ?? (kind === "playhouse"
+      ? defaultPlayhouseTabs(PLAYHOUSE_URL)
+      : kind === "context" ? defaultAuxTabs() : defaultMiscTabs());
     if (kind === "playhouse") {
       const playhouseIndex = definitions.tabs.findIndex((tab) => isPlayhouseUrl(tab.url));
       if (playhouseIndex < 0) {
@@ -456,7 +537,7 @@ export class CarnivalWorkspaceController {
         };
       }
     }
-    const eventPrefix = kind === "playhouse" ? "PH" : "AUX";
+    const eventPrefix = kind === "playhouse" ? "PH" : kind === "context" ? "AUX" : "MISC";
     if (kind === "playhouse") {
       const existingCandidateCount = await this.playhouseCandidateCount();
       this.recordPhSessionDiagnostic("PH_RESTORE_STARTED", {
@@ -468,7 +549,8 @@ export class CarnivalWorkspaceController {
       });
     }
     if (kind === "playhouse") this.phRestoreInProgress = true;
-    else this.auxRestoreInProgress = true;
+    else if (kind === "context") this.auxRestoreInProgress = true;
+    else this.miscRestoreInProgress = true;
     this.creatingRestoreRole = kind;
     this.logger.info?.(`${eventPrefix}_RESTORE_START`, {
       ...diagnosticSession({ geometry: geometryFromBounds(bounds), tabs: definitions }),
@@ -502,7 +584,8 @@ export class CarnivalWorkspaceController {
         });
       }
       if (kind === "playhouse") this.phRestoreInProgress = false;
-      else this.auxRestoreInProgress = false;
+      else if (kind === "context") this.auxRestoreInProgress = false;
+      else this.miscRestoreInProgress = false;
       throw error;
     } finally {
       this.creatingRestoreRole = null;
@@ -518,7 +601,8 @@ export class CarnivalWorkspaceController {
         });
       }
       if (kind === "playhouse") this.phRestoreInProgress = false;
-      else this.auxRestoreInProgress = false;
+      else if (kind === "context") this.auxRestoreInProgress = false;
+      else this.miscRestoreInProgress = false;
       throw new Error(`Chrome could not create the ${kind} window.`);
     }
     this.restoreWindowRoles.set(window.id, kind);
@@ -671,7 +755,7 @@ export class CarnivalWorkspaceController {
 
   async finalizeRestoredWindow(kind, restored, sessionCycle = null) {
     if (!restored?.restored) return null;
-    const eventPrefix = kind === "playhouse" ? "PH" : "AUX";
+    const eventPrefix = kind === "playhouse" ? "PH" : kind === "context" ? "AUX" : "MISC";
     const windowId = restored.window.id;
     const state = await this.state();
     const { snapshot, tabs } = await this.snapshotWindow(kind, windowId, state);
@@ -738,7 +822,8 @@ export class CarnivalWorkspaceController {
     });
 
     if (kind === "playhouse") this.phRestoreInProgress = false;
-    else this.auxRestoreInProgress = false;
+    else if (kind === "context") this.auxRestoreInProgress = false;
+    else this.miscRestoreInProgress = false;
     this.restoreWindowRoles.delete(windowId);
     const activeTab = tabs.find((tab) => tab.active) ?? tabs[0];
     const finalState = await this.updateState((current) => kind === "playhouse"
@@ -747,13 +832,20 @@ export class CarnivalWorkspaceController {
           phSession: { ...current.phSession, tabs: snapshot },
           playhouseTabs: snapshot,
         }
-      : {
+      : kind === "context" ? {
           ...current,
           auxActiveTabId: activeTab.id,
           auxSession: { ...current.auxSession, tabs: snapshot },
           contextTabId: activeTab.id,
           contextTabs: snapshot,
           contextUrl: activeTab.url ?? current.contextUrl,
+        }
+        : {
+          ...current,
+          miscActiveTabId: activeTab.id,
+          miscSession: { ...current.miscSession, tabs: snapshot },
+          miscTabs: snapshot,
+          miscWindowId: windowId,
         });
     this.logger.info?.(`${eventPrefix}_RESTORE_FINAL_SAVE`, {
       ...diagnosticSession(kind === "playhouse" ? finalState.phSession : finalState.auxSession),
@@ -783,6 +875,7 @@ export class CarnivalWorkspaceController {
   cancelRestores() {
     this.phRestoreInProgress = false;
     this.auxRestoreInProgress = false;
+    this.miscRestoreInProgress = false;
     this.creatingRestoreRole = null;
     this.restoreWindowRoles.clear();
     this.systemGeometryWindowIds.clear();
@@ -792,9 +885,7 @@ export class CarnivalWorkspaceController {
 
   async snapshotWindow(kind, windowId, state) {
     const tabs = await this.tabsInWindow(windowId);
-    const roleIds = kind === "playhouse"
-      ? {}
-      : state.auxRoleTabIds ?? {};
+    const roleIds = kind === "context" ? state.auxRoleTabIds ?? {} : {};
     const primaryTabId = kind === "playhouse"
       ? tabs.find((tab) => tab.id === state.phPrimaryTabId && isPlayhouseUrl(tab.url))?.id ??
         tabs.find((tab) => isPlayhouseUrl(tab.url))?.id ?? null
@@ -823,7 +914,7 @@ export class CarnivalWorkspaceController {
       const adopted = await waitForColdStartPlayhouse({
         candidateWindowIds: startup.coldStartCandidateWindowIds,
         chromeApi: this.chrome,
-        excludedWindowIds: [prior.auxWindowId].filter(Number.isInteger),
+        excludedWindowIds: [prior.auxWindowId, prior.miscWindowId].filter(Number.isInteger),
         onEvent: (event, details) => this.windowTrace?.emit(
           "workspace-controller",
           event,
@@ -932,31 +1023,259 @@ export class CarnivalWorkspaceController {
           ? { ...bounds, focused: false, state: "normal" }
           : { focused: false, state: "normal" }, "find-aux-existing");
       }
-      let tabs = await this.tabsInWindow(window.id);
-      const roles = { ...(prior.auxRoleTabIds ?? {}) };
-      if (!prior.auxSession.tabs) {
-        for (const role of ["calendar", "gmail", "misc"]) {
-          if (roles[role]) continue;
-          const created = await this.chrome.tabs.create({
-            active: false,
-            url: AUX_ROLE_URLS[role],
-            windowId: window.id,
-          });
-          roles[role] = created.id;
-        }
-        tabs = await this.tabsInWindow(window.id);
-      }
-      tab = tabs.find((candidate) => candidate.active) ??
-        tabs.find((candidate) => candidate.id === prior.auxActiveTabId) ?? tabs[0] ?? null;
-      const snapshot = snapshotTabs(tabs, roles);
+      const repaired = await this.repairAuxTabs(prior, window, bounds);
+      const roles = repaired?.auxRoleTabIds ?? { ...(prior.auxRoleTabIds ?? {}) };
+      const tabs = await this.tabsInWindow(window.id);
+      tab = tabs.find((candidate) => candidate.active) ?? tabs[0] ?? null;
+      const snapshot = repaired?.auxSnapshot ?? snapshotTabs(tabs, roles);
       if (!tab?.id || !snapshot) throw new Error("Chrome could not identify the context tabs.");
-      return { restore: null, roleTabIds: roles, tab, tabState: snapshot, window };
+      return {
+        miscRepair: repaired?.misc ? repaired : null,
+        restore: null,
+        roleTabIds: roles,
+        tab,
+        tabState: snapshot,
+        window,
+      };
     }
     } finally {
       this.windowTrace?.exit("aux", {
         source: "workspace-controller",
       });
     }
+  }
+
+  async findMisc(prior, bounds, positionExisting = true) {
+    let window = await existingWindow(this.chrome, prior.miscWindowId);
+    if (!window && prior.miscSession?.tabs) {
+      const windows = await this.chrome.windows.getAll({ populate: true });
+      window = windows.find((candidate) => (
+        candidate.id !== prior.phWindowId &&
+        candidate.id !== prior.auxWindowId &&
+        orderedUrlsMatch(candidate.tabs ?? [], prior.miscSession.tabs)
+      )) ?? null;
+    }
+    if (!window) {
+      const restored = await this.createWindowFromTabs(
+        bounds,
+        prior.miscSession?.tabs,
+        "misc",
+        prior.sessionCycle ?? null,
+      );
+      return {
+        tab: restored.activeTab,
+        tabState: restored.tabState,
+        restore: restored,
+        window: restored.window,
+      };
+    }
+    if (positionExisting) {
+      window = await this.updateWindow(window.id, {
+        ...bounds,
+        focused: false,
+        state: "normal",
+      }, "find-misc-existing");
+    }
+    const tabs = await this.tabsInWindow(window.id);
+    const tab = tabs.find((candidate) => candidate.active) ??
+      tabs.find((candidate) => candidate.id === prior.miscActiveTabId) ?? tabs[0] ?? null;
+    const snapshot = snapshotTabs(tabs);
+    if (!tab?.id || !snapshot) throw new Error("Chrome could not identify the Misc tabs.");
+    return { restore: null, tab, tabState: snapshot, window };
+  }
+
+  async repairAuxTabs(prior, auxWindow, bounds, { revealMisc = false } = {}) {
+    if (!auxWindow?.id || this.auxRepairInProgress) return null;
+    this.auxRepairInProgress = true;
+    try {
+      const roleIds = { ...(prior.auxRoleTabIds ?? {}) };
+      const claimed = new Set();
+      for (const role of AUX_HOT_TAB_ORDER) {
+        let tab = await existingTab(this.chrome, roleIds[role]);
+        if (tab && tab.windowId !== auxWindow.id) {
+          try {
+            tab = await this.chrome.tabs.move(tab.id, { index: -1, windowId: auxWindow.id });
+          } catch {
+            tab = null;
+          }
+        }
+        if (!tab || tab.windowId !== auxWindow.id || claimed.has(tab.id)) {
+          const candidates = await this.tabsInWindow(auxWindow.id);
+          const savedRoleUrl = prior.auxSession?.tabs?.tabs.find((saved) => saved.role === role)?.url ??
+            AUX_ROLE_URLS[role];
+          tab = candidates.find((candidate) => (
+            !claimed.has(candidate.id) && (role === HOT_TAB_ROLES.url
+              ? candidate.url === savedRoleUrl
+              : auxRoleForUrl(candidate.url) === role)
+          )) ?? null;
+        }
+        if (!tab) {
+          tab = await this.chrome.tabs.create({
+            active: false,
+            url: AUX_ROLE_URLS[role],
+            windowId: auxWindow.id,
+          });
+        }
+        roleIds[role] = tab.id;
+        claimed.add(tab.id);
+      }
+
+      const extras = (await this.tabsInWindow(auxWindow.id))
+        .filter((tab) => !claimed.has(tab.id));
+      let misc = null;
+      let movedActiveTab = null;
+      if (extras.length) {
+        misc = await this.findMisc(prior, bounds, false);
+        for (const extra of extras) {
+          const moved = await this.chrome.tabs.move(extra.id, {
+            index: -1,
+            windowId: misc.window.id,
+          });
+          if (extra.active || !movedActiveTab) movedActiveTab = moved;
+        }
+      }
+
+      for (const [index, role] of AUX_HOT_TAB_ORDER.entries()) {
+        await this.chrome.tabs.update(roleIds[role], { pinned: false });
+        await this.chrome.tabs.move(roleIds[role], { index });
+      }
+      const preferredActiveId = Object.values(roleIds).includes(prior.auxActiveTabId)
+        ? prior.auxActiveTabId
+        : roleIds.calendar;
+      await this.chrome.tabs.update(preferredActiveId, { active: true });
+      const finalAuxTabs = await this.tabsInWindow(auxWindow.id);
+      const auxSnapshot = snapshotTabs(finalAuxTabs, roleIds);
+      if (!auxSnapshot) throw new Error("Chrome could not repair the Aux Hot Tabs.");
+
+      let miscSnapshot = prior.miscSession?.tabs ?? null;
+      if (misc) {
+        if (revealMisc && movedActiveTab?.id) {
+          await this.chrome.tabs.update(movedActiveTab.id, { active: true });
+        }
+        miscSnapshot = snapshotTabs(await this.tabsInWindow(misc.window.id));
+      }
+      return {
+        auxActiveTabId: preferredActiveId,
+        auxRoleTabIds: roleIds,
+        auxSnapshot,
+        misc,
+        miscActiveTabId: revealMisc ? movedActiveTab?.id ?? misc?.tab?.id : prior.miscActiveTabId,
+        miscSnapshot,
+        revealMisc: revealMisc && Boolean(misc),
+      };
+    } finally {
+      this.auxRepairInProgress = false;
+    }
+  }
+
+  async switchRightSurface(surface, workArea = null) {
+    const requestedSurface = normalizedRightSurface(surface);
+    let prior = await this.state();
+    const activeWorkArea = validWorkArea(workArea) ? workArea : prior.workArea;
+    if (!validWorkArea(activeWorkArea)) {
+      throw new Error("A valid monitor work area is required to switch Carnival surfaces.");
+    }
+    const layout = canonicalWorkspaceLayout(prior, activeWorkArea);
+    const outgoingId = selectedRightWindowId(prior);
+    const outgoingWindow = await existingWindow(this.chrome, outgoingId);
+    const slotBounds = actualRestingBounds(outgoingWindow, activeWorkArea) ?? layout.context;
+    if (outgoingWindow) {
+      await this.rememberWorkspaceTabs(outgoingWindow.id, "right-surface-switch");
+      prior = await this.state();
+    }
+
+    const target = requestedSurface === "aux"
+      ? await this.findContext(prior, slotBounds, true)
+      : await this.findMisc(prior, slotBounds, true);
+    if (outgoingWindow && outgoingWindow.id !== target.window.id) {
+      await this.updateWindow(outgoingWindow.id, {
+        focused: false,
+        state: "minimized",
+      }, `hide-${prior.rightSurface}-for-${requestedSurface}`);
+    }
+    await this.updateWindow(target.window.id, {
+      ...slotBounds,
+      focused: true,
+      state: "normal",
+    }, `show-${requestedSurface}-surface`);
+
+    const saved = await this.save({
+      ...prior,
+      ...(requestedSurface === "aux" ? {
+        auxActiveTabId: target.tab.id,
+        auxRoleTabIds: target.roleTabIds,
+        auxSession: { geometry: geometryFromBounds(slotBounds), tabs: target.tabState },
+        auxWindowId: target.window.id,
+        contextRoleTabIds: target.roleTabIds,
+        contextTabId: target.tab.id,
+        contextTabs: target.tabState,
+        contextUrl: target.tab.url ?? prior.contextUrl ?? DEFAULT_CONTEXT_URL,
+        contextWindowId: target.window.id,
+        ...(target.miscRepair ? {
+          miscActiveTabId: target.miscRepair.miscActiveTabId,
+          miscSession: { ...prior.miscSession, tabs: target.miscRepair.miscSnapshot },
+          miscTabs: target.miscRepair.miscSnapshot,
+          miscWindowId: target.miscRepair.misc.window.id,
+        } : {}),
+      } : {
+        miscActiveTabId: target.tab.id,
+        miscSession: { geometry: geometryFromBounds(slotBounds), tabs: target.tabState },
+        miscTabs: target.tabState,
+        miscWindowId: target.window.id,
+      }),
+      contextBounds: slotBounds,
+      rightSlotGeometry: geometryFromBounds(slotBounds),
+      rightSurface: requestedSurface,
+      workArea: activeWorkArea,
+    });
+    if (target.restore) {
+      await this.finalizeRestoredWindow(
+        requestedSurface === "aux" ? "context" : "misc",
+        target.restore,
+        prior.sessionCycle ?? null,
+      );
+    }
+    return saved;
+  }
+
+  async toggleRightSurface(workArea = null) {
+    const state = await this.state();
+    return this.switchRightSurface(state.rightSurface === "misc" ? "aux" : "misc", workArea);
+  }
+
+  async reconcileAuxTabs(windowId, { revealMisc = false } = {}) {
+    if (this.auxRepairInProgress || this.isRestoreInProgress(windowId)) return null;
+    const prior = await this.state();
+    if (windowId !== prior.auxWindowId || !validWorkArea(prior.workArea)) return null;
+    const auxWindow = await existingWindow(this.chrome, windowId);
+    if (!auxWindow) return null;
+    const layout = canonicalWorkspaceLayout(prior, prior.workArea);
+    const repaired = await this.repairAuxTabs(prior, auxWindow, layout.context, { revealMisc });
+    if (!repaired) return null;
+    await this.save({
+      ...prior,
+      auxActiveTabId: repaired.auxActiveTabId,
+      auxRoleTabIds: repaired.auxRoleTabIds,
+      auxSession: { ...prior.auxSession, tabs: repaired.auxSnapshot },
+      contextRoleTabIds: repaired.auxRoleTabIds,
+      contextTabId: repaired.auxActiveTabId,
+      contextTabs: repaired.auxSnapshot,
+      ...(repaired.misc ? {
+        miscActiveTabId: repaired.miscActiveTabId,
+        miscSession: { ...prior.miscSession, tabs: repaired.miscSnapshot },
+        miscTabs: repaired.miscSnapshot,
+        miscWindowId: repaired.misc.window.id,
+      } : {}),
+    });
+    if (repaired.revealMisc) {
+      const state = await this.switchRightSurface("misc", prior.workArea);
+      if (repaired.miscActiveTabId) {
+        await this.chrome.tabs.update(repaired.miscActiveTabId, { active: true });
+        await this.rememberWorkspaceTabs(state.miscWindowId, "aux-extra-tab-handoff");
+      }
+      return this.state();
+    }
+    return this.state();
   }
 
   async animate(playhouseWindowId, contextWindowId, current, layout, workArea, action, durationMs) {
@@ -1058,7 +1377,7 @@ export class CarnivalWorkspaceController {
     if (state.drawerState !== "open") return state;
     const [playhouseWindow, contextWindow] = await Promise.all([
       existingWindow(this.chrome, state.phWindowId),
-      existingWindow(this.chrome, state.auxWindowId),
+      existingWindow(this.chrome, selectedRightWindowId(state)),
     ]);
     if (!playhouseWindow || !contextWindow) return state;
     const bounds = {
@@ -1075,9 +1394,11 @@ export class CarnivalWorkspaceController {
     const state = await this.state();
     const [playhouseWindow, contextWindow, playhouseTab, contextTab] = await Promise.all([
       existingWindow(this.chrome, state.phWindowId),
-      existingWindow(this.chrome, state.auxWindowId),
+      existingWindow(this.chrome, selectedRightWindowId(state)),
       existingTab(this.chrome, state.phPrimaryTabId),
-      existingTab(this.chrome, state.auxActiveTabId),
+      existingTab(this.chrome, state.rightSurface === "misc"
+        ? state.miscActiveTabId
+        : state.auxActiveTabId),
     ]);
     const playhouseIdentityValid = Boolean(playhouseWindow);
     const contextIdentityValid = Boolean(contextWindow);
@@ -1094,8 +1415,13 @@ export class CarnivalWorkspaceController {
     this.logger.info?.("Carnival: actual workspace not visible; reconciling");
     const reconciled = {
       ...state,
-      auxActiveTabId: contextTabValid ? state.auxActiveTabId : null,
-      auxWindowId: contextIdentityValid ? state.auxWindowId : null,
+      ...(state.rightSurface === "misc" ? {
+        miscActiveTabId: contextTabValid ? state.miscActiveTabId : null,
+        miscWindowId: contextIdentityValid ? state.miscWindowId : null,
+      } : {
+        auxActiveTabId: contextTabValid ? state.auxActiveTabId : null,
+        auxWindowId: contextIdentityValid ? state.auxWindowId : null,
+      }),
       drawerState: "retracted",
       phPrimaryTabId: playhouseTabValid ? state.phPrimaryTabId : null,
       phWindowId: playhouseIdentityValid ? state.phWindowId : null,
@@ -1109,8 +1435,9 @@ export class CarnivalWorkspaceController {
     const result = await this.updateState((state) => {
       const phClosed = windowId === state.phWindowId;
       const auxClosed = windowId === state.auxWindowId;
-      if (!phClosed && !auxClosed) return null;
-      closedRole = phClosed ? "ph" : "aux";
+      const miscClosed = windowId === state.miscWindowId;
+      if (!phClosed && !auxClosed && !miscClosed) return null;
+      closedRole = phClosed ? "ph" : auxClosed ? "aux" : "misc";
       const sessionCycle = state.sessionCycle ?? newSessionCycleId();
       if (phClosed) {
         this.recordPhSessionDiagnostic("PH_WINDOW_REMOVED", {
@@ -1123,18 +1450,26 @@ export class CarnivalWorkspaceController {
       }
       this.logger.info?.("WINDOW_CLOSE_STARTED", {
         role: closedRole,
-        session: diagnosticSession(phClosed ? state.phSession : state.auxSession),
+        session: diagnosticSession(phClosed
+          ? state.phSession
+          : auxClosed ? state.auxSession : state.miscSession),
         sessionCycle,
         windowId,
       });
       const phWindowId = phClosed ? null : state.phWindowId;
       const auxWindowId = auxClosed ? null : state.auxWindowId;
+      const miscWindowId = miscClosed ? null : state.miscWindowId;
+      const rightWindowId = state.rightSurface === "misc" ? miscWindowId : auxWindowId;
       return {
         ...state,
         auxActiveTabId: auxClosed ? null : state.auxActiveTabId,
         auxRoleTabIds: auxClosed ? {} : state.auxRoleTabIds,
         auxWindowId,
-        drawerState: phWindowId || auxWindowId ? "degraded" : "retracted",
+        drawerState: phWindowId && rightWindowId
+          ? state.drawerState
+          : phWindowId || rightWindowId ? "degraded" : "retracted",
+        miscActiveTabId: miscClosed ? null : state.miscActiveTabId,
+        miscWindowId,
         phPrimaryTabId: phClosed ? null : state.phPrimaryTabId,
         phWindowId,
         lastSessionCycle: sessionCycle,
@@ -1158,7 +1493,8 @@ export class CarnivalWorkspaceController {
     const prior = await this.state();
     const layout = canonicalWorkspaceLayout(prior, workArea);
     const savedPlayhouse = storedGeometry(prior.phSession.geometry);
-    const savedContext = storedGeometry(prior.auxSession.geometry);
+    const savedContext = storedGeometry(prior.rightSlotGeometry) ??
+      storedGeometry(selectedRightSession(prior)?.geometry);
     if (!savedPlayhouse || !savedContext) {
       this.logger.info?.("Carnival: using default workspace bounds");
     } else if (layout.playhouse.left === savedPlayhouse.left && layout.playhouse.width === savedPlayhouse.width &&
@@ -1169,7 +1505,7 @@ export class CarnivalWorkspaceController {
     }
     const [knownPlayhouse, knownContext] = await Promise.all([
       existingWindow(this.chrome, prior.phWindowId),
-      existingWindow(this.chrome, prior.auxWindowId),
+      existingWindow(this.chrome, selectedRightWindowId(prior)),
     ]);
     const actualLeft = storedBounds(knownPlayhouse)?.left ?? null;
     for (const [event, reason] of [
@@ -1194,11 +1530,17 @@ export class CarnivalWorkspaceController {
       positionExisting && !(repairingOneSide && knownPlayhouse),
       startup,
     );
-    const context = await this.findContext(
-      prior,
-      layout.context,
-      positionExisting && !(repairingOneSide && knownContext),
-    );
+    const context = prior.rightSurface === "misc"
+      ? await this.findMisc(
+        prior,
+        layout.context,
+        positionExisting && !(repairingOneSide && knownContext),
+      )
+      : await this.findContext(
+        prior,
+        layout.context,
+        positionExisting && !(repairingOneSide && knownContext),
+      );
     const current = {
       context: currentBounds(context.window, layout.context),
       playhouse: currentBounds(playhouse.window, layout.playhouse),
@@ -1223,7 +1565,25 @@ export class CarnivalWorkspaceController {
         { ...layout.playhouse, focused: false, state: "normal" }, "anchor-playhouse-before-summon");
       current.playhouse = layout.playhouse;
     }
-    const openingState = {
+    const inactiveRightWindow = await existingWindow(
+      this.chrome,
+      prior.rightSurface === "misc" ? prior.auxWindowId : prior.miscWindowId,
+    );
+    if (inactiveRightWindow && inactiveRightWindow.id !== context.window.id) {
+      await this.updateWindow(inactiveRightWindow.id, {
+        focused: false,
+        state: "minimized",
+      }, "hide-inactive-right-surface-before-summon");
+    }
+    const selectedRightState = prior.rightSurface === "misc" ? {
+      miscActiveTabId: context.tab.id,
+      miscSession: {
+        geometry: geometryFromBounds(layout.context),
+        tabs: context.tabState,
+      },
+      miscTabs: context.tabState,
+      miscWindowId: context.window.id,
+    } : {
       ...prior,
       auxActiveTabId: context.tab.id,
       auxRoleTabIds: context.roleTabIds,
@@ -1238,6 +1598,17 @@ export class CarnivalWorkspaceController {
       contextTabs: context.tabState,
       contextUrl: context.tab.url ?? prior.contextUrl ?? DEFAULT_CONTEXT_URL,
       contextWindowId: context.window.id,
+      ...(context.miscRepair ? {
+        miscActiveTabId: context.miscRepair.miscActiveTabId,
+        miscSession: { ...prior.miscSession, tabs: context.miscRepair.miscSnapshot },
+        miscTabs: context.miscRepair.miscSnapshot,
+        miscWindowId: context.miscRepair.misc.window.id,
+      } : {}),
+    };
+    const openingState = {
+      ...prior,
+      ...selectedRightState,
+      contextBounds: layout.context,
       drawerState: shouldAnimate ? "opening" : "open",
       layoutVersion: LAYOUT_VERSION,
       monitorId,
@@ -1251,6 +1622,7 @@ export class CarnivalWorkspaceController {
       playhouseTabId: playhouse.tab.id,
       playhouseTabs: playhouse.tabState,
       playhouseWindowId: playhouse.window.id,
+      rightSlotGeometry: geometryFromBounds(layout.context),
       workArea,
     };
     await this.save(openingState);
@@ -1272,10 +1644,14 @@ export class CarnivalWorkspaceController {
       sessionCycle: null,
     };
     await this.save(openState);
-    await this.updateWindow(context.window.id, { focused: true }, "summon-aux");
+    await this.updateWindow(context.window.id, { focused: true }, `summon-${prior.rightSurface}`);
     await this.updateWindow(playhouse.window.id, { focused: true }, "summon-playhouse");
     await this.finalizeRestoredWindow("playhouse", playhouse.restore, prior.sessionCycle ?? null);
-    await this.finalizeRestoredWindow("context", context.restore, prior.sessionCycle ?? null);
+    await this.finalizeRestoredWindow(
+      prior.rightSurface === "misc" ? "misc" : "context",
+      context.restore,
+      prior.sessionCycle ?? null,
+    );
     return this.state();
   }
 
@@ -1292,7 +1668,7 @@ export class CarnivalWorkspaceController {
     const state = await this.state();
     if (state.drawerState !== "open" || !validWorkArea(state.workArea)) return state;
     const playhouseWindow = await existingWindow(this.chrome, state.phWindowId);
-    const contextWindow = await existingWindow(this.chrome, state.auxWindowId);
+    const contextWindow = await existingWindow(this.chrome, selectedRightWindowId(state));
     if (!playhouseWindow || !contextWindow) {
       const retracted = { ...state, drawerState: "retracted" };
       await this.save(retracted);
@@ -1326,10 +1702,15 @@ export class CarnivalWorkspaceController {
     }
     const visibleState = {
       ...state,
-      auxSession: { ...state.auxSession, geometry: geometryFromBounds(layout.context) },
+      ...(state.rightSurface === "misc" ? {
+        miscSession: { ...state.miscSession, geometry: geometryFromBounds(layout.context) },
+      } : {
+        auxSession: { ...state.auxSession, geometry: geometryFromBounds(layout.context) },
+      }),
       contextBounds: layout.context,
       phSession: { ...state.phSession, geometry: geometryFromBounds(layout.playhouse) },
       playhouseBounds: layout.playhouse,
+      rightSlotGeometry: geometryFromBounds(layout.context),
     };
     this.windowTrace?.emit("workspace-controller", "PH_GEOMETRY_ACTUAL", {
       actualLeft: storedBounds(playhouseWindow)?.left ?? null,
@@ -1375,8 +1756,10 @@ export class CarnivalWorkspaceController {
       role !== "misc" && role !== "slack") {
       throw new Error("Carnival context navigation requires a Calendar, Contacts, Drive, Gmail, Slack, or Misc role.");
     }
+    const hotTabRole = role === "drive" ? HOT_TAB_ROLES.drive : role;
 
     this.logger.info?.("Carnival: resolving Aux context window");
+    await this.switchRightSurface("aux", workArea);
     const prior = await this.state();
     const layout = canonicalWorkspaceLayout(prior, workArea);
     let contextWindow = await existingWindow(this.chrome, prior.auxWindowId);
@@ -1399,27 +1782,27 @@ export class CarnivalWorkspaceController {
     const contextTabsBeforeRoute = await this.tabsInWindow(contextWindow.id);
     if (!contextTabsBeforeRoute.length) throw new Error("Chrome could not identify the existing Aux tabs.");
     const roleIds = { ...(prior.auxRoleTabIds ?? {}) };
-    const contactsTabs = role === "contacts"
+    const contactsTabs = hotTabRole === "contacts"
       ? (await this.tabsInWindow(contextWindow.id)).filter((tab) => isGoogleContactsUrl(tab.url))
       : [];
-    const slackTabs = role === "slack"
+    const slackTabs = hotTabRole === "slack"
       ? (await this.tabsInWindow(contextWindow.id)).filter((tab) => auxRoleForUrl(tab.url) === "slack")
       : [];
-    let roleTab = role === "contacts"
+    let roleTab = hotTabRole === "contacts"
       ? contactsTabs.find((tab) => tab.active) ?? contactsTabs[0] ?? null
-      : await existingTab(this.chrome, roleIds[role]);
-    if (role === "slack" && !roleTab) {
+      : await existingTab(this.chrome, roleIds[hotTabRole]);
+    if (hotTabRole === "slack" && !roleTab) {
       roleTab = slackTabs.find((tab) => tab.active) ?? slackTabs[0] ?? null;
     }
     if (!roleTab || roleTab.windowId !== contextWindow.id) {
       roleTab = await this.chrome.tabs.create({ active: true, url, windowId: contextWindow.id });
-      this.logger.info?.("AUX_ROLE_TAB_CREATED", { role, tabId: roleTab.id });
+      this.logger.info?.("AUX_ROLE_TAB_CREATED", { role: hotTabRole, tabId: roleTab.id });
     } else {
-      this.logger.info?.("AUX_ROLE_TAB_FOUND", { role, tabId: roleTab.id });
+      this.logger.info?.("AUX_ROLE_TAB_FOUND", { role: hotTabRole, tabId: roleTab.id });
       await this.chrome.tabs.update(roleTab.id, { active: true, url });
     }
-    roleIds[role] = roleTab.id;
-    this.logger.info?.("AUX_ROLE_TAB_ACTIVATED", { role, tabId: roleTab.id });
+    roleIds[hotTabRole] = roleTab.id;
+    this.logger.info?.("AUX_ROLE_TAB_ACTIVATED", { role: hotTabRole, tabId: roleTab.id });
     const navigatedEvent = role === "gmail"
       ? "GMAIL_ROLE_NAVIGATED"
       : role === "calendar" ? "CALENDAR_ROLE_NAVIGATED"
@@ -1432,10 +1815,10 @@ export class CarnivalWorkspaceController {
       path: new URL(url).pathname,
       tabId: roleTab.id,
     });
-    if (Object.values(HOT_TAB_ROLES).includes(role)) {
+    if (Object.values(HOT_TAB_ROLES).includes(hotTabRole)) {
       this.logger.info?.("HOT_TAB_NAVIGATED", {
         host: new URL(url).hostname,
-        role,
+        role: hotTabRole,
         tabId: roleTab.id,
       });
     }
@@ -1472,13 +1855,14 @@ export class CarnivalWorkspaceController {
     }
     const state = await this.state();
     if (state.drawerState !== "open" || !validWorkArea(state.workArea)) return null;
+    const rightWindowId = selectedRightWindowId(state);
     const changedRole = changedWindowId === state.phWindowId
       ? "playhouse"
-      : changedWindowId === state.auxWindowId ? "context" : null;
+      : changedWindowId === rightWindowId ? "context" : null;
     if (changedWindowId !== null && !changedRole) return null;
     const [playhouseWindow, contextWindow] = await Promise.all([
       existingWindow(this.chrome, state.phWindowId),
-      existingWindow(this.chrome, state.auxWindowId),
+      existingWindow(this.chrome, rightWindowId),
     ]);
     const playhouseActual = storedBounds(playhouseWindow);
     const contextActual = storedBounds(contextWindow);
@@ -1517,12 +1901,14 @@ export class CarnivalWorkspaceController {
     const nextState = await this.updateState((currentState) => {
       if (this.transitioning || currentState.drawerState !== "open" ||
         currentState.phWindowId !== state.phWindowId ||
-        currentState.auxWindowId !== state.auxWindowId) return null;
+        selectedRightWindowId(currentState) !== rightWindowId) return null;
       return {
         ...currentState,
         ...(captureContext ? {
           auxSession: { ...currentState.auxSession, geometry: geometryFromBounds(context) },
           contextBounds: context,
+          miscSession: { ...currentState.miscSession, geometry: geometryFromBounds(context) },
+          rightSlotGeometry: geometryFromBounds(context),
         } : {}),
         ...(capturePlayhouse ? {
           phSession: { ...currentState.phSession, geometry: geometryFromBounds(playhouse) },
@@ -1541,7 +1927,7 @@ export class CarnivalWorkspaceController {
     }
     if (changedRole !== "playhouse" &&
       (contextActual.top !== context.top || contextActual.height !== context.height)) {
-      verticalUpdates.push(this.updateWindow(state.auxWindowId, {
+      verticalUpdates.push(this.updateWindow(rightWindowId, {
         focused: false, height: context.height, state: "normal", top: context.top,
       }, "normalize-aux-height"));
     }
@@ -1574,8 +1960,10 @@ export class CarnivalWorkspaceController {
     const state = await this.state();
     const kind = windowId === state.phWindowId
       ? "playhouse"
-      : windowId === state.auxWindowId ? "context" : null;
-    const eventPrefix = kind === "playhouse" ? "PH" : kind === "context" ? "AUX" : "WORKSPACE";
+      : windowId === state.auxWindowId ? "context"
+        : windowId === state.miscWindowId ? "misc" : null;
+    const eventPrefix = kind === "playhouse" ? "PH"
+      : kind === "context" ? "AUX" : kind === "misc" ? "MISC" : "WORKSPACE";
     const sessionCycle = state.sessionCycle ?? state.lastSessionCycle ?? null;
     if (!kind) {
       this.logger.info?.(`${eventPrefix}_SESSION_SAVE_SKIPPED`, {
@@ -1588,7 +1976,9 @@ export class CarnivalWorkspaceController {
     this.logger.info?.(`${eventPrefix}_SESSION_SAVE_ATTEMPT`, {
       reason,
       restoreInProgress: false,
-      session: diagnosticSession(kind === "playhouse" ? state.phSession : state.auxSession),
+      session: diagnosticSession(kind === "playhouse"
+        ? state.phSession
+        : kind === "context" ? state.auxSession : state.miscSession),
       sessionCycle,
       windowId,
     });
@@ -1631,19 +2021,26 @@ export class CarnivalWorkspaceController {
         }
         if (kind === "playhouse" && current.phWindowId !== windowId) return null;
         if (kind === "context" && current.auxWindowId !== windowId) return null;
+        if (kind === "misc" && current.miscWindowId !== windowId) return null;
         return kind === "playhouse"
           ? {
               ...current,
               phSession: { ...current.phSession, tabs: snapshot },
               playhouseTabs: snapshot,
             }
-          : {
+          : kind === "context" ? {
               ...current,
               auxActiveTabId: activeTab?.id ?? current.auxActiveTabId,
               auxSession: { ...current.auxSession, tabs: snapshot },
               contextTabId: activeTab?.id ?? current.auxActiveTabId,
               contextTabs: snapshot,
               contextUrl: activeTab?.url ?? current.contextUrl,
+            }
+          : {
+              ...current,
+              miscActiveTabId: activeTab?.id ?? current.miscActiveTabId,
+              miscSession: { ...current.miscSession, tabs: snapshot },
+              miscTabs: snapshot,
             };
       });
     } catch (error) {
@@ -1689,7 +2086,9 @@ export class CarnivalWorkspaceController {
       return null;
     }
     this.logger.info?.(`${eventPrefix}_SESSION_SAVE_COMPLETE`, {
-      ...diagnosticSession(kind === "playhouse" ? nextState.phSession : nextState.auxSession),
+      ...diagnosticSession(kind === "playhouse"
+        ? nextState.phSession
+        : kind === "context" ? nextState.auxSession : nextState.miscSession),
       reason,
       restoreInProgress: false,
       sessionCycle,
@@ -1710,12 +2109,15 @@ export class CarnivalWorkspaceController {
 
   async logClosingTabSaveSkipped(windowId) {
     const state = await this.updateState((current) => {
-      if (windowId !== current.phWindowId && windowId !== current.auxWindowId) return null;
+      if (windowId !== current.phWindowId && windowId !== current.auxWindowId &&
+        windowId !== current.miscWindowId) return null;
       const sessionCycle = current.sessionCycle ?? newSessionCycleId();
       return { ...current, lastSessionCycle: sessionCycle, sessionCycle };
     });
     if (!state) return;
-    const role = windowId === state.phWindowId ? "PH" : windowId === state.auxWindowId ? "AUX" : "WORKSPACE";
+    const role = windowId === state.phWindowId ? "PH"
+      : windowId === state.auxWindowId ? "AUX"
+        : windowId === state.miscWindowId ? "MISC" : "WORKSPACE";
     this.logger.info?.(`${role}_SESSION_SAVE_SKIPPED`, {
       reason: "tab-removed:window-closing",
       sessionCycle: state.sessionCycle ?? state.lastSessionCycle ?? null,

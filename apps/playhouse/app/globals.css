@@ -94,6 +94,31 @@ a {
   justify-self: end;
 }
 
+.workspaceSurfaceToggle {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid rgba(109, 40, 217, 0.28);
+  border-radius: 999px;
+  background: rgba(109, 40, 217, 0.08);
+  color: var(--purple);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.workspaceSurfaceToggle:hover,
+.workspaceSurfaceToggle:focus-visible {
+  border-color: rgba(109, 40, 217, 0.52);
+  background: rgba(109, 40, 217, 0.14);
+}
+
+.workspaceSurfaceToggle:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
 .headerDetailTitle {
   position: absolute;
   top: 50%;
