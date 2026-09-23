@@ -31,5 +31,11 @@
   ],
   "action": {
     "default_title": "Summon Carnival workspace"
+  },
+  "commands": {
+    "toggle-right-surface": {
+      "suggested_key": { "default": "Alt+Shift+M" },
+      "description": "Toggle Carnival Aux and Misc"
+    }
   }
 }

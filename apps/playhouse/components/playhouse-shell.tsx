@@ -102,6 +102,7 @@ import { useGridFontSizePreference } from "./grid-settings";
 import { PlayForm } from "./play-form";
 import { PlayHouseIcon } from "./playhouse-icon";
 import { PlaySearch } from "./play-search";
+import { toggleWorkspaceSurface } from "../lib/desktop/toggle-workspace";
 import {
   DoneIcon,
   FlipRankIcon,
@@ -1163,6 +1164,15 @@ function PlayhouseShellView({
         </div>
         <h1 className="headerDetailTitle">Details</h1>
         <div className="headerActions">
+          <button
+            aria-label="Toggle Aux and Misc workspace"
+            className="workspaceSurfaceToggle"
+            onClick={() => toggleWorkspaceSurface()}
+            title="Toggle Aux and Misc (Alt+Shift+M)"
+            type="button"
+          >
+            Aux ⇄ Misc
+          </button>
           <PlaySearch initialQuery={searchQuery} />
           <label className="branchFilter">
             <span>Show Branch</span>

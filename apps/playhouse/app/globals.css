@@ -94,6 +94,26 @@ a {
   justify-self: end;
 }
 
+.workspaceSurfaceToggle {
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid rgba(109, 63, 242, 0.28);
+  border-radius: 999px;
+  color: var(--accent-deep);
+  background: rgba(109, 63, 242, 0.08);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.workspaceSurfaceToggle:hover,
+.workspaceSurfaceToggle:focus-visible {
+  border-color: var(--accent);
+  background: rgba(109, 63, 242, 0.16);
+  outline: none;
+}
+
 .headerDetailTitle {
   position: absolute;
   top: 50%;

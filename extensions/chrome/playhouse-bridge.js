@@ -6,6 +6,8 @@ const GET_LOCAL_BRANCHES_MESSAGE_TYPE = "getLocalBranches";
 const LOCAL_BRANCHES_RESULT_TYPE = "localBranchesResult";
 const BRIDGE_HEALTH_MESSAGE_TYPE = "carnivalBridgeHealth";
 const BRIDGE_HEALTH_RESULT_TYPE = "carnivalBridgeHealthResult";
+const TOGGLE_RIGHT_SURFACE_MESSAGE_TYPE = "toggleRightSurface";
+const TOGGLE_RIGHT_SURFACE_RESULT_TYPE = "toggleRightSurfaceResult";
 
 console.info("Carnival Aux bridge content script loaded");
 console.info("BRANCH_TREE_BRIDGE_READY");
@@ -81,6 +83,23 @@ window.addEventListener("message", (event) => {
         type: BRIDGE_HEALTH_RESULT_TYPE,
       }, window.location.origin);
     });
+    return;
+  }
+  if (event.data?.type === TOGGLE_RIGHT_SURFACE_MESSAGE_TYPE) {
+    sendPlayhouseExtensionMessage({ type: TOGGLE_RIGHT_SURFACE_MESSAGE_TYPE }).then((result) => {
+      window.postMessage({
+        activeRightSurface: result.response?.activeRightSurface,
+        ok: result.ok && result.response?.ok === true,
+        requestId: event.data.requestId,
+        source: OPEN_IN_AUX_RESULT_SOURCE,
+        type: TOGGLE_RIGHT_SURFACE_RESULT_TYPE,
+      }, window.location.origin);
+    }).catch(() => window.postMessage({
+      ok: false,
+      requestId: event.data.requestId,
+      source: OPEN_IN_AUX_RESULT_SOURCE,
+      type: TOGGLE_RIGHT_SURFACE_RESULT_TYPE,
+    }, window.location.origin));
     return;
   }
   if (event.data?.type !== OPEN_IN_AUX_MESSAGE_TYPE) return;

@@ -34,7 +34,7 @@ test("background routing hands the URL to the existing Aux controller", async ()
   assert.deepEqual(calls, [
     {
       monitorId: "display-1",
-      role: "misc",
+      role: "play",
       url: "https://example.com/context",
       workArea: { height: 900, left: 0, top: 0, width: 1600 },
     },

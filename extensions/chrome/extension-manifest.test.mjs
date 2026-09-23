@@ -27,3 +27,7 @@ test("extension manifest retains bridge, Gmail, display, and native permissions"
     matches.includes("http://localhost/*")
   )));
 });
+
+test("extension exposes the optional Aux and Misc keyboard toggle", () => {
+  assert.equal(manifest.commands["toggle-right-surface"].suggested_key.default, "Alt+Shift+M");
+});

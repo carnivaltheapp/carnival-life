@@ -44,7 +44,7 @@ The installer compiles the small C# host into the current user's Local AppData,
 stops an older installed companion if necessary, replaces its binary, writes a
 Chrome native-host manifest, registers it under HKCU, configures the resident
 companion in the current user's `Run` key, and starts it. It prints the installed
-path and native-host marker (`DRAWER-HOST-17`). Administrator access is not
+path and native-host marker (`DRAWER-HOST-18`). Administrator access is not
 required. Restart Chrome after installation. Git updates do not update the
 installed native executable automatically, so rerun this command after native
 host source changes.
@@ -122,9 +122,27 @@ are accepted. No PlayHouse bridge invokes that message in this foundation slice.
 After updating the checked-out extension or native-host source, reload the
 extension at `chrome://extensions` and rerun the platform installer before
 manual verification. The extension service-worker console confirms the current
-Windows companion with `Carnival native host: DRAWER-HOST-17`; startup is also
+Windows companion with `Carnival native host: DRAWER-HOST-18`; startup is also
 recorded without credentials in
 `%LOCALAPPDATA%\Carnival\DesktopWorkspace\CarnivalWorkspaceHost.log`. The log
 records pointer-monitor startup, hot-corner entry/cancellation/activation,
 bridge availability, and retract-zone activation without logging pointer motion
 continuously.
+
+## Unified workspace surfaces
+
+The controller owns three logical Chrome windows: PlayHouse on the left, plus
+Aux and Misc sharing the right slot. Only PlayHouse and one right surface are
+visible. The PlayHouse header toggle or `Alt+Shift+M` swaps Aux and Misc without
+changing the saved right-hand geometry. The hot corner restores PlayHouse with
+the most recently active right surface.
+
+Aux is declarative and self-healing. It contains exactly Calendar, Gmail,
+Contacts, Slack, and Play/Chrome in that order. Closing a Hot Tab recreates it,
+moving one to another window reclaims it, and extra tabs created in Aux are
+handed to Misc. Misc is unrestricted and persists its restorable URLs, exact
+order, active tab, pin state, and geometry.
+
+Semantic PlayHouse routes select the matching Aux Hot Tab and make Aux visible.
+Native transitions elevate only the managed PlayHouse/right pair temporarily,
+remove topmost state at completion, and do not activate unrelated windows.

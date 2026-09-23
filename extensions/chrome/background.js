@@ -13,7 +13,7 @@ import {
 } from "./gmail-tab-metadata.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
-const NATIVE_HOST_VERSION = "DRAWER-HOST-17";
+const NATIVE_HOST_VERSION = "DRAWER-HOST-18";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
@@ -36,6 +36,7 @@ let branchHierarchyCache = null;
 const geometrySaveTimers = new Map();
 const tabSaveTimers = new Map();
 const tabSaveReasons = new Map();
+let workspaceRepairTimer = null;
 let diagnosticWriteQueue = Promise.resolve();
 
 function branchSummary(branches, durationMs) {
@@ -100,6 +101,15 @@ function scheduleTabSave(windowId, reason) {
     controller.rememberWorkspaceTabs(windowId, saveReason)
       .catch((error) => console.error("Carnival tab persistence failed", error));
   }, TAB_SAVE_DELAY_MS));
+}
+
+function scheduleWorkspaceRepair(reason) {
+  clearTimeout(workspaceRepairTimer);
+  workspaceRepairTimer = setTimeout(() => {
+    workspaceRepairTimer = null;
+    controller.repairAuxTabs(reason)
+      .catch((error) => console.error("Carnival Aux tab repair failed", error));
+  }, TAB_SAVE_DELAY_MS);
 }
 
 function flattenBounds(prefix, bounds) {
@@ -381,11 +391,13 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       ? "tab-url-updated"
       : changeInfo.pinned !== undefined ? "tab-pin-updated" : "tab-load-complete";
     scheduleTabSave(tab.windowId, reason);
+    scheduleWorkspaceRepair(reason);
   }
 });
 chrome.tabs.onCreated.addListener((tab) => {
   windowTrace.tabEvent("CHROME_TAB_ON_CREATED", tab);
   scheduleTabSave(tab.windowId, "tab-created");
+  scheduleWorkspaceRepair("tab-created");
 });
 chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
   if (removeInfo.isWindowClosing) {
@@ -393,14 +405,41 @@ chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
       .catch((error) => console.error("Carnival closing-tab diagnostic failed", error));
   } else {
     scheduleTabSave(removeInfo.windowId, "tab-removed");
+    scheduleWorkspaceRepair("tab-removed");
   }
 });
 chrome.tabs.onActivated.addListener(({ windowId }) => scheduleTabSave(windowId, "tab-activated"));
-chrome.tabs.onMoved.addListener((_tabId, moveInfo) => scheduleTabSave(moveInfo.windowId, "tab-moved"));
+chrome.tabs.onMoved.addListener((_tabId, moveInfo) => {
+  scheduleTabSave(moveInfo.windowId, "tab-moved");
+  scheduleWorkspaceRepair("tab-moved");
+});
+chrome.tabs.onAttached.addListener((_tabId, info) => {
+  scheduleTabSave(info.newWindowId, "tab-attached");
+  scheduleWorkspaceRepair("tab-attached");
+});
+chrome.tabs.onDetached.addListener((_tabId, info) => {
+  scheduleTabSave(info.oldWindowId, "tab-detached");
+  scheduleWorkspaceRepair("tab-detached");
+});
+chrome.commands.onCommand.addListener((command) => {
+  if (command !== "toggle-right-surface") return;
+  controller.toggleRightSurface()
+    .then(reportDrawerState)
+    .catch((error) => console.error("Carnival right-surface toggle failed", error));
+});
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "carnivalBridgeHealth") {
     sendResponse({ ok: true });
     return false;
+  }
+  if (message?.type === "toggleRightSurface") {
+    controller.toggleRightSurface()
+      .then((state) => {
+        reportDrawerState(state);
+        sendResponse({ activeRightSurface: state.activeRightSurface, ok: true });
+      })
+      .catch((error) => sendResponse({ error: error.message, ok: false }));
+    return true;
   }
   if (message?.type === GET_LOCAL_BRANCHES) {
     recordDiagnostic("info", "BRANCH_TREE_EXTENSION_RECEIVED");

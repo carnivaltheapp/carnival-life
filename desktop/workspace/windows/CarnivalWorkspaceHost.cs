@@ -14,7 +14,7 @@ using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
-    private const string HostMarker = "DRAWER-HOST-17";
+    private const string HostMarker = "DRAWER-HOST-18";
     private const string BranchRoot = @"C:\Google Drive";
     private const int FcsmInfoTip = 0x4;
     private const uint FcsRead = 0x1;
@@ -38,6 +38,8 @@ internal static class CarnivalWorkspaceHost
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoZOrder = 0x0004;
     private const int SwShow = 5;
+    private static readonly IntPtr HwndTopMost = new IntPtr(-1);
+    private static readonly IntPtr HwndNoTopMost = new IntPtr(-2);
     private static readonly object OutputLock = new object();
     private static readonly object PipeLock = new object();
     private static readonly object StateLock = new object();
@@ -1520,28 +1522,54 @@ internal static class CarnivalWorkspaceHost
             playhouseTo.Top = workAreaTop;
         }
         var frameCount = Math.Max(2, (int)Math.Round(durationMs * AnimationFramesPerSecond / 1000.0));
-        var stopwatch = Stopwatch.StartNew();
-        for (var frame = 1; frame <= frameCount; frame += 1)
+        BeginWorkspaceTransition(playhouse, context);
+        try
         {
-            var progress = frame / (double)frameCount;
-            var eased = easeIn ? progress * progress * progress : 1.0 - Math.Pow(1.0 - progress, 3.0);
-            if (!MovePair(playhouse, Interpolate(playhouseCurrent, playhouseTo, eased),
-                context, Interpolate(contextCurrent, contextTo, eased))) return false;
-            var wait = (frame * durationMs / frameCount) - (int)stopwatch.ElapsedMilliseconds;
-            if (wait > 0) Thread.Sleep(wait);
-        }
-        if (!BoundsMatch(playhouse, playhouseTo) || !BoundsMatch(context, contextTo))
-        {
-            if (!MovePair(playhouse, playhouseTo, context, contextTo) ||
-                !BoundsMatch(playhouse, playhouseTo) || !BoundsMatch(context, contextTo))
+            var stopwatch = Stopwatch.StartNew();
+            for (var frame = 1; frame <= frameCount; frame += 1)
             {
-                WriteDiagnostic("native animation final bounds mismatch");
-                return false;
+                var progress = frame / (double)frameCount;
+                var eased = easeIn ? progress * progress * progress : 1.0 - Math.Pow(1.0 - progress, 3.0);
+                if (!MovePair(playhouse, Interpolate(playhouseCurrent, playhouseTo, eased),
+                    context, Interpolate(contextCurrent, contextTo, eased))) return false;
+                var wait = (frame * durationMs / frameCount) - (int)stopwatch.ElapsedMilliseconds;
+                if (wait > 0) Thread.Sleep(wait);
             }
+            if (!BoundsMatch(playhouse, playhouseTo) || !BoundsMatch(context, contextTo))
+            {
+                if (!MovePair(playhouse, playhouseTo, context, contextTo) ||
+                    !BoundsMatch(playhouse, playhouseTo) || !BoundsMatch(context, contextTo))
+                {
+                    WriteDiagnostic("native animation final bounds mismatch");
+                    return false;
+                }
+            }
+            return true;
         }
-        if (!easeIn && !ActivateWorkspace(playhouse, context))
+        finally
+        {
+            EndWorkspaceTransition(playhouse, context, !easeIn);
+        }
+    }
+
+    private static void BeginWorkspaceTransition(IntPtr playhouse, IntPtr context)
+    {
+        ShowWindowAsync(context, SwShow);
+        ShowWindowAsync(playhouse, SwShow);
+        SetWindowPos(context, HwndTopMost, 0, 0, 0, 0,
+            SwpNoActivate | SwpNoMove | SwpNoOwnerZOrder | SwpNoSize);
+        SetWindowPos(playhouse, HwndTopMost, 0, 0, 0, 0,
+            SwpNoActivate | SwpNoMove | SwpNoOwnerZOrder | SwpNoSize);
+    }
+
+    private static void EndWorkspaceTransition(IntPtr playhouse, IntPtr context, bool activate)
+    {
+        SetWindowPos(context, HwndNoTopMost, 0, 0, 0, 0,
+            SwpNoActivate | SwpNoMove | SwpNoOwnerZOrder | SwpNoSize);
+        SetWindowPos(playhouse, HwndNoTopMost, 0, 0, 0, 0,
+            SwpNoActivate | SwpNoMove | SwpNoOwnerZOrder | SwpNoSize);
+        if (activate && !ActivateWorkspace(playhouse, context))
             WriteDiagnostic("opening complete but foreground activation failed");
-        return true;
     }
 
     private static WindowBounds AnchoredVisiblePlayhouse(WindowBounds bounds, int workAreaLeft, int workAreaTop)
@@ -1586,7 +1614,10 @@ internal static class CarnivalWorkspaceHost
         var windows = EnumerateChromeWindows();
         var playhouse = ClosestWindow(windows, new[] { playhouseBounds }, IntPtr.Zero);
         var context = ClosestWindow(windows, new[] { contextBounds }, playhouse);
-        return playhouse != IntPtr.Zero && context != IntPtr.Zero && ActivateWorkspace(playhouse, context);
+        if (playhouse == IntPtr.Zero || context == IntPtr.Zero) return false;
+        BeginWorkspaceTransition(playhouse, context);
+        try { return ActivateWorkspace(playhouse, context); }
+        finally { EndWorkspaceTransition(playhouse, context, false); }
     }
 
     private static bool ActivateWorkspace(IntPtr playhouse, IntPtr context)

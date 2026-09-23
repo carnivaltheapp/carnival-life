@@ -218,3 +218,36 @@ test("extension forwards local Branch discovery to the existing native host", ()
   assert.match(backgroundSource, /message\?\.type === "BRANCH_TREE_RESULT"/);
   assert.match(backgroundSource, /branchHierarchyCache = message\.branches/);
 });
+
+test("content script forwards the PlayHouse Aux/Misc toggle", async () => {
+  let messageListener;
+  const runtimeMessages = [];
+  const pageMessages = [];
+  const pageWindow = {
+    addEventListener(type, listener) { if (type === "message") messageListener = listener; },
+    location: { origin: "https://carnival-playhouse.vercel.app" },
+    postMessage(message) { pageMessages.push(message); },
+  };
+  vm.runInNewContext(`${messagingSource}\n${bridgeSource}`, {
+    chrome: { runtime: { async sendMessage(message) {
+      runtimeMessages.push(message);
+      return { activeRightSurface: "misc", ok: true };
+    } } },
+    console: { error() {}, info() {}, warn() {} },
+    window: pageWindow,
+  });
+  messageListener({
+    data: { requestId: "toggle-1", source: "carnival-playhouse", type: "toggleRightSurface" },
+    origin: pageWindow.location.origin,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(JSON.parse(JSON.stringify(runtimeMessages)), [{ type: "toggleRightSurface" }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(pageMessages)), [{
+    activeRightSurface: "misc",
+    ok: true,
+    requestId: "toggle-1",
+    source: "carnival-playhouse-bridge",
+    type: "toggleRightSurfaceResult",
+  }]);
+});
