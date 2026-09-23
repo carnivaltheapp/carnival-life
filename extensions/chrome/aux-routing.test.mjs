@@ -17,7 +17,7 @@ test("background routing hands the URL to the existing Aux controller", async ()
   const state = { contextTabId: 12, contextWindowId: 2, drawerState: "open" };
   await routeOpenInAuxMessage({
     controller: {
-      async openCarnivalContext(url, workArea, monitorId, role) {
+      async showAuxContent(url, workArea, monitorId, role) {
         calls.push({ monitorId, role, url, workArea });
       },
       async state() { return state; },

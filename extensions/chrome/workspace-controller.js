@@ -233,6 +233,10 @@ function isPlayhouseWindow(window) {
   return window?.tabs?.some((tab) => tabUrl(tab).startsWith(PLAYHOUSE_URL));
 }
 
+function isPlayhouseTab(tab) {
+  return tabUrl(tab).startsWith(PLAYHOUSE_URL);
+}
+
 function isAuxWindow(window) {
   const roles = new Set((window?.tabs ?? []).map((tab) => auxRoleForUrl(tabUrl(tab))));
   return ["calendar", "gmail", "contacts", "slack"].filter((role) => roles.has(role)).length >= 2;
@@ -464,10 +468,17 @@ export class CarnivalWorkspaceController {
       });
     if (!candidates.length) return null;
     this.logger.info?.("PH_CANDIDATE_FOUND", { candidateCount: candidates.length });
+    this.logger.info?.("PH_TAB_CANDIDATE_FOUND", {
+      candidateCount: candidates.reduce((count, candidate) =>
+        count + candidate.window.tabs.filter(isPlayhouseTab).length, 0),
+    });
     if (candidates.length > 1) {
       const redundant = candidates.slice(1).filter(({ window }) =>
-        window.tabs.length === 1 && window.tabs.every((tab) => tabUrl(tab).startsWith(PLAYHOUSE_URL))
+        window.tabs.length === 1 && window.tabs.every(isPlayhouseTab)
       );
+      const unproven = candidates.slice(1).filter(({ window }) => !redundant.some((candidate) =>
+        candidate.window.id === window.id
+      ));
       await Promise.all(redundant.map(({ window }) => this.chrome.windows.remove(window.id)));
       this.logger.warn?.("PH_DUPLICATE_CANDIDATES_RECONCILED", {
         adoptedWindowId: candidates[0].window.id,
@@ -475,8 +486,47 @@ export class CarnivalWorkspaceController {
         reconciledCount: redundant.length,
         reason: "canonical-candidate-adopted-and-proven-single-tab-duplicates-closed",
       });
+      if (unproven.length) this.logger.warn?.("PH_DUPLICATE_LEFT_UNTOUCHED", {
+        count: unproven.length,
+        reason: "candidate-window-contains-non-playhouse-tabs",
+      });
     }
     return candidates[0];
+  }
+
+  async reconcileManagedPlayhouseTabs(playhouseWindowId, canonicalTabId, miscWindowId = null) {
+    let tabs = await this.tabsInWindow(playhouseWindowId);
+    const canonical = tabs.find((tab) => tab.id === canonicalTabId && isPlayhouseTab(tab)) ??
+      tabs.find(isPlayhouseTab) ?? null;
+    if (!canonical) return null;
+    const duplicates = tabs.filter((tab) => tab.id !== canonical.id && isPlayhouseTab(tab));
+    if (duplicates.length) {
+      await this.chrome.tabs.remove(duplicates.map((tab) => tab.id));
+      this.logger.warn?.("PH_REDUNDANT_MANAGED_TAB_REMOVED", {
+        count: duplicates.length,
+        reason: "duplicate-inside-canonical-playhouse-window",
+      });
+      tabs = await this.tabsInWindow(playhouseWindowId);
+    }
+    if (Number.isInteger(miscWindowId)) {
+      const ordinaryTabs = tabs.filter((tab) => tab.id !== canonical.id);
+      for (const tab of ordinaryTabs) {
+        await this.chrome.tabs.move(tab.id, { index: -1, windowId: miscWindowId });
+      }
+      if (ordinaryTabs.length) this.logger.info?.("PH_NONCANONICAL_TAB_HANDED_TO_MISC", {
+        count: ordinaryTabs.length,
+      });
+      tabs = await this.tabsInWindow(playhouseWindowId);
+    }
+    const currentCanonical = tabs.find((tab) => tab.id === canonical.id) ?? null;
+    if (currentCanonical && !currentCanonical.active) {
+      await this.chrome.tabs.update(currentCanonical.id, { active: true });
+      tabs = await this.tabsInWindow(playhouseWindowId);
+    }
+    return {
+      tab: tabs.find((tab) => tab.id === canonical.id) ?? canonical,
+      tabState: snapshotTabs(tabs, {}, canonical.id) ?? defaultPlayhouseTabs(PLAYHOUSE_URL),
+    };
   }
 
   async updateWindow(windowId, options, reason) {
@@ -682,12 +732,16 @@ export class CarnivalWorkspaceController {
       tab = null;
     } else if (tab?.windowId !== window.id || !tabUrl(tab).startsWith(PLAYHOUSE_URL)) {
       tab = window.tabs.find((candidate) => tabUrl(candidate).startsWith(PLAYHOUSE_URL)) ?? null;
+      if (tab) this.logger.info?.("PH_STALE_TAB_IDENTITY_REPAIRED", {
+        reason: "canonical-tab-adopted-by-url",
+      });
     }
     const adopted = await this.discoverPlayhouse(prior, bounds);
     if (adopted) {
       window = adopted.window;
       tab = adopted.tab;
       this.logger.info?.("PH_CANDIDATE_ADOPTED", { reason: "logical-playhouse-url-match" });
+      this.logger.info?.("PH_TAB_ADOPTED", { reason: "logical-playhouse-url-match" });
     }
     if (!window && startup.allowColdStartPlayhouseAdoption) {
       const adopted = await waitForColdStartPlayhouse({
@@ -727,6 +781,7 @@ export class CarnivalWorkspaceController {
         prior.sessionCycle ?? null,
       );
       this.logger.info?.("PH_CREATED", { reason: "no-existing-playhouse-candidate" });
+      this.logger.info?.("PH_TAB_CREATED", { reason: "no-existing-playhouse-candidate" });
       return {
         tab: restored.roleTabIds["ph-primary"] ?
           await existingTab(this.chrome, restored.roleTabIds["ph-primary"]) : restored.activeTab,
@@ -740,15 +795,23 @@ export class CarnivalWorkspaceController {
         : { focused: false, state: "normal" }, "find-playhouse-existing");
       if (!tab) {
         tab = await this.chrome.tabs.create({ active: true, url: PLAYHOUSE_URL, windowId: window.id });
+        this.logger.info?.("PH_TAB_CREATED", { reason: "managed-window-missing-canonical-tab" });
       }
     }
     if (!tab?.id) throw new Error("Chrome could not identify the PlayHouse tab.");
+    const reconciledTabs = await this.reconcileManagedPlayhouseTabs(window.id, tab.id);
+    tab = reconciledTabs?.tab ?? tab;
     this.logger.info?.("PH_DESIRED_RESTING_ORIGIN", { left: bounds.left, top: bounds.top });
     const { snapshot } = await this.snapshotWindow("playhouse", window.id, {
       ...prior,
       playhouseTabId: tab.id,
     });
-    return { restore: null, tab, tabState: snapshot ?? defaultPlayhouseTabs(PLAYHOUSE_URL), window };
+    return {
+      restore: null,
+      tab,
+      tabState: reconciledTabs?.tabState ?? snapshot ?? defaultPlayhouseTabs(PLAYHOUSE_URL),
+      window,
+    };
     } finally {
       this.windowTrace?.exit("playhouse", {
         source: "workspace-controller",
@@ -853,7 +916,11 @@ export class CarnivalWorkspaceController {
     return { restore: null, tab, tabState: snapshot ?? defaultMiscTabs(), window };
   }
 
-  async switchRightSurface(surface, { focusRight = true } = {}) {
+  async switchRightSurface(surface, options = {}) {
+    return this.runWorkspaceOperation(() => this.switchRightSurfaceExclusively(surface, options));
+  }
+
+  async switchRightSurfaceExclusively(surface, { activateWorkspace = true, focusRight = true } = {}) {
     if (surface !== "aux" && surface !== "misc") throw new Error("Unknown Carnival right surface.");
     const state = await this.state();
     if (!validWorkArea(state.workArea)) return state;
@@ -888,7 +955,7 @@ export class CarnivalWorkspaceController {
       miscTabs: misc.tabState,
       miscWindowId: misc.window.id,
     });
-    if (playhouseWindow && this.nativeActivate) {
+    if (activateWorkspace && playhouseWindow && this.nativeActivate) {
       await this.nativeActivate({ context: layout.context, playhouse: currentBounds(playhouseWindow, state.playhouseBounds) });
     }
     if (focusRight) await this.updateWindow(target.id, { focused: true }, `focus-${surface}-surface`);
@@ -897,11 +964,17 @@ export class CarnivalWorkspaceController {
   }
 
   async toggleRightSurface() {
-    const state = await this.state();
-    return this.switchRightSurface(state.activeRightSurface === "misc" ? "aux" : "misc");
+    return this.runWorkspaceOperation(async () => {
+      const state = await this.state();
+      return this.switchRightSurfaceExclusively(state.activeRightSurface === "misc" ? "aux" : "misc");
+    });
   }
 
   async repairAuxTabs(reason = "tab-event") {
+    return this.runWorkspaceOperation(() => this.repairAuxTabsExclusively(reason));
+  }
+
+  async repairAuxTabsExclusively(reason = "tab-event", { revealHandoff = true } = {}) {
     const state = await this.state();
     const auxWindow = await existingWindow(this.chrome, state.auxWindowId);
     if (!auxWindow || !validWorkArea(state.workArea)) return null;
@@ -911,6 +984,15 @@ export class CarnivalWorkspaceController {
       state.activeRightSurface === "misc" ? layout.context : hiddenRightBounds(layout.context, state.workArea),
       false,
     );
+    const playhouseWindow = await existingWindow(this.chrome, state.phWindowId);
+    let repairedPlayhouse = null;
+    if (playhouseWindow) {
+      repairedPlayhouse = await this.reconcileManagedPlayhouseTabs(
+        playhouseWindow.id,
+        state.phPrimaryTabId,
+        misc.window.id,
+      );
+    }
     const allTabs = await this.chrome.tabs.query({});
     let auxTabs = await this.tabsInWindow(auxWindow.id);
     const roleIds = {};
@@ -975,13 +1057,24 @@ export class CarnivalWorkspaceController {
       },
       miscTabs: snapshotTabs(miscTabs),
       miscWindowId: misc.window.id,
+      ...(repairedPlayhouse ? {
+        phPrimaryTabId: repairedPlayhouse.tab.id,
+        phSession: {
+          ...state.phSession,
+          tabs: repairedPlayhouse.tabState,
+        },
+        playhouseTabId: repairedPlayhouse.tab.id,
+        playhouseTabs: repairedPlayhouse.tabState,
+      } : {}),
     });
     this.logger.info?.("AUX_HOT_TABS_REPAIRED", {
       handedOffCount: extras.length,
       reason,
       roles: AUX_ROLE_ORDER,
     });
-    if (extras.length && revealMisc) return this.switchRightSurface("misc");
+    if (extras.length && revealMisc && revealHandoff) {
+      return this.switchRightSurfaceExclusively("misc");
+    }
     return next;
   }
 
@@ -1327,7 +1420,7 @@ export class CarnivalWorkspaceController {
     await this.finalizeRestoredWindow("playhouse", playhouse.restore, prior.sessionCycle ?? null);
     await this.finalizeRestoredWindow("context", aux.restore, prior.sessionCycle ?? null);
     await this.finalizeRestoredWindow("misc", misc.restore, prior.sessionCycle ?? null);
-    await this.repairAuxTabs("summon");
+    await this.repairAuxTabsExclusively("summon");
     const finalPlayhouse = await existingWindow(this.chrome, playhouse.window.id);
     const finalRectangle = storedBounds(finalPlayhouse);
     this.windowTrace?.emit("workspace-controller", "PH_FINAL_RECTANGLE", {
@@ -1430,10 +1523,14 @@ export class CarnivalWorkspaceController {
   }
 
   async openCarnivalContext(url, workArea, monitorId = null, requestedRole = null) {
+    return this.showAuxContent(url, workArea, monitorId, requestedRole);
+  }
+
+  async showAuxContent(url, workArea, monitorId = null, requestedRole = null) {
     return this.runWorkspaceOperation(async () => {
       this.transitioning = true;
       try {
-        return await this.openCarnivalContextExclusively(url, workArea, monitorId, requestedRole);
+        return await this.showAuxContentExclusively(url, workArea, monitorId, requestedRole);
       } catch (error) {
         this.cancelRestores();
         throw error;
@@ -1443,7 +1540,7 @@ export class CarnivalWorkspaceController {
     });
   }
 
-  async openCarnivalContextExclusively(url, workArea, monitorId = null, requestedRole = null) {
+  async showAuxContentExclusively(url, workArea, monitorId = null, requestedRole = null) {
     if (!isAllowedContextUrl(url)) throw new Error("Carnival context URLs must use HTTP or HTTPS.");
     if (!validWorkArea(workArea)) throw new Error("A valid monitor work area is required.");
     const role = requestedRole ?? auxRoleForUrl(url);
@@ -1453,40 +1550,58 @@ export class CarnivalWorkspaceController {
 
     this.logger.info?.("Carnival: resolving Aux context window");
     let prior = await this.state();
-    if (prior.drawerState !== "open") {
-      await this.save({ ...prior, activeRightSurface: "aux" });
-      await this.summonDrawer(workArea, monitorId);
-    } else if (prior.activeRightSurface !== "aux") {
-      await this.switchRightSurface("aux", { focusRight: false });
-    }
-    prior = await this.state();
     const layout = canonicalWorkspaceLayout(prior, workArea);
-    const existingContext = await existingWindow(this.chrome, prior.auxWindowId);
-    const restoreContext = !existingContext || !hasVisibleIntersection(existingContext, workArea);
-    const context = await this.findContext(
+    const [existingContext, existingMisc] = await Promise.all([
+      existingWindow(this.chrome, prior.auxWindowId),
+      existingWindow(this.chrome, prior.miscWindowId),
+    ]);
+    let context = await this.findContext(
       prior,
       layout.context,
-      restoreContext,
-      true,
+      false,
+      false,
     );
-    const contextWindow = context.window;
     if (context.restore) {
-      await this.save({
-        ...prior,
-        auxActiveTabId: context.tab.id,
-        auxRoleTabIds: context.roleTabIds,
-        auxSession: { geometry: geometryFromBounds(layout.context), tabs: context.tabState },
-        auxWindowId: contextWindow.id,
-        contextRoleTabIds: context.roleTabIds,
-        contextTabId: context.tab.id,
-        contextTabs: context.tabState,
-        contextWindowId: contextWindow.id,
-        layoutVersion: LAYOUT_VERSION,
-        monitorId,
-        workArea,
-      });
       await this.finalizeRestoredWindow("context", context.restore, prior.sessionCycle ?? null);
+      prior = await this.state();
     }
+    const revealAux = prior.activeRightSurface !== "aux" || prior.drawerState !== "open" ||
+      !existingContext || !hasVisibleIntersection(existingContext, workArea);
+    if (prior.activeRightSurface === "misc" && existingMisc) {
+      await this.updateWindow(existingMisc.id, {
+        ...hiddenRightBounds(layout.context, workArea),
+        focused: false,
+        state: "normal",
+      }, "hide-misc-for-aux-content");
+    }
+    if (revealAux) {
+      await this.updateWindow(context.window.id, {
+        ...layout.context,
+        focused: false,
+        state: "normal",
+      }, "show-aux-for-content");
+    }
+    await this.save({
+      ...prior,
+      activeRightSurface: "aux",
+      auxActiveTabId: context.tab.id,
+      auxRoleTabIds: context.roleTabIds,
+      auxSession: { geometry: geometryFromBounds(layout.context), tabs: context.tabState },
+      auxWindowId: context.window.id,
+      contextBounds: layout.context,
+      contextRoleTabIds: context.roleTabIds,
+      contextTabId: context.tab.id,
+      contextTabs: context.tabState,
+      contextWindowId: context.window.id,
+      drawerState: "open",
+      layoutVersion: LAYOUT_VERSION,
+      monitorId,
+      workArea,
+    });
+    await this.repairAuxTabsExclusively("aux-content-route", { revealHandoff: false });
+    prior = await this.state();
+    context = await this.findContext(prior, layout.context, false, false);
+    const contextWindow = context.window;
     const contactsTabs = role === "contacts"
       ? (await this.tabsInWindow(contextWindow.id)).filter((tab) => isGoogleContactsUrl(tab.url))
       : [];
@@ -1529,9 +1644,7 @@ export class CarnivalWorkspaceController {
     }
     const tabs = await this.tabsInWindow(contextWindow.id);
     const contextTabs = snapshotTabs(tabs, roleIds);
-    const contextBounds = restoreContext
-      ? layout.context
-      : currentBounds(contextWindow, layout.context);
+    const contextBounds = currentBounds(contextWindow, layout.context);
     await this.save({
       ...prior,
       auxActiveTabId: roleTab.id,

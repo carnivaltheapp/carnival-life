@@ -416,7 +416,7 @@ test.skip("Google Contacts routing adopts an existing locale/query tab without c
   assert.equal(chrome.getTab(contacts.id).url, "https://contacts.google.com/person/c123");
 });
 
-test("Google Contacts routing prefers the active matching tab among multiple matches", async () => {
+test("Google Contacts routing retains one canonical tab and hands duplicate matches to Misc", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
@@ -432,9 +432,10 @@ test("Google Contacts routing prefers the active matching tab among multiple mat
   const state = await workspace.state();
 
   assert.equal(chrome.calls.createTab.length, 0);
-  assert.equal(state.contextRoleTabIds.contacts, active.id);
-  assert.equal(chrome.getTab(active.id).url, "https://contacts.google.com/person/selected");
-  assert.equal(chrome.getTab(first.id).url, "https://contacts.google.com/person/first");
+  assert.equal(state.contextRoleTabIds.contacts, initial.contextRoleTabIds.contacts);
+  assert.equal(chrome.getTab(state.contextRoleTabIds.contacts).url, "https://contacts.google.com/person/selected");
+  assert.equal(chrome.getTab(active.id).windowId, state.miscWindowId);
+  assert.equal(chrome.getTab(first.id).windowId, state.miscWindowId);
 });
 
 test.skip("Google Contacts routing ignores unrelated Google and Gmail tabs", async () => {
@@ -520,7 +521,7 @@ test.skip("Aux tab order, active tab, pins, roles, and user tabs restore after w
   assert.equal(chrome.getTab(restored.contextRoleTabIds.misc).url, "https://www.google.com/");
 });
 
-test("PlayHouse user tabs and active tab restore after controller restart", async () => {
+test("PlayHouse recovery keeps one canonical tab and hands ordinary tabs to Misc", async () => {
   const chrome = fakeChrome();
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
   const first = await controller(chrome).summon(workArea, "display-1");
@@ -530,10 +531,8 @@ test("PlayHouse user tabs and active tab restore after controller restart", asyn
 
   const restored = await controller(chrome).summon(workArea, "display-1");
 
-  assert.deepEqual(chrome.getTabs(restored.playhouseWindowId).map(({ active, url }) => ({ active, url })), [
-    { active: false, url: PLAYHOUSE_URL },
-    { active: true, url: "https://example.com/reference" },
-  ]);
+  assert.deepEqual(chrome.getTabs(restored.playhouseWindowId).map(({ url }) => url), [PLAYHOUSE_URL]);
+  assert.ok(chrome.getTabs(restored.miscWindowId).some(({ url }) => url === "https://example.com/reference"));
   assert.equal(chrome.getTab(restored.playhouseTabId).url, PLAYHOUSE_URL);
 });
 
@@ -1927,4 +1926,67 @@ test("multiple proven single-tab PH candidates reconcile to one canonical manage
   assert.equal(opened.phWindowId, canonical.id);
   assert.equal(allWindows.filter((window) =>
     window.tabs.some((tab) => tab.url.startsWith(PLAYHOUSE_URL))).length, 1);
+});
+
+test("managed PH duplicate tabs are removed while an unproven mixed browser window is untouched", async () => {
+  const chrome = fakeChrome();
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const canonical = await chrome.windows.create({
+    focused: false, height: 900, left: 0, top: 0, type: "normal", url: PLAYHOUSE_URL, width: 900,
+  });
+  chrome.addTab(canonical.id, `${PLAYHOUSE_URL}?duplicate=1`);
+  const mixed = await chrome.windows.create({
+    focused: false, height: 700, left: 300, top: 40, type: "normal",
+    url: [PLAYHOUSE_URL, "https://example.com/user-tab"], width: 800,
+  });
+  chrome.setWorkspaceState({
+    drawerState: "retracted",
+    layoutVersion: 3,
+    phPrimaryTabId: chrome.getTabs(canonical.id)[0].id,
+    phSession: { geometry: { left: 0, width: 900 }, tabs: defaultPlayhouseTabs(PLAYHOUSE_URL) },
+    phWindowId: canonical.id,
+    workArea,
+  });
+
+  const opened = await controller(chrome).summon(workArea, "display-1");
+
+  assert.deepEqual(chrome.getTabs(opened.phWindowId).map(({ url }) => url), [PLAYHOUSE_URL]);
+  assert.deepEqual(chrome.getTabs(mixed.id).map(({ url }) => url), [
+    PLAYHOUSE_URL,
+    "https://example.com/user-tab",
+  ]);
+});
+
+test("PH content routing switches Misc to Aux without summon, PH movement, or pair activation", async () => {
+  const chrome = fakeChrome();
+  let activationCount = 0;
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { warn() {} },
+    nativeActivate: async () => {
+      activationCount += 1;
+      return true;
+    },
+  });
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  await workspace.toggleRightSurface();
+  activationCount = 0;
+  const updateStart = chrome.calls.updateWindow.length;
+  const phTabCount = chrome.getTabs(opened.phWindowId).length;
+
+  await workspace.openCarnivalContext(
+    "https://mail.google.com/mail/u/0/#all/lightweight-route",
+    workArea,
+    "display-1",
+  );
+  const state = await workspace.state();
+  const routeUpdates = chrome.calls.updateWindow.slice(updateStart);
+
+  assert.equal(state.activeRightSurface, "aux");
+  assert.equal(activationCount, 0);
+  assert.equal(routeUpdates.some(({ id }) => id === opened.phWindowId), false);
+  assert.equal(chrome.getTabs(opened.phWindowId).length, phTabCount);
+  assert.equal(chrome.getTabs(state.auxWindowId).length, 5);
+  assert.equal(chrome.getTab(state.auxRoleTabIds.gmail).url,
+    "https://mail.google.com/mail/u/0/#all/lightweight-route");
 });

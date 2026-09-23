@@ -67,3 +67,28 @@ test("PlayHouse resting geometry is anchored while Drawer animation may move the
   assert.match(nativeHost, /MovePair\(playhouse, Interpolate\(playhouseCurrent, playhouseTo, eased\)/);
   assert.doesNotMatch(nativeHost, /AnchoredVisiblePlayhouse\(\s*Interpolate/);
 });
+
+test("native Drawer elevates the complete pair before its first movement and demotes afterward", () => {
+  const nativeHost = readFileSync(
+    new URL("../../desktop/workspace/windows/CarnivalWorkspaceHost.cs", import.meta.url),
+    "utf8",
+  );
+  const animateStart = nativeHost.indexOf("private static bool AnimateChromeWindows");
+  const beginCall = nativeHost.indexOf("BeginWorkspaceTransition(playhouse, context)", animateStart);
+  const firstMove = nativeHost.indexOf("MovePair(playhouse", animateStart);
+  const beginMethod = nativeHost.slice(
+    nativeHost.indexOf("private static bool BeginWorkspaceTransition"),
+    nativeHost.indexOf("private static void EndWorkspaceTransition"),
+  );
+  const endMethod = nativeHost.slice(
+    nativeHost.indexOf("private static void EndWorkspaceTransition"),
+    nativeHost.indexOf("private static WindowBounds AnchoredVisiblePlayhouse"),
+  );
+
+  assert.ok(beginCall >= 0 && beginCall < firstMove);
+  assert.match(beginMethod, /SetWorkspacePairZOrder\(playhouse, context, HwndTopMost, true\)/);
+  assert.doesNotMatch(beginMethod, /ShowWindowAsync/);
+  assert.match(nativeHost, /show \? SwpShowWindow : 0/);
+  assert.match(endMethod, /SetWorkspacePairZOrder\(playhouse, context, HwndNoTopMost, false\)/);
+  assert.match(endMethod, /if \(activate && !ActivateWorkspace\(playhouse, context\)\)/);
+});

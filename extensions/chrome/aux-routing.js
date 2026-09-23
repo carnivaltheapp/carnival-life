@@ -20,7 +20,7 @@ export async function routeOpenInAuxMessage({
     role,
   });
   const { monitorId, workArea } = await currentWorkArea();
-  await controller.openCarnivalContext(
+  await controller.showAuxContent(
     message.url,
     workArea,
     monitorId,

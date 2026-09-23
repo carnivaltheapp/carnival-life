@@ -44,7 +44,7 @@ The installer compiles the small C# host into the current user's Local AppData,
 stops an older installed companion if necessary, replaces its binary, writes a
 Chrome native-host manifest, registers it under HKCU, configures the resident
 companion in the current user's `Run` key, and starts it. It prints the installed
-path and native-host marker (`DRAWER-HOST-18`). Administrator access is not
+path and native-host marker (`DRAWER-HOST-19`). Administrator access is not
 required. Restart Chrome after installation. Git updates do not update the
 installed native executable automatically, so rerun this command after native
 host source changes.
@@ -122,7 +122,7 @@ are accepted. No PlayHouse bridge invokes that message in this foundation slice.
 After updating the checked-out extension or native-host source, reload the
 extension at `chrome://extensions` and rerun the platform installer before
 manual verification. The extension service-worker console confirms the current
-Windows companion with `Carnival native host: DRAWER-HOST-18`; startup is also
+Windows companion with `Carnival native host: DRAWER-HOST-19`; startup is also
 recorded without credentials in
 `%LOCALAPPDATA%\Carnival\DesktopWorkspace\CarnivalWorkspaceHost.log`. The log
 records pointer-monitor startup, hot-corner entry/cancellation/activation,
@@ -152,3 +152,9 @@ top-left origin. Transitional offscreen coordinates are never persisted as
 resting geometry. Runtime Chrome window and tab IDs are treated as disposable:
 reconciliation verifies the PlayHouse URL before accepting a saved identity and
 adopts the best existing candidate before creating a window.
+
+Unified Workspace invariants require exactly one managed PlayHouse window with
+one canonical PlayHouse tab. Hot-corner rollout elevates the PlayHouse/right
+pair together before its first movement and removes temporary topmost state at
+completion. PlayHouse interactions only reveal Aux and route within its five
+canonical Hot Tabs; arbitrary browsing content belongs to persistent Misc.

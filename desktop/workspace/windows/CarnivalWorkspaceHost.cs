@@ -14,7 +14,7 @@ using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
-    private const string HostMarker = "DRAWER-HOST-18";
+    private const string HostMarker = "DRAWER-HOST-19";
     private const string BranchRoot = @"C:\Google Drive";
     private const int FcsmInfoTip = 0x4;
     private const uint FcsRead = 0x1;
@@ -37,6 +37,7 @@ internal static class CarnivalWorkspaceHost
     private const uint SwpNoOwnerZOrder = 0x0200;
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpShowWindow = 0x0040;
     private const int SwShow = 5;
     private static readonly IntPtr HwndTopMost = new IntPtr(-1);
     private static readonly IntPtr HwndNoTopMost = new IntPtr(-2);
@@ -1522,7 +1523,11 @@ internal static class CarnivalWorkspaceHost
             playhouseTo.Top = workAreaTop;
         }
         var frameCount = Math.Max(2, (int)Math.Round(durationMs * AnimationFramesPerSecond / 1000.0));
-        BeginWorkspaceTransition(playhouse, context);
+        if (!BeginWorkspaceTransition(playhouse, context))
+        {
+            WriteDiagnostic("workspace pair could not obtain pre-animation topmost priority");
+            return false;
+        }
         try
         {
             var stopwatch = Stopwatch.StartNew();
@@ -1552,22 +1557,32 @@ internal static class CarnivalWorkspaceHost
         }
     }
 
-    private static void BeginWorkspaceTransition(IntPtr playhouse, IntPtr context)
+    private static bool SetWorkspacePairZOrder(IntPtr playhouse, IntPtr context,
+        IntPtr insertAfter, bool show)
     {
-        ShowWindowAsync(context, SwShow);
-        ShowWindowAsync(playhouse, SwShow);
-        SetWindowPos(context, HwndTopMost, 0, 0, 0, 0,
-            SwpNoActivate | SwpNoMove | SwpNoOwnerZOrder | SwpNoSize);
-        SetWindowPos(playhouse, HwndTopMost, 0, 0, 0, 0,
-            SwpNoActivate | SwpNoMove | SwpNoOwnerZOrder | SwpNoSize);
+        var deferred = BeginDeferWindowPos(2);
+        if (deferred == IntPtr.Zero) return false;
+        var flags = SwpNoActivate | SwpNoMove | SwpNoOwnerZOrder | SwpNoSize |
+            (show ? SwpShowWindow : 0);
+        deferred = DeferWindowPos(deferred, playhouse, insertAfter, 0, 0, 0, 0, flags);
+        if (deferred == IntPtr.Zero) return false;
+        deferred = DeferWindowPos(deferred, context, playhouse, 0, 0, 0, 0, flags);
+        return deferred != IntPtr.Zero && EndDeferWindowPos(deferred);
+    }
+
+    private static bool BeginWorkspaceTransition(IntPtr playhouse, IntPtr context)
+    {
+        var elevated = SetWorkspacePairZOrder(playhouse, context, HwndTopMost, true);
+        WriteDiagnostic(elevated
+            ? "workspace pair elevated before animation movement"
+            : "workspace pair pre-animation elevation failed");
+        return elevated;
     }
 
     private static void EndWorkspaceTransition(IntPtr playhouse, IntPtr context, bool activate)
     {
-        SetWindowPos(context, HwndNoTopMost, 0, 0, 0, 0,
-            SwpNoActivate | SwpNoMove | SwpNoOwnerZOrder | SwpNoSize);
-        SetWindowPos(playhouse, HwndNoTopMost, 0, 0, 0, 0,
-            SwpNoActivate | SwpNoMove | SwpNoOwnerZOrder | SwpNoSize);
+        if (!SetWorkspacePairZOrder(playhouse, context, HwndNoTopMost, false))
+            WriteDiagnostic("workspace pair topmost removal failed");
         if (activate && !ActivateWorkspace(playhouse, context))
             WriteDiagnostic("opening complete but foreground activation failed");
     }
@@ -1615,7 +1630,7 @@ internal static class CarnivalWorkspaceHost
         var playhouse = ClosestWindow(windows, new[] { playhouseBounds }, IntPtr.Zero);
         var context = ClosestWindow(windows, new[] { contextBounds }, playhouse);
         if (playhouse == IntPtr.Zero || context == IntPtr.Zero) return false;
-        BeginWorkspaceTransition(playhouse, context);
+        if (!BeginWorkspaceTransition(playhouse, context)) return false;
         try { return ActivateWorkspace(playhouse, context); }
         finally { EndWorkspaceTransition(playhouse, context, false); }
     }
