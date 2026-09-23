@@ -5,13 +5,71 @@ import {
   AUX_ROLE_URLS,
   HOT_TAB_ROLES,
   auxRoleForUrl,
+  createPhSessionDiagnosticTrail,
   defaultAuxTabs,
   isGoogleContactsUrl,
   isSlackUrl,
   isRestorableTabUrl,
+  safePhSessionSnapshot,
   snapshotTabs,
   validSavedTabs,
 } from "./workspace-tabs.js";
+
+test("PH session diagnostics retain order and state without exposing raw URLs", async () => {
+  const rawUrl = "https://example.com/private/path?token=do-not-log#secret";
+  const snapshot = await safePhSessionSnapshot({
+    activeIndex: 1,
+    tabs: [
+      { pinned: true, url: "https://carnival-playhouse.vercel.app/?view=today" },
+      { pinned: false, url: rawUrl },
+    ],
+  });
+
+  assert.equal(snapshot.tab_count, 2);
+  assert.equal(snapshot.active_index, 1);
+  assert.deepEqual(snapshot.pinned_indexes, [0]);
+  assert.equal(snapshot.tabs[0].is_playhouse, true);
+  assert.equal(snapshot.tabs[1].hostname, "example.com");
+  assert.match(snapshot.tabs[1].url_fingerprint, /^[a-f0-9]{64}$/);
+  assert.match(snapshot.snapshot_fingerprint, /^[a-f0-9]{64}$/);
+  assert.equal(JSON.stringify(snapshot).includes(rawUrl), false);
+  assert.equal(JSON.stringify(snapshot).includes("private/path"), false);
+  assert.equal(JSON.stringify(snapshot).includes("do-not-log"), false);
+});
+
+test("PH session diagnostic recording is ordered, persistent, and failure-safe", async () => {
+  const records = [];
+  const trail = createPhSessionDiagnosticTrail({
+    async record(event, details) { records.push({ details, event }); },
+  });
+  const snapshot = {
+    activeIndex: 0,
+    tabs: [{ pinned: false, url: "https://example.com/private" }],
+  };
+
+  trail.record("PH_SESSION_SNAPSHOT_CREATED", { reason: "tab-created", snapshot });
+  trail.record("PH_SESSION_PERSIST_RESULT", { reason: "completed", snapshot, success: true });
+  trail.record("PH_WINDOW_REMOVED", { reason: "window-closing", snapshot });
+  await trail.drain();
+
+  assert.deepEqual(records.map(({ event }) => event), [
+    "PH_SESSION_SNAPSHOT_CREATED",
+    "PH_SESSION_PERSIST_RESULT",
+    "PH_WINDOW_REMOVED",
+  ]);
+  assert.deepEqual(records.map(({ details }) => details.reason), [
+    "tab_created",
+    "completed",
+    "window_closing",
+  ]);
+  assert.equal(JSON.stringify(records).includes("https://example.com/private"), false);
+
+  const failingTrail = createPhSessionDiagnosticTrail({
+    record() { throw new Error("diagnostic storage unavailable"); },
+  });
+  assert.doesNotThrow(() => failingTrail.record("PH_SESSION_SNAPSHOT_CREATED", { snapshot }));
+  await assert.doesNotReject(failingTrail.drain());
+});
 
 test("fresh Aux defines Calendar, Gmail, and Misc role tabs in order", () => {
   assert.deepEqual(defaultAuxTabs(), {

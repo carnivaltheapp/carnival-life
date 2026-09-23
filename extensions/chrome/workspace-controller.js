@@ -276,13 +276,29 @@ function isPlayhouseUrl(value) {
   return typeof value === "string" && value.startsWith(PLAYHOUSE_URL);
 }
 
+function hostnameForDiagnostic(value) {
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function logicalTabState(tabs) {
+  const ordered = [...tabs].sort((left, right) => (left.index ?? 0) - (right.index ?? 0));
+  return {
+    activeIndex: Math.max(0, ordered.findIndex((tab) => tab.active)),
+    tabs: ordered.map((tab) => ({ pinned: tab.pinned === true, url: tab.url })),
+  };
+}
+
 function diagnosticSession(session) {
   return {
     activeIndex: session?.tabs?.activeIndex ?? null,
     geometry: session?.geometry ?? null,
+    hostnames: session?.tabs?.tabs?.map((tab) => hostnameForDiagnostic(tab.url)) ?? [],
     roles: session?.tabs?.tabs?.map((tab) => tab.role ?? "ordinary") ?? [],
     tabCount: session?.tabs?.tabs?.length ?? 0,
-    urls: session?.tabs?.tabs?.map((tab) => tab.url) ?? [],
   };
 }
 
@@ -299,6 +315,7 @@ export class CarnivalWorkspaceController {
       COLD_START_CANDIDATE_TIMEOUT_MS;
     this.nativeActivate = options.nativeActivate ?? null;
     this.nativeAnimate = options.nativeAnimate ?? null;
+    this.phSessionDiagnostics = options.phSessionDiagnostics ?? null;
     this.movingWindowIds = new Set();
     this.phRestoreInProgress = false;
     this.auxRestoreInProgress = false;
@@ -309,6 +326,23 @@ export class CarnivalWorkspaceController {
     this.creatingRestoreRole = null;
     this.stateUpdates = Promise.resolve();
     this.transitioning = false;
+  }
+
+  recordPhSessionDiagnostic(event, details = {}) {
+    try {
+      return this.phSessionDiagnostics?.record(event, details) ?? Promise.resolve();
+    } catch {
+      // PH session diagnostics must never affect workspace behavior.
+      return Promise.resolve();
+    }
+  }
+
+  async flushPhSessionDiagnostics() {
+    try {
+      await this.phSessionDiagnostics?.drain?.();
+    } catch {
+      // PH session diagnostics must never affect workspace behavior.
+    }
   }
 
   restoreRoleForWindow(windowId) {
@@ -379,13 +413,31 @@ export class CarnivalWorkspaceController {
       .sort((left, right) => (left.index ?? 0) - (right.index ?? 0));
   }
 
+  async playhouseCandidateCount() {
+    try {
+      const windows = await this.chrome.windows.getAll({ populate: true });
+      return windows.filter((window) => (
+        window.tabs?.some((tab) => isPlayhouseUrl(tab.url))
+      )).length;
+    } catch {
+      return null;
+    }
+  }
+
   async updateWindow(windowId, options, reason) {
     await this.windowTrace?.beforeUpdate(windowId, options, reason);
     return this.chrome.windows.update(windowId, options);
   }
 
-  async createWindowFromTabs(bounds, savedTabs, kind, sessionCycle = null) {
-    let definitions = validSavedTabs(savedTabs, kind) ??
+  async createWindowFromTabs(
+    bounds,
+    savedTabs,
+    kind,
+    sessionCycle = null,
+    recreationPath = "default_ph_create",
+  ) {
+    const validSaved = validSavedTabs(savedTabs, kind);
+    let definitions = validSaved ??
       (kind === "playhouse" ? defaultPlayhouseTabs(PLAYHOUSE_URL) : defaultAuxTabs());
     if (kind === "playhouse") {
       const playhouseIndex = definitions.tabs.findIndex((tab) => isPlayhouseUrl(tab.url));
@@ -405,6 +457,16 @@ export class CarnivalWorkspaceController {
       }
     }
     const eventPrefix = kind === "playhouse" ? "PH" : "AUX";
+    if (kind === "playhouse") {
+      const existingCandidateCount = await this.playhouseCandidateCount();
+      this.recordPhSessionDiagnostic("PH_RESTORE_STARTED", {
+        existing_candidate_count: existingCandidateCount,
+        path: recreationPath,
+        saved_snapshot_found: Boolean(validSaved),
+        saved_tab_count: validSaved?.tabs.length ?? 0,
+        snapshot: definitions,
+      });
+    }
     if (kind === "playhouse") this.phRestoreInProgress = true;
     else this.auxRestoreInProgress = true;
     this.creatingRestoreRole = kind;
@@ -430,6 +492,15 @@ export class CarnivalWorkspaceController {
       this.windowTrace?.afterCreate(traceCallId, kind, window);
     } catch (error) {
       this.windowTrace?.createFailed(traceCallId, kind, error);
+      if (kind === "playhouse") {
+        this.recordPhSessionDiagnostic("PH_RESTORE_FINAL", {
+          expectedSnapshot: definitions,
+          final_tab_count: 0,
+          first_failing_stage: "window_create",
+          reason: "window_create_failed",
+          success: false,
+        });
+      }
       if (kind === "playhouse") this.phRestoreInProgress = false;
       else this.auxRestoreInProgress = false;
       throw error;
@@ -437,6 +508,15 @@ export class CarnivalWorkspaceController {
       this.creatingRestoreRole = null;
     }
     if (!window?.id) {
+      if (kind === "playhouse") {
+        this.recordPhSessionDiagnostic("PH_RESTORE_FINAL", {
+          expectedSnapshot: definitions,
+          final_tab_count: 0,
+          first_failing_stage: "window_create",
+          reason: "window_id_missing",
+          success: false,
+        });
+      }
       if (kind === "playhouse") this.phRestoreInProgress = false;
       else this.auxRestoreInProgress = false;
       throw new Error(`Chrome could not create the ${kind} window.`);
@@ -450,6 +530,26 @@ export class CarnivalWorkspaceController {
     });
     const tabs = await this.tabsInWindow(window.id);
     if (tabs.length !== definitions.tabs.length) {
+      if (kind === "playhouse") {
+        this.recordPhSessionDiagnostic("PH_RESTORE_TAB_RESULT", {
+          actualSnapshot: logicalTabState(tabs),
+          created_count: tabs.length,
+          expectedSnapshot: definitions,
+          expected_count: definitions.tabs.length,
+          failed_count: Math.max(0, definitions.tabs.length - tabs.length),
+          reason: "tab_count_mismatch",
+          reused_count: 0,
+          success: false,
+        });
+        this.recordPhSessionDiagnostic("PH_RESTORE_FINAL", {
+          actualSnapshot: logicalTabState(tabs),
+          expectedSnapshot: definitions,
+          final_tab_count: tabs.length,
+          first_failing_stage: "tab_reconstruction",
+          reason: "tab_count_mismatch",
+          success: false,
+        });
+      }
       throw new Error(`Chrome could not restore the ${kind} tabs.`);
     }
     definitions.tabs.forEach((definition, index) => {
@@ -458,14 +558,103 @@ export class CarnivalWorkspaceController {
         role: definition.role,
         sessionCycle,
         tabId: tabs[index]?.id,
-        url: definition.url,
+        hostname: hostnameForDiagnostic(definition.url),
+        isPlayhouse: isPlayhouseUrl(definition.url),
         windowId: window.id,
       });
     });
-    await Promise.all(definitions.tabs.flatMap((definition, index) => (
-      definition.pinned ? [this.chrome.tabs.update(tabs[index].id, { pinned: true })] : []
-    )));
-    await this.chrome.tabs.update(tabs[definitions.activeIndex].id, { active: true });
+    if (kind === "playhouse") {
+      this.recordPhSessionDiagnostic("PH_RESTORE_TAB_RESULT", {
+        actualSnapshot: logicalTabState(tabs),
+        created_count: tabs.length,
+        expectedSnapshot: definitions,
+        expected_count: definitions.tabs.length,
+        failed_count: 0,
+        reason: "completed",
+        reused_count: 0,
+        success: true,
+      });
+      this.recordPhSessionDiagnostic("PH_RESTORE_ORDER_RESULT", {
+        actualSnapshot: logicalTabState(tabs),
+        attempted: true,
+        expectedSnapshot: definitions,
+        reason: tabs.every((tab, index) => tab.url === definitions.tabs[index]?.url)
+          ? "completed"
+          : "order_mismatch",
+        success: tabs.every((tab, index) => tab.url === definitions.tabs[index]?.url),
+      });
+    }
+    try {
+      await Promise.all(definitions.tabs.flatMap((definition, index) => (
+        definition.pinned ? [this.chrome.tabs.update(tabs[index].id, { pinned: true })] : []
+      )));
+    } catch (error) {
+      if (kind === "playhouse") {
+        this.recordPhSessionDiagnostic("PH_RESTORE_PIN_RESULT", {
+          attempted: definitions.tabs.some((tab) => tab.pinned),
+          expected_pinned_count: definitions.tabs.filter((tab) => tab.pinned).length,
+          reason: "pin_update_failed",
+          resulting_pinned_count: null,
+          success: false,
+        });
+        this.recordPhSessionDiagnostic("PH_RESTORE_FINAL", {
+          actualSnapshot: logicalTabState(tabs),
+          expectedSnapshot: definitions,
+          final_tab_count: tabs.length,
+          first_failing_stage: "pin_restore",
+          reason: "pin_update_failed",
+          success: false,
+        });
+      }
+      throw error;
+    }
+    const pinnedTabs = kind === "playhouse" ? await this.tabsInWindow(window.id) : tabs;
+    if (kind === "playhouse") {
+      const expectedPinned = definitions.tabs.filter((tab) => tab.pinned).length;
+      const resultingPinned = pinnedTabs.filter((tab) => tab.pinned).length;
+      this.recordPhSessionDiagnostic("PH_RESTORE_PIN_RESULT", {
+        actualSnapshot: logicalTabState(pinnedTabs),
+        attempted: expectedPinned > 0,
+        expected_pinned_count: expectedPinned,
+        reason: expectedPinned === resultingPinned ? "completed" : "pin_count_mismatch",
+        resulting_pinned_count: resultingPinned,
+        success: expectedPinned === resultingPinned,
+      });
+    }
+    try {
+      await this.chrome.tabs.update(tabs[definitions.activeIndex].id, { active: true });
+    } catch (error) {
+      if (kind === "playhouse") {
+        this.recordPhSessionDiagnostic("PH_RESTORE_ACTIVE_RESULT", {
+          attempted: true,
+          expected_active_index: definitions.activeIndex,
+          reason: "active_update_failed",
+          resulting_active_index: null,
+          success: false,
+        });
+        this.recordPhSessionDiagnostic("PH_RESTORE_FINAL", {
+          actualSnapshot: logicalTabState(pinnedTabs),
+          expectedSnapshot: definitions,
+          final_tab_count: pinnedTabs.length,
+          first_failing_stage: "active_restore",
+          reason: "active_update_failed",
+          success: false,
+        });
+      }
+      throw error;
+    }
+    const activatedTabs = kind === "playhouse" ? await this.tabsInWindow(window.id) : tabs;
+    if (kind === "playhouse") {
+      const resultingActiveIndex = activatedTabs.findIndex((tab) => tab.active);
+      this.recordPhSessionDiagnostic("PH_RESTORE_ACTIVE_RESULT", {
+        actualSnapshot: logicalTabState(activatedTabs),
+        attempted: true,
+        expected_active_index: definitions.activeIndex,
+        reason: resultingActiveIndex === definitions.activeIndex ? "completed" : "active_index_mismatch",
+        resulting_active_index: resultingActiveIndex,
+        success: resultingActiveIndex === definitions.activeIndex,
+      });
+    }
     const ids = roleTabIds(definitions, tabs);
     this.logger.info?.(`${eventPrefix}_TABS_RESTORED`, {
       count: tabs.length,
@@ -491,10 +680,53 @@ export class CarnivalWorkspaceController {
     const actualTabIds = tabs.map((tab) => tab.id);
     const expectedActiveId = restored.expectedTabIds[restored.tabState.activeIndex];
     const actualActiveId = tabs.find((tab) => tab.active)?.id;
-    if (!snapshot ||
-      JSON.stringify(actualTabIds) !== JSON.stringify(restored.expectedTabIds) ||
-      JSON.stringify(actualRoles) !== JSON.stringify(expectedRoles) ||
-      actualActiveId !== expectedActiveId) {
+    const snapshotPresent = Boolean(snapshot);
+    const orderMatch = JSON.stringify(actualTabIds) === JSON.stringify(restored.expectedTabIds);
+    const roleMatch = JSON.stringify(actualRoles) === JSON.stringify(expectedRoles);
+    const activeMatch = actualActiveId === expectedActiveId;
+    const activeIndexMatch = snapshot?.activeIndex === restored.tabState.activeIndex;
+    const urlFingerprintMatch = Boolean(snapshot) && snapshot.tabs.every(
+      (tab, index) => tab.url === restored.tabState.tabs[index]?.url,
+    );
+    const pinMatch = Boolean(snapshot) && snapshot.tabs.every(
+      (tab, index) => tab.pinned === restored.tabState.tabs[index]?.pinned,
+    );
+    const verificationSuccess = snapshotPresent && orderMatch && roleMatch && activeMatch;
+    if (kind === "playhouse") {
+      const verificationReason = !snapshotPresent
+        ? "snapshot_missing"
+        : !orderMatch ? "tab_order_mismatch"
+          : !roleMatch ? "role_mismatch"
+            : !activeMatch ? "active_tab_mismatch" : "completed";
+      this.recordPhSessionDiagnostic("PH_RESTORE_VERIFY_RESULT", {
+        active_index_match: activeIndexMatch,
+        active_match: activeMatch,
+        actualSnapshot: snapshot ?? logicalTabState(tabs),
+        actual_count: tabs.length,
+        expectedSnapshot: restored.tabState,
+        expected_count: restored.tabState.tabs.length,
+        order_match: orderMatch,
+        pin_match: pinMatch,
+        reason: verificationReason,
+        role_match: roleMatch,
+        success: verificationSuccess,
+        url_fingerprint_match: urlFingerprintMatch,
+      });
+    }
+    if (!verificationSuccess) {
+      if (kind === "playhouse") {
+        this.recordPhSessionDiagnostic("PH_RESTORE_FINAL", {
+          actualSnapshot: snapshot ?? logicalTabState(tabs),
+          expectedSnapshot: restored.tabState,
+          final_tab_count: tabs.length,
+          first_failing_stage: "verification",
+          reason: !snapshotPresent
+            ? "snapshot_missing"
+            : !orderMatch ? "tab_order_mismatch"
+              : !roleMatch ? "role_mismatch" : "active_tab_mismatch",
+          success: false,
+        });
+      }
       throw new Error(`Chrome could not verify the restored ${kind} session.`);
     }
     this.logger.info?.(`${eventPrefix}_RESTORE_VERIFIED`, {
@@ -534,6 +766,16 @@ export class CarnivalWorkspaceController {
       tabCount: snapshot.tabs.length,
       windowId,
     });
+    if (kind === "playhouse") {
+      this.recordPhSessionDiagnostic("PH_RESTORE_FINAL", {
+        actualSnapshot: snapshot,
+        expectedSnapshot: restored.tabState,
+        final_tab_count: snapshot.tabs.length,
+        reason: "completed",
+        success: true,
+      });
+      await this.flushPhSessionDiagnostics();
+    }
     this.settleSystemGeometry(windowId);
     return finalState;
   }
@@ -574,6 +816,7 @@ export class CarnivalWorkspaceController {
     try {
       await this.windowTrace?.discovery("PLAYHOUSE", prior.phWindowId);
       let window = await existingWindow(this.chrome, prior.phWindowId);
+    let adoptedAtStartup = false;
     let tab = await existingTab(this.chrome, prior.phPrimaryTabId);
     if (!window || tab?.windowId !== window.id || !isPlayhouseUrl(tab?.url)) tab = null;
     if (!window && startup.allowColdStartPlayhouseAdoption) {
@@ -589,6 +832,7 @@ export class CarnivalWorkspaceController {
         timeoutMs: this.coldStartCandidateTimeoutMs,
       });
       if (adopted) {
+        adoptedAtStartup = true;
         window = adopted.window;
         tab = adopted.tab;
         this.windowTrace?.emit("workspace-controller", "PH_GEOMETRY_ADOPT_TARGET", {
@@ -607,11 +851,15 @@ export class CarnivalWorkspaceController {
       }
     }
     if (!window) {
+      const recreationPath = startup.source === "native hot corner"
+        ? "hot_corner_recreate"
+        : startup.allowColdStartPlayhouseAdoption ? "startup_recovery" : "default_ph_create";
       const restored = await this.createWindowFromTabs(
         bounds,
         prior.phSession.tabs,
         "playhouse",
         prior.sessionCycle ?? null,
+        recreationPath,
       );
       return {
         tab: restored.roleTabIds["ph-primary"] ?
@@ -621,6 +869,14 @@ export class CarnivalWorkspaceController {
         window: restored.window,
       };
     } else {
+      const existingCandidateCount = await this.playhouseCandidateCount();
+      this.recordPhSessionDiagnostic("PH_RESTORE_STARTED", {
+        existing_candidate_count: existingCandidateCount,
+        path: adoptedAtStartup ? "startup_recovery" : "existing_window_adopted",
+        saved_snapshot_found: Boolean(validSavedTabs(prior.phSession.tabs, "playhouse")),
+        saved_tab_count: prior.phSession.tabs?.tabs?.length ?? 0,
+        snapshot: prior.phSession.tabs,
+      });
       await this.updateWindow(window.id, positionExisting
         ? { ...bounds, focused: false, state: "normal" }
         : { focused: false, state: "normal" }, "find-playhouse-existing");
@@ -790,6 +1046,7 @@ export class CarnivalWorkspaceController {
       return await this.summonDrawer(workArea, monitorId, startup);
     } catch (error) {
       this.cancelRestores();
+      await this.flushPhSessionDiagnostics();
       throw error;
     } finally {
       this.transitioning = false;
@@ -855,6 +1112,15 @@ export class CarnivalWorkspaceController {
       if (!phClosed && !auxClosed) return null;
       closedRole = phClosed ? "ph" : "aux";
       const sessionCycle = state.sessionCycle ?? newSessionCycleId();
+      if (phClosed) {
+        this.recordPhSessionDiagnostic("PH_WINDOW_REMOVED", {
+          reason: "window-closing",
+          saved_snapshot_existed: Boolean(validSavedTabs(state.phSession.tabs, "playhouse")),
+          saved_tab_count: state.phSession.tabs?.tabs?.length ?? 0,
+          session_cycle: sessionCycle,
+          snapshot: state.phSession.tabs,
+        });
+      }
       this.logger.info?.("WINDOW_CLOSE_STARTED", {
         role: closedRole,
         session: diagnosticSession(phClosed ? state.phSession : state.auxSession),
@@ -884,6 +1150,7 @@ export class CarnivalWorkspaceController {
         windowId,
       });
     }
+    await this.flushPhSessionDiagnostics();
     return result;
   }
 
@@ -1331,6 +1598,14 @@ export class CarnivalWorkspaceController {
       return null;
     }
     if (!snapshot) {
+      if (kind === "playhouse") {
+        this.recordPhSessionDiagnostic("PH_SESSION_PERSIST_RESULT", {
+          reason: "snapshot_missing",
+          success: false,
+          tab_count: 0,
+        });
+        await this.flushPhSessionDiagnostics();
+      }
       this.logger.info?.(`${eventPrefix}_SESSION_SAVE_SKIPPED`, {
         reason: `${reason}:no-stable-tabs`,
         sessionCycle,
@@ -1338,33 +1613,63 @@ export class CarnivalWorkspaceController {
       });
       return null;
     }
+    if (kind === "playhouse") {
+      this.recordPhSessionDiagnostic("PH_SESSION_SNAPSHOT_CREATED", {
+        reason,
+        session_cycle: sessionCycle,
+        snapshot,
+      });
+    }
     const activeTab = tabs.find((tab) => tab.active) ?? tabs[0];
     let restoreSkipped = false;
-    const nextState = await this.updateState((current) => {
-      if (this.isRestoreInProgress(windowId)) {
-        restoreSkipped = true;
-        return null;
+    let nextState;
+    try {
+      nextState = await this.updateState((current) => {
+        if (this.isRestoreInProgress(windowId)) {
+          restoreSkipped = true;
+          return null;
+        }
+        if (kind === "playhouse" && current.phWindowId !== windowId) return null;
+        if (kind === "context" && current.auxWindowId !== windowId) return null;
+        return kind === "playhouse"
+          ? {
+              ...current,
+              phSession: { ...current.phSession, tabs: snapshot },
+              playhouseTabs: snapshot,
+            }
+          : {
+              ...current,
+              auxActiveTabId: activeTab?.id ?? current.auxActiveTabId,
+              auxSession: { ...current.auxSession, tabs: snapshot },
+              contextTabId: activeTab?.id ?? current.auxActiveTabId,
+              contextTabs: snapshot,
+              contextUrl: activeTab?.url ?? current.contextUrl,
+            };
+      });
+    } catch (error) {
+      if (kind === "playhouse") {
+        this.recordPhSessionDiagnostic("PH_SESSION_PERSIST_RESULT", {
+          reason: "storage_write_failed",
+          snapshot,
+          success: false,
+          tab_count: snapshot.tabs.length,
+        });
+        await this.flushPhSessionDiagnostics();
       }
-      if (kind === "playhouse" && current.phWindowId !== windowId) return null;
-      if (kind === "context" && current.auxWindowId !== windowId) return null;
-      return kind === "playhouse"
-        ? {
-            ...current,
-            phSession: { ...current.phSession, tabs: snapshot },
-            playhouseTabs: snapshot,
-          }
-        : {
-            ...current,
-            auxActiveTabId: activeTab?.id ?? current.auxActiveTabId,
-            auxSession: { ...current.auxSession, tabs: snapshot },
-            contextTabId: activeTab?.id ?? current.auxActiveTabId,
-            contextTabs: snapshot,
-            contextUrl: activeTab?.url ?? current.contextUrl,
-          };
-    });
+      throw error;
+    }
     if (!nextState) {
       if (restoreSkipped) {
         this.logRestoreSaveSkipped(windowId, reason);
+        if (kind === "playhouse") {
+          this.recordPhSessionDiagnostic("PH_SESSION_PERSIST_RESULT", {
+            reason: "restore_in_progress",
+            snapshot,
+            success: false,
+            tab_count: snapshot.tabs.length,
+          });
+          await this.flushPhSessionDiagnostics();
+        }
         return null;
       }
       this.logger.info?.(`${eventPrefix}_SESSION_SAVE_SKIPPED`, {
@@ -1372,6 +1677,15 @@ export class CarnivalWorkspaceController {
         sessionCycle,
         windowId,
       });
+      if (kind === "playhouse") {
+        this.recordPhSessionDiagnostic("PH_SESSION_PERSIST_RESULT", {
+          reason: "window_identity_changed",
+          snapshot,
+          success: false,
+          tab_count: snapshot.tabs.length,
+        });
+        await this.flushPhSessionDiagnostics();
+      }
       return null;
     }
     this.logger.info?.(`${eventPrefix}_SESSION_SAVE_COMPLETE`, {
@@ -1381,6 +1695,16 @@ export class CarnivalWorkspaceController {
       sessionCycle,
       windowId,
     });
+    if (kind === "playhouse") {
+      this.recordPhSessionDiagnostic("PH_SESSION_PERSIST_RESULT", {
+        reason: "completed",
+        session_cycle: sessionCycle,
+        snapshot: nextState.phSession.tabs,
+        success: true,
+        tab_count: nextState.phSession.tabs.tabs.length,
+      });
+      await this.flushPhSessionDiagnostics();
+    }
     return nextState;
   }
 

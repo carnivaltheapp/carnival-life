@@ -138,3 +138,8 @@ When that window must be recreated, safe HTTP(S) tab URLs, exact order, active
 tab, and pinned state are restored. This tab persistence does not change the
 verified hot-corner rollout, Drawer z-order, window geometry, or PH-to-Aux
 routing behavior.
+
+Privacy-safe `PH_SESSION_*` records in the existing extension diagnostic ring
+trace tab snapshot, persistence, window removal, recreation, and verification.
+They retain only host classifications, state flags, and SHA-256 URL/session
+fingerprints; raw tab URLs are not recorded.

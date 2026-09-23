@@ -6,6 +6,7 @@ import {
 import { createWorkspaceActions } from "./workspace-summon.js";
 import { isOpenInAuxMessage, routeOpenInAuxMessage } from "./aux-routing.js";
 import { createWindowTrace } from "./window-trace.js";
+import { createPhSessionDiagnosticTrail } from "./workspace-tabs.js";
 import {
   requestVisibleGmailMetadata,
   selectGmailMetadataTab,
@@ -66,12 +67,16 @@ function recordDiagnostic(level, event, details = null) {
       [DIAGNOSTIC_STORAGE_KEY]: [...entries, entry].slice(-DIAGNOSTIC_LIMIT),
     });
   }).catch((error) => console.error("Carnival diagnostic persistence failed", error));
+  return diagnosticWriteQueue;
 }
 
 const diagnosticLogger = {
   info(event, details) { recordDiagnostic("info", event, details); },
   warn(event, details) { recordDiagnostic("warn", event, details); },
 };
+const phSessionDiagnostics = createPhSessionDiagnosticTrail({
+  record: (event, details) => recordDiagnostic("info", event, details),
+});
 
 const windowTrace = createWindowTrace({
   chromeApi: chrome,
@@ -220,6 +225,7 @@ const controller = new CarnivalWorkspaceController(chrome, {
   logger: diagnosticLogger,
   nativeActivate: activateWindowsNatively,
   nativeAnimate: animateWindowsNatively,
+  phSessionDiagnostics,
   windowTrace,
 });
 

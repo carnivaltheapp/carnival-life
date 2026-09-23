@@ -42,6 +42,15 @@ test("PlayHouse tab-session events flush before the shared workspace debounce", 
   assert.match(background, /controller\.rememberWorkspaceTabs\(windowId, saveReason\)/);
 });
 
+test("PH tab diagnostics use the existing persistent extension ring", () => {
+  const background = readFileSync(new URL("./background.js", import.meta.url), "utf8");
+
+  assert.match(background, /createPhSessionDiagnosticTrail/);
+  assert.match(background, /recordDiagnostic\("info", event, details\)/);
+  assert.match(background, /phSessionDiagnostics,/);
+  assert.match(background, /carnivalWorkspaceDiagnostics/);
+});
+
 test("native foreground APIs remain isolated from resident companion work", () => {
   const source = readFileSync(
     new URL("../../desktop/workspace/windows/CarnivalWorkspaceHost.cs", import.meta.url),

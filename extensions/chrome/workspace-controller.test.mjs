@@ -14,7 +14,11 @@ import {
   restoredWorkspaceLayout,
 } from "./workspace-controller.js";
 import { createWorkspaceActions } from "./workspace-summon.js";
-import { defaultAuxTabs, defaultPlayhouseTabs } from "./workspace-tabs.js";
+import {
+  createPhSessionDiagnosticTrail,
+  defaultAuxTabs,
+  defaultPlayhouseTabs,
+} from "./workspace-tabs.js";
 
 function fakeChrome() {
   let state = {};
@@ -198,6 +202,18 @@ function diagnosticController(chrome, options = {}) {
     },
   });
   return { events, workspace };
+}
+
+function phSessionDiagnosticController(chrome) {
+  const records = [];
+  const phSessionDiagnostics = createPhSessionDiagnosticTrail({
+    async record(event, details) { records.push({ details, event }); },
+  });
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { warn() {} },
+    phSessionDiagnostics,
+  });
+  return { phSessionDiagnostics, records, workspace };
 }
 
 test("default workspace is a left PlayHouse 60/40 split across the monitor work area", () => {
@@ -604,6 +620,61 @@ test("PH restore adds exactly one real PlayHouse tab and skips restricted saved 
     { active: true, pinned: true, url: "https://example.com/safe" },
   ]);
   assert.equal(chrome.getTabs(restored.window.id).filter(({ url }) => url === PLAYHOUSE_URL).length, 1);
+});
+
+test("PH session diagnostic trail survives close and records the complete hot-corner restore", async () => {
+  const chrome = fakeChrome();
+  const { phSessionDiagnostics, records, workspace } = phSessionDiagnosticController(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const initial = await workspace.summon(workArea, "display-1");
+  await phSessionDiagnostics.drain();
+  records.length = 0;
+  const privateUrl = "https://example.com/private/path?secret=never-log";
+  const added = chrome.addTab(initial.playhouseWindowId, privateUrl, { active: true });
+  await chrome.tabs.update(initial.playhouseTabId, { pinned: true });
+  await workspace.rememberWorkspaceTabs(initial.playhouseWindowId, "tab-created");
+  chrome.closeWindow(initial.playhouseWindowId);
+  await workspace.handleWindowClosed(initial.playhouseWindowId);
+  await phSessionDiagnostics.drain();
+
+  const eventsAfterClose = records.map(({ event }) => event);
+  assert.ok(eventsAfterClose.includes("PH_SESSION_SNAPSHOT_CREATED"));
+  assert.ok(eventsAfterClose.includes("PH_SESSION_PERSIST_RESULT"));
+  assert.ok(eventsAfterClose.includes("PH_WINDOW_REMOVED"));
+  assert.equal(records.find(({ event }) => event === "PH_WINDOW_REMOVED")?.details.saved_tab_count, 2);
+
+  const restored = await workspace.summon(workArea, "display-1", { source: "native hot corner" });
+  await phSessionDiagnostics.drain();
+  const restoreStart = records.findLast(({ event }) => event === "PH_RESTORE_STARTED");
+  const verify = records.findLast(({ event }) => event === "PH_RESTORE_VERIFY_RESULT");
+  const final = records.findLast(({ event }) => event === "PH_RESTORE_FINAL");
+
+  assert.equal(restoreStart?.details.path, "hot_corner_recreate");
+  assert.equal(restoreStart?.details.saved_snapshot_found, true);
+  assert.equal(restoreStart?.details.saved_tab_count, 2);
+  assert.equal(verify?.details.success, true);
+  assert.equal(verify?.details.order_match, true);
+  assert.equal(verify?.details.pin_match, true);
+  assert.equal(verify?.details.active_match, true);
+  assert.equal(final?.details.success, true);
+  assert.equal(final?.details.final_tab_count, 2);
+  assert.equal(final?.details.correlation_id, restoreStart?.details.correlation_id);
+  assert.equal(JSON.stringify(records).includes(privateUrl), false);
+  assert.equal(JSON.stringify(records).includes("private/path"), false);
+  assert.equal(chrome.getTabs(restored.playhouseWindowId).find((tab) => tab.id === added.id), undefined);
+});
+
+test("PH session diagnostic failure cannot interrupt tab persistence", async () => {
+  const chrome = fakeChrome();
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { warn() {} },
+    phSessionDiagnostics: { record() { throw new Error("diagnostic failure"); } },
+  });
+  const opened = await workspace.summon({ height: 900, left: 0, top: 0, width: 1600 }, "display-1");
+  chrome.addTab(opened.playhouseWindowId, "https://example.com/safe", { active: true });
+
+  await assert.doesNotReject(workspace.rememberWorkspaceTabs(opened.playhouseWindowId, "tab-created"));
+  assert.equal((await workspace.state()).phSession.tabs.tabs.length, 2);
 });
 
 test("three-tab PH restore suppresses reconstruction saves and performs one verified final save", async () => {

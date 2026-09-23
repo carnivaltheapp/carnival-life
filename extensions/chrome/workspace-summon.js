@@ -44,6 +44,7 @@ export function createWorkspaceActions({
         const state = await controller.summon(workArea, monitorId, {
           allowColdStartPlayhouseAdoption: source === "native hot corner" && coldStart?.eligible === true,
           coldStartCandidateWindowIds: coldStart?.candidateWindowIds ?? [],
+          source,
         });
         reportDrawerState(state);
         logger.info(`Carnival: workspace state = ${state.drawerState}`);
