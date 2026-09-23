@@ -493,21 +493,117 @@ test("Aux tab order, active tab, pins, roles, and user tabs restore after window
   assert.equal(chrome.getTab(restored.contextRoleTabIds.misc).url, "https://www.google.com/");
 });
 
-test("PlayHouse user tabs and active tab restore after controller restart", async () => {
+test("PlayHouse URL order, active tab, and pinned state restore after controller restart", async () => {
   const chrome = fakeChrome();
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
   const first = await controller(chrome).summon(workArea, "display-1");
-  chrome.addTab(first.playhouseWindowId, "https://example.com/reference", { active: true });
-  await controller(chrome).rememberWorkspaceTabs(first.playhouseWindowId);
+  chrome.addTab(first.playhouseWindowId, "https://example.com/a");
+  const pageB = chrome.addTab(first.playhouseWindowId, "https://example.com/b", { active: true });
+  chrome.addTab(first.playhouseWindowId, "https://example.com/c");
+  chrome.moveTab(pageB.id, 2);
+  await chrome.tabs.update(first.playhouseTabId, { pinned: true });
+  const workspace = controller(chrome);
+  await workspace.rememberWorkspaceTabs(first.playhouseWindowId, "tab-session-test");
+  const saved = await workspace.state();
+
+  assert.deepEqual(saved.phSession.tabs, {
+    activeIndex: 2,
+    tabs: [
+      { pinned: true, role: "ph-primary", url: PLAYHOUSE_URL },
+      { pinned: false, role: null, url: "https://example.com/a" },
+      { pinned: false, role: null, url: "https://example.com/b" },
+      { pinned: false, role: null, url: "https://example.com/c" },
+    ],
+  });
   chrome.closeWindow(first.playhouseWindowId);
 
   const restored = await controller(chrome).summon(workArea, "display-1");
 
-  assert.deepEqual(chrome.getTabs(restored.playhouseWindowId).map(({ active, url }) => ({ active, url })), [
-    { active: false, url: PLAYHOUSE_URL },
-    { active: true, url: "https://example.com/reference" },
+  assert.deepEqual(chrome.getTabs(restored.playhouseWindowId).map(({ active, pinned, url }) => ({ active, pinned, url })), [
+    { active: false, pinned: true, url: PLAYHOUSE_URL },
+    { active: false, pinned: false, url: "https://example.com/a" },
+    { active: true, pinned: false, url: "https://example.com/b" },
+    { active: false, pinned: false, url: "https://example.com/c" },
   ]);
   assert.equal(chrome.getTab(restored.playhouseTabId).url, PLAYHOUSE_URL);
+});
+
+test("PlayHouse tab mutations replace the persisted logical session without runtime tab IDs", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const opened = await workspace.summon({ height: 900, left: 0, top: 0, width: 1600 }, "display-1");
+  const added = chrome.addTab(opened.playhouseWindowId, "https://example.com/original", { active: true });
+
+  await workspace.rememberWorkspaceTabs(opened.playhouseWindowId, "tab-created");
+  assert.deepEqual((await workspace.state()).phSession.tabs.tabs.map(({ url }) => url), [
+    PLAYHOUSE_URL,
+    "https://example.com/original",
+  ]);
+
+  chrome.setTab(added.id, { url: "https://example.com/navigated" });
+  await workspace.rememberWorkspaceTabs(opened.playhouseWindowId, "tab-url-updated");
+  const reordered = chrome.addTab(opened.playhouseWindowId, "https://example.com/reordered");
+  chrome.moveTab(reordered.id, 1);
+  await workspace.rememberWorkspaceTabs(opened.playhouseWindowId, "tab-moved");
+  assert.deepEqual((await workspace.state()).phSession.tabs.tabs.map(({ url }) => url), [
+    PLAYHOUSE_URL,
+    "https://example.com/reordered",
+    "https://example.com/navigated",
+  ]);
+
+  chrome.closeTab(reordered.id);
+  await workspace.rememberWorkspaceTabs(opened.playhouseWindowId, "tab-removed");
+  assert.deepEqual((await workspace.state()).phSession.tabs, {
+    activeIndex: 1,
+    tabs: [
+      { pinned: false, role: "ph-primary", url: PLAYHOUSE_URL },
+      { pinned: false, role: null, url: "https://example.com/navigated" },
+    ],
+  });
+});
+
+test("existing Chrome-restored PlayHouse tab is adopted when the saved runtime tab ID is stale", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  const existingTabs = chrome.getTabs(opened.playhouseWindowId);
+  await workspace.save({
+    ...(await workspace.state()),
+    phPrimaryTabId: 999999,
+  });
+  chrome.calls.createTab.length = 0;
+
+  const restored = await workspace.summon(workArea, "display-1");
+
+  assert.equal(restored.playhouseWindowId, opened.playhouseWindowId);
+  assert.equal(restored.playhouseTabId, existingTabs[0].id);
+  assert.equal(chrome.calls.createTab.length, 0);
+  assert.equal(chrome.getTabs(opened.playhouseWindowId).filter(({ url }) => url === PLAYHOUSE_URL).length, 1);
+});
+
+test("PH restore adds exactly one real PlayHouse tab and skips restricted saved URLs", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const restored = await workspace.createWindowFromTabs(
+    { height: 900, left: 0, top: 0, width: 900 },
+    {
+      activeIndex: 2,
+      tabs: [
+        { pinned: false, role: "ph-primary", url: "https://example.com/not-playhouse" },
+        { pinned: false, role: null, url: "chrome://settings" },
+        { pinned: true, role: null, url: "https://example.com/safe" },
+      ],
+    },
+    "playhouse",
+  );
+
+  assert.deepEqual(chrome.getTabs(restored.window.id).map(({ active, pinned, url }) => ({ active, pinned, url })), [
+    { active: false, pinned: false, url: PLAYHOUSE_URL },
+    { active: false, pinned: false, url: "https://example.com/not-playhouse" },
+    { active: true, pinned: true, url: "https://example.com/safe" },
+  ]);
+  assert.equal(chrome.getTabs(restored.window.id).filter(({ url }) => url === PLAYHOUSE_URL).length, 1);
 });
 
 test("three-tab PH restore suppresses reconstruction saves and performs one verified final save", async () => {

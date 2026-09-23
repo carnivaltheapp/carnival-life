@@ -22,6 +22,7 @@ const STAR_VISIBLE_GMAIL_THREAD = "starVisibleGmailThread";
 const UNSTAR_GMAIL_THREAD = "unstarGmailThread";
 const UNSTAR_VISIBLE_GMAIL_THREAD = "unstarVisibleGmailThread";
 const TAB_SAVE_DELAY_MS = 300;
+const PH_TAB_SAVE_DELAY_MS = 0;
 const DIAGNOSTIC_STORAGE_KEY = "carnivalWorkspaceDiagnostics";
 const DIAGNOSTIC_LIMIT = 500;
 const GET_LOCAL_BRANCHES = "getLocalBranches";
@@ -37,6 +38,7 @@ const geometrySaveTimers = new Map();
 const tabSaveTimers = new Map();
 const tabSaveReasons = new Map();
 let diagnosticWriteQueue = Promise.resolve();
+let trackedPlayhouseWindowId = null;
 
 function branchSummary(branches, durationMs) {
   const count = (nodes) => nodes.reduce(
@@ -93,13 +95,14 @@ function scheduleTabSave(windowId, reason) {
   }
   tabSaveReasons.set(windowId, reason);
   clearTimeout(tabSaveTimers.get(windowId));
+  const delay = windowId === trackedPlayhouseWindowId ? PH_TAB_SAVE_DELAY_MS : TAB_SAVE_DELAY_MS;
   tabSaveTimers.set(windowId, setTimeout(() => {
     tabSaveTimers.delete(windowId);
     const saveReason = tabSaveReasons.get(windowId) ?? "tab-event";
     tabSaveReasons.delete(windowId);
     controller.rememberWorkspaceTabs(windowId, saveReason)
       .catch((error) => console.error("Carnival tab persistence failed", error));
-  }, TAB_SAVE_DELAY_MS));
+  }, delay));
 }
 
 function flattenBounds(prefix, bounds) {
@@ -221,6 +224,7 @@ const controller = new CarnivalWorkspaceController(chrome, {
 });
 
 function reportDrawerState(state) {
+  trackedPlayhouseWindowId = state?.phWindowId ?? null;
   if (!nativePort) return;
   if (state?.drawerState !== "open" || !validWorkArea(state.workArea)) {
     nativePort.postMessage({ state: "retracted", type: "workspaceState" });

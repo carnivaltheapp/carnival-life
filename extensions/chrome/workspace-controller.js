@@ -272,6 +272,10 @@ function roleTabIds(definitions, tabs) {
   )));
 }
 
+function isPlayhouseUrl(value) {
+  return typeof value === "string" && value.startsWith(PLAYHOUSE_URL);
+}
+
 function diagnosticSession(session) {
   return {
     activeIndex: session?.tabs?.activeIndex ?? null,
@@ -383,11 +387,22 @@ export class CarnivalWorkspaceController {
   async createWindowFromTabs(bounds, savedTabs, kind, sessionCycle = null) {
     let definitions = validSavedTabs(savedTabs, kind) ??
       (kind === "playhouse" ? defaultPlayhouseTabs(PLAYHOUSE_URL) : defaultAuxTabs());
-    if (kind === "playhouse" && !definitions.tabs.some((tab) => tab.role === "ph-primary")) {
-      definitions = {
-        activeIndex: definitions.activeIndex + 1,
-        tabs: [defaultPlayhouseTabs(PLAYHOUSE_URL).tabs[0], ...definitions.tabs],
-      };
+    if (kind === "playhouse") {
+      const playhouseIndex = definitions.tabs.findIndex((tab) => isPlayhouseUrl(tab.url));
+      if (playhouseIndex < 0) {
+        definitions = {
+          activeIndex: definitions.activeIndex + 1,
+          tabs: [defaultPlayhouseTabs(PLAYHOUSE_URL).tabs[0], ...definitions.tabs],
+        };
+      } else {
+        definitions = {
+          ...definitions,
+          tabs: definitions.tabs.map((tab, index) => ({
+            ...tab,
+            role: index === playhouseIndex ? "ph-primary" : null,
+          })),
+        };
+      }
     }
     const eventPrefix = kind === "playhouse" ? "PH" : "AUX";
     if (kind === "playhouse") this.phRestoreInProgress = true;
@@ -538,10 +553,14 @@ export class CarnivalWorkspaceController {
     const roleIds = kind === "playhouse"
       ? {}
       : state.auxRoleTabIds ?? {};
+    const primaryTabId = kind === "playhouse"
+      ? tabs.find((tab) => tab.id === state.phPrimaryTabId && isPlayhouseUrl(tab.url))?.id ??
+        tabs.find((tab) => isPlayhouseUrl(tab.url))?.id ?? null
+      : null;
     const snapshot = snapshotTabs(
       tabs,
       roleIds,
-      kind === "playhouse" ? state.phPrimaryTabId : null,
+      primaryTabId,
     );
     return { snapshot, tabs };
   }
@@ -556,7 +575,7 @@ export class CarnivalWorkspaceController {
       await this.windowTrace?.discovery("PLAYHOUSE", prior.phWindowId);
       let window = await existingWindow(this.chrome, prior.phWindowId);
     let tab = await existingTab(this.chrome, prior.phPrimaryTabId);
-    if (!window || tab?.windowId !== window.id) tab = null;
+    if (!window || tab?.windowId !== window.id || !isPlayhouseUrl(tab?.url)) tab = null;
     if (!window && startup.allowColdStartPlayhouseAdoption) {
       const adopted = await waitForColdStartPlayhouse({
         candidateWindowIds: startup.coldStartCandidateWindowIds,
@@ -605,6 +624,10 @@ export class CarnivalWorkspaceController {
       await this.updateWindow(window.id, positionExisting
         ? { ...bounds, focused: false, state: "normal" }
         : { focused: false, state: "normal" }, "find-playhouse-existing");
+      if (!tab) {
+        tab = window.tabs?.find((candidate) => isPlayhouseUrl(candidate.url)) ??
+          (await this.tabsInWindow(window.id)).find((candidate) => isPlayhouseUrl(candidate.url)) ?? null;
+      }
       if (!tab) {
         tab = await this.chrome.tabs.create({ active: true, url: PLAYHOUSE_URL, windowId: window.id });
       }

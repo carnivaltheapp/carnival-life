@@ -31,6 +31,17 @@ test("PlayHouse feature code cannot directly manipulate Chrome windows", () => {
   assert.deepEqual(offenders, []);
 });
 
+test("PlayHouse tab-session events flush before the shared workspace debounce", () => {
+  const background = readFileSync(new URL("./background.js", import.meta.url), "utf8");
+
+  assert.match(background, /const PH_TAB_SAVE_DELAY_MS = 0;/);
+  assert.match(
+    background,
+    /windowId === trackedPlayhouseWindowId \? PH_TAB_SAVE_DELAY_MS : TAB_SAVE_DELAY_MS/,
+  );
+  assert.match(background, /controller\.rememberWorkspaceTabs\(windowId, saveReason\)/);
+});
+
 test("native foreground APIs remain isolated from resident companion work", () => {
   const source = readFileSync(
     new URL("../../desktop/workspace/windows/CarnivalWorkspaceHost.cs", import.meta.url),

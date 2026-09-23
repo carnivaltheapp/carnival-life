@@ -132,3 +132,9 @@ continuously.
 Hot-corner rollout prepares the existing PlayHouse/Aux pair in the foreground
 before its first animation frame. PlayHouse content actions only reveal the
 existing Aux window and route its content; they do not summon the drawer.
+
+The PlayHouse window's logical tab session is stored locally by the extension.
+When that window must be recreated, safe HTTP(S) tab URLs, exact order, active
+tab, and pinned state are restored. This tab persistence does not change the
+verified hot-corner rollout, Drawer z-order, window geometry, or PH-to-Aux
+routing behavior.

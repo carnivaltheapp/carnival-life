@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-HOT-CORNER-124
+          P3-PH-TABS-125
         </small>
       </body>
     </html>
