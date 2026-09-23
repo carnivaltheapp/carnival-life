@@ -8,6 +8,7 @@ export const AUX_ROLE_URLS = {
 };
 
 export const HOT_TAB_ROLES = Object.freeze({
+  calendar: "calendar",
   drive: "drive",
   gmail: "gmail",
   slack: "slack",
@@ -87,6 +88,7 @@ export function auxRoleForUrl(value) {
   if (!isRestorableTabUrl(value)) return null;
   try {
     const host = new URL(value).hostname;
+    if (host === "calendar.google.com") return "calendar";
     if (host === "mail.google.com") return "gmail";
     if (host === "drive.google.com") return "drive";
     if (isGoogleContactsUrl(value)) return "contacts";

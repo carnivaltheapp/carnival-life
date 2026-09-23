@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $hostName = 'com.carnival.workspace'
-$hostMarker = 'DRAWER-HOST-17'
+$hostMarker = 'DRAWER-HOST-20'
 $source = Join-Path $PSScriptRoot 'CarnivalWorkspaceHost.cs'
 $installDirectory = Join-Path $env:LOCALAPPDATA 'Carnival\DesktopWorkspace'
 $hostExecutable = Join-Path $installDirectory 'CarnivalWorkspaceHost.exe'

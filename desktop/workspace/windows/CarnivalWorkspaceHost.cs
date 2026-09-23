@@ -14,7 +14,7 @@ using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
-    private const string HostMarker = "DRAWER-HOST-17";
+    private const string HostMarker = "DRAWER-HOST-20";
     private const string BranchRoot = @"C:\Google Drive";
     private const int FcsmInfoTip = 0x4;
     private const uint FcsRead = 0x1;
@@ -1519,6 +1519,12 @@ internal static class CarnivalWorkspaceHost
             WriteDiagnostic("PH_RETRACT_VERTICAL_INVARIANT_VIOLATION retract target normalized to work-area top");
             playhouseTo.Top = workAreaTop;
         }
+        if (!easeIn && !ActivateWorkspace(playhouse, context))
+        {
+            WriteDiagnostic("opening foreground preparation failed before rollout");
+            return false;
+        }
+        if (!easeIn) WriteDiagnostic("opening foreground prepared before rollout");
         var frameCount = Math.Max(2, (int)Math.Round(durationMs * AnimationFramesPerSecond / 1000.0));
         var stopwatch = Stopwatch.StartNew();
         for (var frame = 1; frame <= frameCount; frame += 1)

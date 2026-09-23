@@ -471,6 +471,7 @@ test("Aux tab order, active tab, pins, roles, and user tabs restore after window
   chrome.closeWindow(first.contextWindowId);
 
   const restarted = controller(chrome);
+  await restarted.summon(workArea, "display-1");
   await restarted.openCarnivalContext(
     "https://mail.google.com/mail/u/0/#all/restored-thread",
     workArea,
@@ -920,34 +921,83 @@ test("restored Aux routing leaves unrelated Chrome windows untouched", async () 
   assert.deepEqual(chrome.getWindow(unrelated.id), before);
 });
 
-test("opening in Aux recreates only a closed Aux at its saved geometry", async () => {
+test("PlayHouse routes Calendar, Gmail, Contacts, Slack, and URLs by revealing only existing Aux", async () => {
+  const chrome = fakeChrome();
+  const animations = [];
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { warn() {} },
+    nativeAnimate: async (animation) => {
+      animations.push(animation);
+      return true;
+    },
+  });
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  await workspace.retract();
+  const before = await workspace.state();
+  const playhouseBefore = { ...chrome.getWindow(opened.playhouseWindowId) };
+  const unrelated = await chrome.windows.create({
+    focused: true,
+    height: 700,
+    left: 200,
+    state: "normal",
+    top: 80,
+    type: "normal",
+    url: "https://example.net/unrelated",
+    width: 900,
+  });
+  const unrelatedBefore = { ...chrome.getWindow(unrelated.id) };
+  chrome.resizeWindow(opened.contextWindowId, { left: -2000, state: "minimized" });
+  chrome.calls.createWindow.length = 0;
+  chrome.calls.updateWindow.length = 0;
+
+  for (const url of [
+    "https://calendar.google.com/calendar/u/0/r/week",
+    "https://mail.google.com/mail/u/0/#all/thread-1",
+    "https://contacts.google.com/person/c123",
+    "https://app.slack.com/client/T1/C1",
+    "https://example.com/play",
+  ]) {
+    await workspace.openCarnivalContext(url, workArea, "display-1");
+  }
+
+  const after = await workspace.state();
+  assert.equal(chrome.calls.createWindow.length, 0);
+  assert.equal(animations.length, 2);
+  assert.equal(chrome.calls.updateWindow.some(({ id }) => id === opened.playhouseWindowId), false);
+  assert.equal(chrome.calls.updateWindow.some(({ id }) => id === unrelated.id), false);
+  assert.deepEqual(chrome.getWindow(opened.playhouseWindowId), playhouseBefore);
+  assert.deepEqual(chrome.getWindow(unrelated.id), unrelatedBefore);
+  assert.deepEqual(after.phSession.geometry, before.phSession.geometry);
+  assert.deepEqual(after.auxSession.geometry, before.auxSession.geometry);
+  assert.equal(after.drawerState, before.drawerState);
+  assert.equal(chrome.getTab(after.auxRoleTabIds.calendar).url,
+    "https://calendar.google.com/calendar/u/0/r/week");
+  assert.equal(chrome.getTab(after.auxRoleTabIds.gmail).url,
+    "https://mail.google.com/mail/u/0/#all/thread-1");
+  assert.equal(chrome.getTab(after.auxRoleTabIds.contacts).url,
+    "https://contacts.google.com/person/c123");
+  assert.equal(chrome.getTab(after.auxRoleTabIds.slack).url,
+    "https://app.slack.com/client/T1/C1");
+  assert.equal(chrome.getTab(after.auxRoleTabIds.misc).url, "https://example.com/play");
+});
+
+test("PlayHouse routing does not recreate a missing Aux", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
   const initial = await workspace.summon(workArea, "display-1");
-  const playhouseBefore = { ...chrome.getWindow(initial.playhouseWindowId) };
   chrome.closeWindow(initial.contextWindowId);
   chrome.calls.createWindow.length = 0;
   chrome.calls.updateWindow.length = 0;
 
-  await workspace.openCarnivalContext("https://example.com/recreated", workArea, "display-1");
-
-  assert.equal(chrome.calls.createWindow.length, 1);
-  assert.deepEqual(chrome.calls.createWindow[0], {
-    ...defaultWorkspaceLayout(workArea).context,
-    focused: false,
-    type: "normal",
-    url: [
-      DEFAULT_CONTEXT_URL,
-      "https://mail.google.com/mail/u/0/#inbox",
-      "https://www.google.com/",
-    ],
-  });
-  assert.deepEqual(chrome.getWindow(initial.playhouseWindowId), playhouseBefore);
-  assert.equal(
-    chrome.calls.updateWindow.some(({ id }) => id === initial.playhouseWindowId),
-    false,
+  await assert.rejects(
+    workspace.openCarnivalContext("https://example.com/recreated", workArea, "display-1"),
+    /Aux must already be open/,
   );
+
+  assert.equal(chrome.calls.createWindow.length, 0);
+  assert.equal(chrome.calls.updateWindow.length, 0);
 });
 
 test("a missing workspace side is repaired without duplicating the surviving window", async () => {
@@ -1224,9 +1274,9 @@ test("both closed workspace windows are recreated with saved geometry and contex
   assert.notEqual(recreated.playhouseWindowId, first.playhouseWindowId);
   assert.notEqual(recreated.contextWindowId, first.contextWindowId);
   assert.deepEqual(chrome.calls.createWindow.at(-1).url, [
-    DEFAULT_CONTEXT_URL,
-    "https://mail.google.com/mail/u/0/#inbox",
     "https://calendar.google.com/calendar/u/0/r/week",
+    "https://mail.google.com/mail/u/0/#inbox",
+    "https://www.google.com/",
   ]);
   assert.deepEqual(animations.at(-1).playhouse.to, {
     height: 900,

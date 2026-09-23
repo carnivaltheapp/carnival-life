@@ -1077,44 +1077,38 @@ export class CarnivalWorkspaceController {
     return retracted;
   }
 
-  async openCarnivalContext(url, workArea, monitorId = null, requestedRole = null) {
+  async openCarnivalContext(url, workArea, _monitorId = null, requestedRole = null) {
     if (!isAllowedContextUrl(url)) throw new Error("Carnival context URLs must use HTTP or HTTPS.");
     if (!validWorkArea(workArea)) throw new Error("A valid monitor work area is required.");
     const role = requestedRole ?? auxRoleForUrl(url);
-    if (role !== "contacts" && role !== "drive" && role !== "gmail" && role !== "misc" && role !== "slack") {
-      throw new Error("Carnival context navigation requires a Contacts, Drive, Gmail, Slack, or Misc role.");
+    if (role !== "calendar" && role !== "contacts" && role !== "drive" && role !== "gmail" &&
+      role !== "misc" && role !== "slack") {
+      throw new Error("Carnival context navigation requires a Calendar, Contacts, Drive, Gmail, Slack, or Misc role.");
     }
 
     this.logger.info?.("Carnival: resolving Aux context window");
     const prior = await this.state();
     const layout = canonicalWorkspaceLayout(prior, workArea);
-    const existingContext = await existingWindow(this.chrome, prior.auxWindowId);
-    const restoreContext = prior.drawerState !== "open" || !existingContext ||
-      !hasVisibleIntersection(existingContext, workArea);
-    const context = await this.findContext(
-      prior,
-      layout.context,
-      restoreContext,
-      role !== "drive" || restoreContext,
-    );
-    const contextWindow = context.window;
-    if (context.restore) {
-      await this.save({
-        ...prior,
-        auxActiveTabId: context.tab.id,
-        auxRoleTabIds: context.roleTabIds,
-        auxSession: { geometry: geometryFromBounds(layout.context), tabs: context.tabState },
-        auxWindowId: contextWindow.id,
-        contextRoleTabIds: context.roleTabIds,
-        contextTabId: context.tab.id,
-        contextTabs: context.tabState,
-        contextWindowId: contextWindow.id,
-        layoutVersion: LAYOUT_VERSION,
-        monitorId,
-        workArea,
-      });
-      await this.finalizeRestoredWindow("context", context.restore, prior.sessionCycle ?? null);
+    let contextWindow = await existingWindow(this.chrome, prior.auxWindowId);
+    if (!contextWindow) {
+      this.logger.warn?.("AUX_ROUTE_SKIPPED", { reason: "existing-aux-window-missing" });
+      throw new Error("Carnival Aux must already be open before PlayHouse can route content.");
     }
+    const restoreContext = !hasVisibleIntersection(contextWindow, workArea);
+    if (restoreContext) {
+      contextWindow = await this.updateWindow(contextWindow.id, {
+        ...layout.context,
+        focused: false,
+        state: "normal",
+      }, "show-existing-aux-for-route");
+      this.logger.info?.("AUX_ROUTE_VISIBILITY_PREPARED", {
+        reason: "existing-aux-was-not-visible",
+        windowId: contextWindow.id,
+      });
+    }
+    const contextTabsBeforeRoute = await this.tabsInWindow(contextWindow.id);
+    if (!contextTabsBeforeRoute.length) throw new Error("Chrome could not identify the existing Aux tabs.");
+    const roleIds = { ...(prior.auxRoleTabIds ?? {}) };
     const contactsTabs = role === "contacts"
       ? (await this.tabsInWindow(contextWindow.id)).filter((tab) => isGoogleContactsUrl(tab.url))
       : [];
@@ -1123,11 +1117,10 @@ export class CarnivalWorkspaceController {
       : [];
     let roleTab = role === "contacts"
       ? contactsTabs.find((tab) => tab.active) ?? contactsTabs[0] ?? null
-      : await existingTab(this.chrome, context.roleTabIds[role]);
+      : await existingTab(this.chrome, roleIds[role]);
     if (role === "slack" && !roleTab) {
       roleTab = slackTabs.find((tab) => tab.active) ?? slackTabs[0] ?? null;
     }
-    const roleIds = { ...context.roleTabIds };
     if (!roleTab || roleTab.windowId !== contextWindow.id) {
       roleTab = await this.chrome.tabs.create({ active: true, url, windowId: contextWindow.id });
       this.logger.info?.("AUX_ROLE_TAB_CREATED", { role, tabId: roleTab.id });
@@ -1139,6 +1132,7 @@ export class CarnivalWorkspaceController {
     this.logger.info?.("AUX_ROLE_TAB_ACTIVATED", { role, tabId: roleTab.id });
     const navigatedEvent = role === "gmail"
       ? "GMAIL_ROLE_NAVIGATED"
+      : role === "calendar" ? "CALENDAR_ROLE_NAVIGATED"
       : role === "contacts"
         ? "CONTACTS_ROLE_NAVIGATED"
         : role === "slack" ? "SLACK_ROLE_NAVIGATED"
@@ -1157,28 +1151,20 @@ export class CarnivalWorkspaceController {
     }
     const tabs = await this.tabsInWindow(contextWindow.id);
     const contextTabs = snapshotTabs(tabs, roleIds);
-    const contextBounds = restoreContext
-      ? layout.context
-      : currentBounds(contextWindow, layout.context);
     await this.save({
       ...prior,
       auxActiveTabId: roleTab.id,
       auxRoleTabIds: roleIds,
       auxSession: {
-        geometry: geometryFromBounds(contextBounds),
+        ...prior.auxSession,
         tabs: contextTabs,
       },
       auxWindowId: contextWindow.id,
-      contextBounds,
       contextRoleTabIds: roleIds,
       contextTabId: roleTab.id,
       contextTabs,
       contextUrl: url,
       contextWindowId: contextWindow.id,
-      drawerState: "open",
-      layoutVersion: LAYOUT_VERSION,
-      monitorId,
-      workArea,
     });
     if (role !== "drive") {
       await this.updateWindow(contextWindow.id, { focused: true }, "route-aux-tab");

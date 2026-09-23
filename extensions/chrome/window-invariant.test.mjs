@@ -67,3 +67,19 @@ test("PlayHouse resting geometry is anchored while Drawer animation may move the
   assert.match(nativeHost, /MovePair\(playhouse, Interpolate\(playhouseCurrent, playhouseTo, eased\)/);
   assert.doesNotMatch(nativeHost, /AnchoredVisiblePlayhouse\(\s*Interpolate/);
 });
+
+test("native rollout prepares the existing pair before its first movement without topmost state", () => {
+  const nativeHost = readFileSync(
+    new URL("../../desktop/workspace/windows/CarnivalWorkspaceHost.cs", import.meta.url),
+    "utf8",
+  );
+  const animationStart = nativeHost.indexOf("private static bool AnimateChromeWindows");
+  const animationEnd = nativeHost.indexOf("private static WindowBounds AnchoredVisiblePlayhouse", animationStart);
+  const animation = nativeHost.slice(animationStart, animationEnd);
+
+  assert.ok(animation.indexOf("ActivateWorkspace(playhouse, context)") >= 0);
+  assert.ok(animation.indexOf("ActivateWorkspace(playhouse, context)") < animation.indexOf("MovePair(playhouse"));
+  assert.match(animation, /MovePair\(playhouse, Interpolate\(playhouseCurrent, playhouseTo, eased\)/);
+  assert.doesNotMatch(animation, /HwndTopMost|TopMost|TOPMOST/);
+  assert.match(animation, /opening complete but foreground activation failed/);
+});

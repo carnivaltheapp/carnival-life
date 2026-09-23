@@ -26,6 +26,7 @@ test("fresh Aux defines Calendar, Gmail, and Misc role tabs in order", () => {
 
 test("Hot Tabs have canonical durable roles while URL retains the compatible Misc role", () => {
   assert.deepEqual(HOT_TAB_ROLES, {
+    calendar: "calendar",
     drive: "drive",
     gmail: "gmail",
     slack: "slack",
@@ -92,7 +93,8 @@ test("saved definitions reject transient or privileged URLs", () => {
   });
 });
 
-test("Aux routing selects durable Drive, Gmail, and Contacts roles and Misc otherwise", () => {
+test("Aux routing selects durable Calendar, Drive, Gmail, and Contacts roles and Misc otherwise", () => {
+  assert.equal(auxRoleForUrl("https://calendar.google.com/calendar/u/0/r/week"), "calendar");
   assert.equal(auxRoleForUrl("https://mail.google.com/mail/u/2/#all/thread"), "gmail");
   assert.equal(auxRoleForUrl("https://contacts.google.com/person/c123"), "contacts");
   assert.equal(auxRoleForUrl("https://drive.google.com/drive/folders/ABC123"), "drive");
