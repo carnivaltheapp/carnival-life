@@ -146,3 +146,9 @@ order, active tab, pin state, and geometry.
 Semantic PlayHouse routes select the matching Aux Hot Tab and make Aux visible.
 Native transitions elevate only the managed PlayHouse/right pair temporarily,
 remove topmost state at completion, and do not activate unrelated windows.
+
+Visible/resting PlayHouse is always anchored to the selected monitor work-area
+top-left origin. Transitional offscreen coordinates are never persisted as
+resting geometry. Runtime Chrome window and tab IDs are treated as disposable:
+reconciliation verifies the PlayHouse URL before accepting a saved identity and
+adopts the best existing candidate before creating a window.

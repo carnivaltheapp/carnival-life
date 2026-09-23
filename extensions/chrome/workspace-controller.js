@@ -239,6 +239,7 @@ function isAuxWindow(window) {
 }
 
 function isExactSavedWindow(window, savedTabs) {
+  if (isPlayhouseWindow(window) || isAuxWindow(window)) return false;
   const saved = validSavedTabs(savedTabs, "misc");
   const tabs = [...(window?.tabs ?? [])].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
   return Boolean(saved && tabs.length === saved.tabs.length &&
@@ -351,7 +352,14 @@ export class CarnivalWorkspaceController {
     this.geometrySettleMs = options.geometrySettleMs ?? POST_RESTORE_GEOMETRY_SETTLE_MS;
     this.creatingRestoreRole = null;
     this.stateUpdates = Promise.resolve();
+    this.workspaceOperations = Promise.resolve();
     this.transitioning = false;
+  }
+
+  async runWorkspaceOperation(operation) {
+    const queued = this.workspaceOperations.then(operation, operation);
+    this.workspaceOperations = queued.catch(() => {});
+    return queued;
   }
 
   restoreRoleForWindow(windowId) {
@@ -432,6 +440,43 @@ export class CarnivalWorkspaceController {
         : kind === "context" ? isAuxWindow(window)
           : isExactSavedWindow(window, prior.miscSession?.tabs)
     )) ?? null;
+  }
+
+  async discoverPlayhouse(prior, bounds, excludedWindowIds = []) {
+    const excluded = new Set(excludedWindowIds.filter(Number.isInteger));
+    const candidates = (await this.chrome.windows.getAll({ populate: true }))
+      .filter((window) => !excluded.has(window.id) && isPlayhouseWindow(window) && !isAuxWindow(window))
+      .map((window) => ({
+        tab: window.tabs.find((tab) => tab.id === prior.phPrimaryTabId) ??
+          window.tabs.find((tab) => tab.active && tabUrl(tab).startsWith(PLAYHOUSE_URL)) ??
+          window.tabs.find((tab) => tabUrl(tab).startsWith(PLAYHOUSE_URL)),
+        window,
+      }))
+      .sort((left, right) => {
+        const leftSaved = left.window.id === prior.phWindowId || left.tab.id === prior.phPrimaryTabId;
+        const rightSaved = right.window.id === prior.phWindowId || right.tab.id === prior.phPrimaryTabId;
+        if (leftSaved !== rightSaved) return leftSaved ? -1 : 1;
+        const leftDistance = Math.abs((left.window.left ?? bounds.left) - bounds.left) +
+          Math.abs((left.window.top ?? bounds.top) - bounds.top);
+        const rightDistance = Math.abs((right.window.left ?? bounds.left) - bounds.left) +
+          Math.abs((right.window.top ?? bounds.top) - bounds.top);
+        return leftDistance - rightDistance || left.window.id - right.window.id;
+      });
+    if (!candidates.length) return null;
+    this.logger.info?.("PH_CANDIDATE_FOUND", { candidateCount: candidates.length });
+    if (candidates.length > 1) {
+      const redundant = candidates.slice(1).filter(({ window }) =>
+        window.tabs.length === 1 && window.tabs.every((tab) => tabUrl(tab).startsWith(PLAYHOUSE_URL))
+      );
+      await Promise.all(redundant.map(({ window }) => this.chrome.windows.remove(window.id)));
+      this.logger.warn?.("PH_DUPLICATE_CANDIDATES_RECONCILED", {
+        adoptedWindowId: candidates[0].window.id,
+        candidateCount: candidates.length,
+        reconciledCount: redundant.length,
+        reason: "canonical-candidate-adopted-and-proven-single-tab-duplicates-closed",
+      });
+    }
+    return candidates[0];
   }
 
   async updateWindow(windowId, options, reason) {
@@ -628,10 +673,22 @@ export class CarnivalWorkspaceController {
     try {
       await this.windowTrace?.discovery("PLAYHOUSE", prior.phWindowId);
       let window = await existingWindow(this.chrome, prior.phWindowId);
-    if (!window) window = await this.discoverWindow("playhouse", prior,
-      [prior.auxWindowId, prior.miscWindowId]);
     let tab = await existingTab(this.chrome, prior.phPrimaryTabId);
-    if (!window || tab?.windowId !== window.id) tab = null;
+    if (!isPlayhouseWindow(window) || isAuxWindow(window)) {
+      if (window) this.logger.info?.("PH_STALE_RUNTIME_IDENTITY_REPAIRED", {
+        reason: "saved-window-no-longer-contains-playhouse",
+      });
+      window = null;
+      tab = null;
+    } else if (tab?.windowId !== window.id || !tabUrl(tab).startsWith(PLAYHOUSE_URL)) {
+      tab = window.tabs.find((candidate) => tabUrl(candidate).startsWith(PLAYHOUSE_URL)) ?? null;
+    }
+    const adopted = await this.discoverPlayhouse(prior, bounds);
+    if (adopted) {
+      window = adopted.window;
+      tab = adopted.tab;
+      this.logger.info?.("PH_CANDIDATE_ADOPTED", { reason: "logical-playhouse-url-match" });
+    }
     if (!window && startup.allowColdStartPlayhouseAdoption) {
       const adopted = await waitForColdStartPlayhouse({
         candidateWindowIds: startup.coldStartCandidateWindowIds,
@@ -669,6 +726,7 @@ export class CarnivalWorkspaceController {
         "playhouse",
         prior.sessionCycle ?? null,
       );
+      this.logger.info?.("PH_CREATED", { reason: "no-existing-playhouse-candidate" });
       return {
         tab: restored.roleTabIds["ph-primary"] ?
           await existingTab(this.chrome, restored.roleTabIds["ph-primary"]) : restored.activeTab,
@@ -685,6 +743,7 @@ export class CarnivalWorkspaceController {
       }
     }
     if (!tab?.id) throw new Error("Chrome could not identify the PlayHouse tab.");
+    this.logger.info?.("PH_DESIRED_RESTING_ORIGIN", { left: bounds.left, top: bounds.top });
     const { snapshot } = await this.snapshotWindow("playhouse", window.id, {
       ...prior,
       playhouseTabId: tab.id,
@@ -706,8 +765,8 @@ export class CarnivalWorkspaceController {
     try {
       await this.windowTrace?.discovery("AUX", prior.auxWindowId);
       let window = await existingWindow(this.chrome, prior.auxWindowId);
-    if (!window) window = await this.discoverWindow("context", prior,
-      [prior.phWindowId, prior.miscWindowId]);
+    if (isPlayhouseWindow(window) && !isAuxWindow(window)) window = null;
+    if (!window) window = await this.discoverWindow("context", prior);
     let tab = await existingTab(this.chrome, prior.auxActiveTabId);
     if (!window || tab?.windowId !== window.id) tab = null;
     if (!window) {
@@ -765,8 +824,8 @@ export class CarnivalWorkspaceController {
   async findMisc(prior, bounds, positionExisting = true) {
     await this.windowTrace?.discovery("MISC", prior.miscWindowId);
     let window = await existingWindow(this.chrome, prior.miscWindowId);
-    if (!window) window = await this.discoverWindow("misc", prior,
-      [prior.phWindowId, prior.auxWindowId]);
+    if (isPlayhouseWindow(window)) window = null;
+    if (!window) window = await this.discoverWindow("misc", prior);
     let tab = await existingTab(this.chrome, prior.miscActiveTabId);
     if (!window || tab?.windowId !== window.id) tab = null;
     if (!window) {
@@ -871,6 +930,17 @@ export class CarnivalWorkspaceController {
       if (tab.pinned) tab = await this.chrome.tabs.update(tab.id, { pinned: false });
       roleIds[role] = tab.id;
       used.add(tab.id);
+      auxTabs = await this.tabsInWindow(auxWindow.id);
+    }
+    const duplicatePlayhouseTabs = auxTabs.filter((tab) =>
+      !used.has(tab.id) && tabUrl(tab).startsWith(PLAYHOUSE_URL)
+    );
+    if (duplicatePlayhouseTabs.length) {
+      await this.chrome.tabs.remove(duplicatePlayhouseTabs.map((tab) => tab.id));
+      this.logger.warn?.("PH_DUPLICATE_MANAGED_TABS_RECONCILED", {
+        count: duplicatePlayhouseTabs.length,
+        reason: "playhouse-tab-found-inside-managed-aux",
+      });
       auxTabs = await this.tabsInWindow(auxWindow.id);
     }
     const extras = auxTabs.filter((tab) => !used.has(tab.id));
@@ -997,6 +1067,10 @@ export class CarnivalWorkspaceController {
   }
 
   async summon(workArea, monitorId = null, startup = {}) {
+    return this.runWorkspaceOperation(() => this.summonExclusively(workArea, monitorId, startup));
+  }
+
+  async summonExclusively(workArea, monitorId = null, startup = {}) {
     this.transitioning = true;
     try {
       return await this.summonDrawer(workArea, monitorId, startup);
@@ -1254,6 +1328,14 @@ export class CarnivalWorkspaceController {
     await this.finalizeRestoredWindow("context", aux.restore, prior.sessionCycle ?? null);
     await this.finalizeRestoredWindow("misc", misc.restore, prior.sessionCycle ?? null);
     await this.repairAuxTabs("summon");
+    const finalPlayhouse = await existingWindow(this.chrome, playhouse.window.id);
+    const finalRectangle = storedBounds(finalPlayhouse);
+    this.windowTrace?.emit("workspace-controller", "PH_FINAL_RECTANGLE", {
+      height: finalRectangle?.height ?? null,
+      left: finalRectangle?.left ?? null,
+      top: finalRectangle?.top ?? null,
+      width: finalRectangle?.width ?? null,
+    });
     return this.state();
   }
 
@@ -1348,6 +1430,20 @@ export class CarnivalWorkspaceController {
   }
 
   async openCarnivalContext(url, workArea, monitorId = null, requestedRole = null) {
+    return this.runWorkspaceOperation(async () => {
+      this.transitioning = true;
+      try {
+        return await this.openCarnivalContextExclusively(url, workArea, monitorId, requestedRole);
+      } catch (error) {
+        this.cancelRestores();
+        throw error;
+      } finally {
+        this.transitioning = false;
+      }
+    });
+  }
+
+  async openCarnivalContextExclusively(url, workArea, monitorId = null, requestedRole = null) {
     if (!isAllowedContextUrl(url)) throw new Error("Carnival context URLs must use HTTP or HTTPS.");
     if (!validWorkArea(workArea)) throw new Error("A valid monitor work area is required.");
     const role = requestedRole ?? auxRoleForUrl(url);
@@ -1359,7 +1455,7 @@ export class CarnivalWorkspaceController {
     let prior = await this.state();
     if (prior.drawerState !== "open") {
       await this.save({ ...prior, activeRightSurface: "aux" });
-      await this.summon(workArea, monitorId);
+      await this.summonDrawer(workArea, monitorId);
     } else if (prior.activeRightSurface !== "aux") {
       await this.switchRightSurface("aux", { focusRight: false });
     }

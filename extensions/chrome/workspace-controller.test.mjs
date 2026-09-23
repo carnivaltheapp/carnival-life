@@ -166,6 +166,13 @@ function fakeChrome() {
         tabUpdated.emit(id, options, tab);
         return tab;
       },
+      async remove(ids) {
+        for (const id of Array.isArray(ids) ? ids : [ids]) {
+          const removed = tabs.get(id);
+          tabs.delete(id);
+          if (removed) syncWindowTabs(removed.windowId);
+        }
+      },
     },
     windows: {
       async create(options) {
@@ -187,6 +194,11 @@ function fakeChrome() {
         return [...windows.values()];
       },
       onRemoved: windowRemoved,
+      async remove(id) {
+        windows.delete(id);
+        for (const tab of windowTabs(id)) tabs.delete(tab.id);
+        windowRemoved.emit(id);
+      },
       async update(id, options) {
         calls.updateWindow.push({ id, options });
         const window = { ...windows.get(id), ...options };
@@ -1833,4 +1845,86 @@ test("Misc persists exact ordinary tab order, active tab, and pin state", async 
   ]);
   assert.equal(state.miscActiveTabId, second.id);
   assert.equal(chrome.getTab(first.id).pinned, true);
+});
+
+test("stale saved PH window identity adopts the existing PlayHouse instead of creating another", async () => {
+  const chrome = fakeChrome();
+  const workArea = { height: 900, left: 100, top: 20, width: 1600 };
+  const unrelated = await chrome.windows.create({
+    focused: false, height: 700, left: 300, top: 80, type: "normal",
+    url: "https://example.com/", width: 900,
+  });
+  const existing = await chrome.windows.create({
+    focused: false, height: 700, left: 460, top: 90, type: "normal",
+    url: `${PLAYHOUSE_URL}?view=tomorrow`, width: 800,
+  });
+  chrome.setWorkspaceState({
+    drawerState: "retracted",
+    layoutVersion: 3,
+    phPrimaryTabId: 99999,
+    phSession: { geometry: { left: 999, width: 800 }, tabs: defaultPlayhouseTabs(PLAYHOUSE_URL) },
+    phWindowId: unrelated.id,
+    workArea,
+  });
+
+  const opened = await controller(chrome).summon(workArea, "display-2");
+  const allWindows = await chrome.windows.getAll({ populate: true });
+  const phWindows = allWindows.filter((window) =>
+    window.tabs.some((tab) => tab.url.startsWith(PLAYHOUSE_URL))
+  );
+  assert.equal(opened.phWindowId, existing.id);
+  assert.equal(phWindows.length, 1);
+  assert.equal(chrome.getWindow(existing.id).left, workArea.left);
+  assert.equal(chrome.getWindow(existing.id).top, workArea.top);
+  assert.equal(chrome.getTabs(unrelated.id).some((tab) => tab.url.startsWith(PLAYHOUSE_URL)), false);
+});
+
+test("two direct reconciliation summons serialize and create one PH, Aux, and Misc", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const [first, second] = await Promise.all([
+    workspace.summon(workArea, "display-1"),
+    workspace.summon(workArea, "display-1"),
+  ]);
+
+  assert.equal(chrome.calls.createWindow.length, 3);
+  assert.equal(first.phWindowId, second.phWindowId);
+  assert.equal(first.auxWindowId, second.auxWindowId);
+  assert.equal(first.miscWindowId, second.miscWindowId);
+});
+
+test("context routing concurrent with summon cannot create a duplicate PH", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: -1920, top: 40, width: 1600 };
+  await Promise.all([
+    workspace.summon(workArea, "secondary"),
+    workspace.openCarnivalContext("https://mail.google.com/mail/u/0/#inbox", workArea, "secondary"),
+  ]);
+  const state = await workspace.state();
+  const allWindows = await chrome.windows.getAll({ populate: true });
+
+  assert.equal(chrome.calls.createWindow.length, 3);
+  assert.equal(allWindows.filter((window) =>
+    window.tabs.some((tab) => tab.url.startsWith(PLAYHOUSE_URL))).length, 1);
+  assert.equal(chrome.getWindow(state.phWindowId).left, workArea.left);
+  assert.equal(chrome.getWindow(state.phWindowId).top, workArea.top);
+});
+
+test("multiple proven single-tab PH candidates reconcile to one canonical managed window", async () => {
+  const chrome = fakeChrome();
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const canonical = await chrome.windows.create({
+    focused: false, height: 900, left: 0, top: 0, type: "normal", url: PLAYHOUSE_URL, width: 900,
+  });
+  await chrome.windows.create({
+    focused: false, height: 900, left: 40, top: 20, type: "normal", url: PLAYHOUSE_URL, width: 900,
+  });
+
+  const opened = await controller(chrome).summon(workArea, "display-1");
+  const allWindows = await chrome.windows.getAll({ populate: true });
+  assert.equal(opened.phWindowId, canonical.id);
+  assert.equal(allWindows.filter((window) =>
+    window.tabs.some((tab) => tab.url.startsWith(PLAYHOUSE_URL))).length, 1);
 });
