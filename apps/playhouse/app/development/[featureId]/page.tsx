@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { developmentComponentSlug } from "../../../domain/development-component-slug";
 import { normalizeDevelopmentFeatureId } from "../../../domain/development-feature";
 import {
   loadPublicDevelopmentComponent,
   loadPublicDevelopmentFeature,
   type PublicDevelopmentFeature,
 } from "../../../lib/development/roadmap.server";
+import { isSupabaseConfigured } from "../../../lib/supabase/config";
+import { DevelopmentConsole } from "../development-console";
+import { loadDevelopmentPageState } from "../development-page-state.server";
 import styles from "./public-feature.module.css";
 
 export const dynamic = "force-dynamic";
@@ -72,6 +76,24 @@ export default async function PublicDevelopmentFeaturePage({
   const { featureId: requestedFeatureId } = await params;
   const featureId = normalizeDevelopmentFeatureId(requestedFeatureId);
   if (!featureId) {
+    if (isSupabaseConfigured()) {
+      const state = await loadDevelopmentPageState();
+      if (state.kind === "signed-in") {
+        const selectedComponent = state.components.find(
+          (component) => developmentComponentSlug(component.name) === requestedFeatureId,
+        );
+        if (!selectedComponent) notFound();
+        return (
+          <DevelopmentConsole
+            dataError={state.dataError}
+            initialComponentId={selectedComponent.id}
+            initialComponents={state.components}
+            identity={{ displayName: state.displayName, email: state.email }}
+            initialFeatures={state.features}
+          />
+        );
+      }
+    }
     const component = await loadPublicDevelopmentComponent(requestedFeatureId);
     if (!component) notFound();
     return (

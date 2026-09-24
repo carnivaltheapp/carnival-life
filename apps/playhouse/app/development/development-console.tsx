@@ -108,16 +108,18 @@ export function DevelopmentConsole({
   dataError,
   identity,
   initialComponents,
+  initialComponentId = "all",
   initialFeatures,
 }: {
   dataError: boolean;
   identity: Identity;
   initialComponents: DevelopmentComponentRecord[];
+  initialComponentId?: string | "all";
   initialFeatures: DevelopmentFeature[];
 }) {
   const [components, setComponents] = useState(initialComponents);
   const [features, setFeatures] = useState(initialFeatures);
-  const [componentId, setComponentId] = useState<string | "all">("all");
+  const [componentId, setComponentId] = useState<string | "all">(initialComponentId);
   const [priority, setPriority] = useState<DevelopmentPriority | "All Priorities">("All Priorities");
   const [status, setStatus] = useState<DevelopmentStatus | "All Statuses">("All Statuses");
   const [query, setQuery] = useState("");

@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const page = await readFile(new URL("./page.tsx", import.meta.url), "utf8");
+const pageState = await readFile(new URL("./development-page-state.server.ts", import.meta.url), "utf8");
 const consoleSource = await readFile(new URL("./development-console.tsx", import.meta.url), "utf8");
 const css = await readFile(new URL("./development.module.css", import.meta.url), "utf8");
 const collectionRoute = await readFile(
@@ -41,7 +42,8 @@ describe("Carnival Development Console contract", () => {
   it("is a direct dynamic /development route within the existing PlayHouse deployment", () => {
     expect(page).toContain('export const dynamic = "force-dynamic"');
     expect(page).toContain("<DevelopmentConsole");
-    expect(page).toContain("MongoDevelopmentFeatureRepository");
+    expect(page).toContain("loadDevelopmentPageState");
+    expect(pageState).toContain("MongoDevelopmentFeatureRepository");
   });
 
   it("contains the approved heading, subtitle, sidebar, filters, table, and feature editor", () => {

@@ -15,12 +15,13 @@ describe("public Development feature page contract", () => {
     expect(source).not.toContain("ownerUserId");
   });
 
-  it("resolves non-CF slugs as read-only component pages with only component feature cards", () => {
+  it("restores the normal filtered Console for signed-in users and a read-only public page otherwise", () => {
+    expect(source).toContain('state.kind === "signed-in"');
+    expect(source).toContain("initialComponentId={selectedComponent.id}");
     expect(source).toContain("loadPublicDevelopmentComponent(requestedFeatureId)");
     expect(source).toContain("component.features.map");
     expect(source).toContain("<FeaturePlanningDetails feature={feature} />");
     expect(source).toContain("if (!component) notFound()");
-    expect(source).not.toContain("DevelopmentConsole");
   });
 
   it("renders the complete public feature fields and full wrapping text", () => {
