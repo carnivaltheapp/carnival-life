@@ -3036,6 +3036,38 @@ h1 {
   line-height: 1.5;
 }
 
+.oauthScopes {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.oauthActions {
+  display: flex;
+  gap: 10px;
+}
+
+.oauthActions button {
+  min-width: 110px;
+  min-height: 42px;
+  padding: 8px 16px;
+  border: 1px solid rgba(109, 63, 242, 0.25);
+  border-radius: 10px;
+  background: white;
+  color: var(--accent-deep);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 780;
+}
+
+.oauthActions button:first-child {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.oauthActions button:disabled { cursor: wait; opacity: 0.65; }
+
 .formError {
   margin: 13px 0 0;
 }

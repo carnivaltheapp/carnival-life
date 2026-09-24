@@ -9,6 +9,7 @@ import {
   buildRoadmap,
   filterRoadmap,
   roadmapFeatureByReference,
+  roadmapFeatureWithContext,
   roadmapReadTokenIsValid,
   ROADMAP_SCHEMA,
 } from "./roadmap";
@@ -95,6 +96,14 @@ describe("read-only Development roadmap", () => {
     expect(roadmapFeatureByReference(roadmap, "cf-014"))
       .toEqual(expect.objectContaining({ featureId: "CF-014", title: features[0].title }));
     expect(roadmapFeatureByReference(roadmap, "not-an-id")).toBeNull();
+  });
+
+  it("adds previous and next canonical sequence context to direct feature lookup", () => {
+    const roadmap = buildRoadmap([component], features);
+    expect(roadmapFeatureWithContext(roadmap, "CF-014")).toEqual(expect.objectContaining({
+      nextFeature: null,
+      previousFeature: { featureId: "CF-008", title: "Branch foundation" },
+    }));
   });
 
   it("returns a complete long Notes value without truncation", () => {

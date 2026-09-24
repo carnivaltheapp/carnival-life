@@ -5,7 +5,7 @@ import { useState } from "react";
 import { GOOGLE_OAUTH_SCOPES } from "../lib/google/scopes";
 import { createClient } from "../lib/supabase/client";
 
-export function GoogleSignInButton() {
+export function GoogleSignInButton({ next = "/" }: { next?: string }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
 
@@ -15,7 +15,7 @@ export function GoogleSignInButton() {
 
     try {
       const supabase = createClient();
-      const redirectTo = `${window.location.origin}/auth/callback?next=/`;
+      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {

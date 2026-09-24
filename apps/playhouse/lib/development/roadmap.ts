@@ -101,6 +101,20 @@ export function roadmapFeatureByReference(roadmap: RoadmapResponse, reference: s
     : null;
 }
 
+export function roadmapFeatureWithContext(roadmap: RoadmapResponse, reference: string) {
+  const feature = roadmapFeatureByReference(roadmap, reference);
+  if (!feature) return null;
+  const index = roadmap.features.findIndex((item) => item.featureId === feature.featureId);
+  const summary = (item: RoadmapFeature | undefined) => item
+    ? { featureId: item.featureId, title: item.title }
+    : null;
+  return {
+    ...feature,
+    nextFeature: summary(roadmap.features[index + 1]),
+    previousFeature: summary(roadmap.features[index - 1]),
+  };
+}
+
 export const ROADMAP_SCHEMA = {
   authentication: "Authorization: Bearer <CARNIVAL_ROADMAP_READ_TOKEN>",
   component: {
@@ -109,6 +123,7 @@ export const ROADMAP_SCHEMA = {
   dependencySemantics: "Each dependency identifies a prerequisite by internal id and canonical CF-### featureId.",
   endpoints: {
     feature: "GET /api/development/roadmap/CF-###",
+    mcp: "POST /api/development/mcp",
     roadmap: "GET /api/development/roadmap",
     schema: "GET /api/development/roadmap/schema",
   },

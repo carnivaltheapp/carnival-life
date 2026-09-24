@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-DEVELOPMENT-RECOVERY-140
+          P3-ROADMAP-MCP-141
         </small>
       </body>
     </html>

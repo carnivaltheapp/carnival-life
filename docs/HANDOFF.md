@@ -2,6 +2,13 @@
 
 Architecture-only exploration handoff • September 2026
 
+## September 24, 2026 — ChatGPT Roadmap MCP
+
+- Marker `P3-ROADMAP-MCP-141` adds the read-only, OAuth-protected Carnival roadmap MCP
+  endpoint and tools for CF lookup, search, filtering, components, and full sequence analysis.
+  The repository side is complete; live ChatGPT access still requires enabling Supabase OAuth
+  2.1 and registering/installing the production MCP endpoint in ChatGPT developer mode.
+
 ## September 24, 2026 — Unrestricted Development Notes
 
 - Marker `P3-DEVELOPMENT-RECOVERY-140` restores Development Console reads by returning a
