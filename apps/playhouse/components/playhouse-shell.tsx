@@ -54,7 +54,7 @@ import {
   retainLifecycleInHref,
   type PlayLifecycle,
   type SelectedView,
-} from "../lib/playhouse/data";
+} from "../domain/playhouse-view";
 import {
   destinationNavigationModeForView,
   toggleDestinationNavigationMode,

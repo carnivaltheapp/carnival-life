@@ -1,7 +1,8 @@
 import { PlayhouseShell } from "../components/playhouse-shell";
 import { SignedOutScreen } from "../components/signed-out-screen";
+import { resolvePlayLifecycle } from "../domain/playhouse-view";
 import { loadGoogleCalendarSettings } from "../lib/google/calendar-settings";
-import { loadPlayhouseData, resolvePlayLifecycle } from "../lib/playhouse/data";
+import { loadPlayhouseData } from "../lib/playhouse/data";
 import {
   BROWSER_TIME_ZONE_COOKIE,
   resolveTimeZone,

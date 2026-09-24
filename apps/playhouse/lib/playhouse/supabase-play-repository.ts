@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { NextPlayOption, PlayListItem } from "../../domain/play";
 import type { BulkPlayChange } from "../../domain/play-bulk-change";
+import type { PlayLifecycle, SelectedView } from "../../domain/playhouse-view";
 import {
   gmailMetadataWithoutAttachment,
   gmailMetadataWithAttachment,
@@ -17,7 +18,6 @@ import { searchableMetadataText } from "../../domain/play-search";
 import { promotionOrderUpdates } from "../../domain/reminder";
 import { legacyTaskTypeFromMetadata } from "../../domain/play-visual";
 import type { Database } from "../supabase/database.types";
-import type { PlayLifecycle, SelectedView } from "./data";
 import type {
   AssignPlayerRequest,
   CreateGmailPlayResult,

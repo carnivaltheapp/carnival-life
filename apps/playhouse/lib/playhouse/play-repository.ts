@@ -7,10 +7,10 @@ import type {
   PlayPlacement,
 } from "../../domain/play";
 import type { PlayInput } from "../../domain/play-input";
+import type { PlayLifecycle, SelectedView } from "../../domain/playhouse-view";
 import type { BulkPlayChange } from "../../domain/play-bulk-change";
 import type { GmailAttachment } from "../../domain/gmail-attachment";
 import type { Database } from "../supabase/database.types";
-import type { PlayLifecycle, SelectedView } from "./data";
 import type { PlayhouseDataSource } from "./data-source";
 
 export type RepositoryPlayList = {

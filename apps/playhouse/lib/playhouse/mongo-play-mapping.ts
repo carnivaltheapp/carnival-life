@@ -10,8 +10,8 @@ import type {
 } from "../../domain/play";
 import type { PlayInput } from "../../domain/play-input";
 import { isGmailApiThreadId } from "../../domain/play-display";
+import type { PlayLifecycle } from "../../domain/playhouse-view";
 import { LEGACY_BASKETS } from "../../migration/legacy/mapping";
-import type { PlayLifecycle } from "./data";
 
 export const MONGO_CARNIVAL_USER_ID =
   "096a5ba0-f3ac-469e-bb20-34c75cff2803";

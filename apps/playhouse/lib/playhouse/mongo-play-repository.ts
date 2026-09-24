@@ -8,10 +8,10 @@ import {
 
 import type { BasketSummary } from "../../domain/play";
 import type { BulkPlayChange } from "../../domain/play-bulk-change";
+import type { PlayLifecycle, SelectedView } from "../../domain/playhouse-view";
 import { orderUpdatesForInsertion } from "../../domain/play-order";
 import { promotionOrderUpdates } from "../../domain/reminder";
 import type { Database } from "../supabase/database.types";
-import type { PlayLifecycle, SelectedView } from "./data";
 import {
   assertMongoUserMapping,
   expandMongoPlaceRows,
