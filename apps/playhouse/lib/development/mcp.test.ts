@@ -162,4 +162,28 @@ describe("Carnival Development roadmap MCP tools", () => {
     await client.callTool({ arguments: { featureId: "CF-010" }, name: "get_feature" });
     expect(owners).toEqual(["owner-b"]);
   });
+
+  it("returns the ChatGPT OAuth trigger without reading roadmap data when unauthenticated", async () => {
+    const loadRoadmap = vi.fn();
+    const server = createRoadmapMcpServer({
+      authenticationChallenge:
+        'Bearer resource_metadata="https://carnival.example/.well-known/oauth-protected-resource/api/development/mcp", scope="roadmap:read", error="insufficient_scope", error_description="Carnival roadmap authorization is required."',
+    }, loadRoadmap);
+    const client = new Client({ name: "unauthenticated-test", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    opened.push({ client, server });
+
+    const tools = await client.listTools();
+    expect(tools.tools).toHaveLength(5);
+    const response = await client.callTool({ arguments: { featureId: "CF-010" }, name: "get_feature" });
+    expect(response).toEqual(expect.objectContaining({
+      isError: true,
+      _meta: {
+        "mcp/www_authenticate": [expect.stringContaining("insufficient_scope")],
+      },
+    }));
+    expect(loadRoadmap).not.toHaveBeenCalled();
+  });
 });

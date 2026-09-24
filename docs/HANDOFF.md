@@ -4,6 +4,11 @@ Architecture-only exploration handoff • September 2026
 
 ## September 24, 2026 — ChatGPT Roadmap MCP
 
+- Marker `P3-ROADMAP-MCP-CONNECT-143` fixes the live ChatGPT connection handshake: pre-auth MCP
+  initialization and tool-descriptor discovery are now available, while each attempted tool call
+  returns the standard OAuth challenge until a valid `roadmap:read` token is supplied. Production
+  evidence for 142 stopped at successful dynamic client registration because the former route-level
+  401 prevented tool discovery and therefore prevented ChatGPT from launching the consent flow.
 - Marker `P3-CARNIVAL-OAUTH-142` replaces the temporary 141 Supabase OAuth dependency with a
   Carnival-owned OAuth 2.1 authorization-code + PKCE S256 issuer. OAuth artifacts are hashed
   and held in dedicated Mongo collections; short-lived tokens bind owner, issuer, resource,

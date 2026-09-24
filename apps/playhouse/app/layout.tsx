@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-CARNIVAL-OAUTH-142
+          P3-ROADMAP-MCP-CONNECT-143
         </small>
       </body>
     </html>

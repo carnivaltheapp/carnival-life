@@ -53,6 +53,9 @@ const oauthMetadata = {
 };
 
 type RoadmapLoader = (ownerUserId: string) => Promise<RoadmapResponse>;
+type RoadmapMcpAccess =
+  | { authenticationChallenge: string; ownerUserId?: never }
+  | { authenticationChallenge?: never; ownerUserId: string };
 
 function result<T extends Record<string, unknown>>(value: T, summary: string) {
   return {
@@ -62,9 +65,25 @@ function result<T extends Record<string, unknown>>(value: T, summary: string) {
 }
 
 export function createRoadmapMcpServer(
-  ownerUserId: string,
+  access: RoadmapMcpAccess | string,
   loadRoadmap: RoadmapLoader = loadOwnerRoadmap,
 ) {
+  const authorization = typeof access === "string"
+    ? { ownerUserId: access }
+    : access;
+  const authorizedRoadmap = async () => authorization.ownerUserId
+    ? loadRoadmap(authorization.ownerUserId)
+    : null;
+  const authenticationRequired = () => ({
+    _meta: {
+      "mcp/www_authenticate": [authorization.authenticationChallenge],
+    },
+    content: [{
+      text: "Authentication required: connect Carnival Development Console to continue.",
+      type: "text" as const,
+    }],
+    isError: true,
+  });
   const server = new McpServer(
     { name: "carnival-development-roadmap", version: "1.0.0" },
     {
@@ -85,7 +104,9 @@ export function createRoadmapMcpServer(
     },
     title: "Get Carnival feature",
   }, async ({ featureId }) => {
-    const feature = roadmapFeatureWithContext(await loadRoadmap(ownerUserId), featureId);
+    const roadmap = await authorizedRoadmap();
+    if (!roadmap) return authenticationRequired();
+    const feature = roadmapFeatureWithContext(roadmap, featureId);
     return result(
       { feature, found: Boolean(feature) },
       feature ? `Retrieved ${feature.featureId}: ${feature.title}` : `Carnival feature ${featureId} was not found.`,
@@ -100,7 +121,9 @@ export function createRoadmapMcpServer(
     outputSchema: { features: z.array(featureSchema) },
     title: "Search Carnival features",
   }, async ({ query }) => {
-    const features = filterRoadmap(await loadRoadmap(ownerUserId), { q: query }).features;
+    const roadmap = await authorizedRoadmap();
+    if (!roadmap) return authenticationRequired();
+    const features = filterRoadmap(roadmap, { q: query }).features;
     return result({ features }, `Found ${features.length} Carnival feature${features.length === 1 ? "" : "s"}.`);
   });
 
@@ -116,7 +139,9 @@ export function createRoadmapMcpServer(
     outputSchema: { features: z.array(featureSchema) },
     title: "List Carnival features",
   }, async (filters) => {
-    const features = filterRoadmap(await loadRoadmap(ownerUserId), filters).features;
+    const roadmap = await authorizedRoadmap();
+    if (!roadmap) return authenticationRequired();
+    const features = filterRoadmap(roadmap, filters).features;
     return result({ features }, `Listed ${features.length} Carnival feature${features.length === 1 ? "" : "s"}.`);
   });
 
@@ -127,7 +152,9 @@ export function createRoadmapMcpServer(
     outputSchema: { components: z.array(componentSchema) },
     title: "List Carnival components",
   }, async () => {
-    const components = (await loadRoadmap(ownerUserId)).components;
+    const roadmap = await authorizedRoadmap();
+    if (!roadmap) return authenticationRequired();
+    const components = roadmap.components;
     return result({ components }, `Listed ${components.length} Carnival component${components.length === 1 ? "" : "s"}.`);
   });
 
@@ -143,7 +170,8 @@ export function createRoadmapMcpServer(
     },
     title: "Get Carnival roadmap",
   }, async () => {
-    const roadmap = await loadRoadmap(ownerUserId);
+    const roadmap = await authorizedRoadmap();
+    if (!roadmap) return authenticationRequired();
     return result(roadmap, `Retrieved the current Carnival roadmap with ${roadmap.features.length} features.`);
   });
 

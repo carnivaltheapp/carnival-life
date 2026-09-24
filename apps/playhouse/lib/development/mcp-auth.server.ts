@@ -55,3 +55,7 @@ export function roadmapMcpAuthenticationChallenge(request: Request) {
   const metadataUrl = `${origin}/.well-known/oauth-protected-resource/api/development/mcp`;
   return `Bearer resource_metadata="${metadataUrl}", scope="${ROADMAP_SCOPE}"`;
 }
+
+export function roadmapMcpToolAuthenticationChallenge(request: Request) {
+  return `${roadmapMcpAuthenticationChallenge(request)}, error="insufficient_scope", error_description="Carnival roadmap authorization is required."`;
+}

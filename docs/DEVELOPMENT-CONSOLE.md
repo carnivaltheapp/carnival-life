@@ -219,6 +219,15 @@ The OAuth implementation is a replaceable identity boundary. It returns the immu
 Carnival owner ID to unchanged MCP tools; a future datastore/authentication migration therefore
 does not require changing CF IDs, tool schemas, or ChatGPT-facing behavior.
 
+Marker `P3-ROADMAP-MCP-CONNECT-143` corrects the first live ChatGPT connection defect found in
+142. The resource endpoint formerly returned HTTP 401 before the MCP handshake, so ChatGPT could
+discover OAuth and dynamically register but could not discover any tools or invoke one to trigger
+the linking UI. Unauthenticated Streamable HTTP clients may now initialize and list the read-only
+tool descriptors. Every descriptor declares `roadmap:read`; an unauthenticated tool call returns
+the standard `_meta["mcp/www_authenticate"]` challenge without reading MongoDB. Invalid supplied
+bearer tokens still receive HTTP 401. A validated token remains mandatory before any roadmap data
+is loaded, so this protocol-discovery correction does not make roadmap records public.
+
 ### One-time ChatGPT connection procedure
 
 1. In ChatGPT Settings → Security and login, enable Developer mode.
