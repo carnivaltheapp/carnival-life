@@ -370,6 +370,36 @@
 
 .featureText { min-width: 0; }
 
+.featureReference {
+  display: flex;
+  min-height: 19px;
+  margin-bottom: 2px;
+  gap: 5px;
+  align-items: center;
+  color: #8a8092;
+  font-size: .59rem;
+  font-weight: 800;
+  letter-spacing: .055em;
+}
+
+.featureReference button {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  place-items: center;
+  color: #958b9f;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: .72rem;
+}
+
+.featureReference button:hover { color: var(--dev-purple); background: #f0eafd; }
+.featureReference em { color: #4f876b; font-style: normal; letter-spacing: 0; }
+
 .dragHandle {
   display: grid;
   width: 25px;

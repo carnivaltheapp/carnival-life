@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-DEVELOPMENT-COMPONENT-DRAG-137
+          P3-ROADMAP-AI-138
         </small>
       </body>
     </html>

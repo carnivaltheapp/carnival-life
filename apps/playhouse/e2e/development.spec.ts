@@ -5,6 +5,14 @@ test("Development Console filters and persists feature CRUD", async ({ auth }) =
   await expect(auth.page.getByRole("heading", { name: "Carnival Development" })).toBeVisible();
   await expect(auth.page.getByText("Features, priorities & development sequence")).toBeVisible();
   await expect(auth.page.getByRole("row", { name: /Drag Email into PlayHouse/ })).toBeVisible();
+  const firstReference = auth.page.locator('[class*="featureReference"]').first();
+  const humanFeatureId = (await firstReference.locator("span").first().textContent())?.trim() ?? "";
+  expect(humanFeatureId).toMatch(/^CF-\d{3,}$/);
+  await firstReference.getByRole("button", { name: `Copy ${humanFeatureId}` }).click();
+  await expect(firstReference.getByRole("status")).toHaveText("Copied");
+  await auth.page.getByPlaceholder("Search features...").fill(humanFeatureId.toLocaleLowerCase());
+  await expect(auth.page.locator("tbody tr")).toHaveCount(1);
+  await auth.page.getByPlaceholder("Search features...").fill("");
 
   await auth.page.getByRole("button", { name: "Gmail", exact: true }).click();
   await expect(auth.page.getByRole("row", { name: /Drag Email into PlayHouse/ })).toBeVisible();

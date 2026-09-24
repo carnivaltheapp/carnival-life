@@ -21,6 +21,7 @@ function feature(index: number, componentId = "684fa2ea-3077-47a4-b288-0ecf634dd
     createdAt: `2026-09-24T12:0${index}:00.000Z`,
     dependencies: [],
     description: `Feature ${index}`,
+    featureId: `CF-00${index + 1}`,
     id: ids[index],
     notes: "",
     priority: index === 0 ? "High" : "Low",

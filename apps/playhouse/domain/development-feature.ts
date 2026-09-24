@@ -46,6 +46,7 @@ export type DevelopmentFeature = {
   createdAt: string;
   dependencies: string[];
   description: string;
+  featureId: string;
   id: string;
   notes: string;
   priority: DevelopmentPriority;
@@ -75,9 +76,20 @@ export type DevelopmentFeatureFilters = {
 };
 
 const FEATURE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const HUMAN_FEATURE_ID_PATTERN = /^CF-([0-9]+)$/i;
 
 export function isDevelopmentFeatureId(value: string) {
   return FEATURE_ID_PATTERN.test(value);
+}
+
+export function formatDevelopmentFeatureId(value: number) {
+  return `CF-${String(value).padStart(3, "0")}`;
+}
+
+export function normalizeDevelopmentFeatureId(value: string) {
+  const match = value.trim().match(HUMAN_FEATURE_ID_PATTERN);
+  const number = match ? Number(match[1]) : 0;
+  return Number.isSafeInteger(number) && number > 0 ? formatDevelopmentFeatureId(number) : null;
 }
 
 function normalizedString(value: unknown, maximum: number) {
@@ -162,7 +174,7 @@ export function filterDevelopmentFeatures(
     if (filters.status !== "All Statuses" && feature.status !== filters.status) return false;
     if (filters.priority !== "All Priorities" && feature.priority !== filters.priority) return false;
     if (!query) return true;
-    return [feature.title, feature.description, feature.notes]
+    return [feature.featureId, feature.title, feature.description, feature.notes]
       .some((field) => field.toLocaleLowerCase().includes(query));
   }));
 }

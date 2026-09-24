@@ -2,6 +2,18 @@
 
 Architecture-only exploration handoff • September 2026
 
+## September 24, 2026 — Human Feature References + Read-only Roadmap API
+
+- Marker `P3-ROADMAP-AI-138` gives every Development Console feature a permanent,
+  concurrency-safe `CF-###` reference, searchable/copyable in the Console and preserved
+  across edits, moves, reorders, and deletion gaps.
+- Existing features are transactionally backfilled by creation order without changing
+  roadmap sequence; an atomic Mongo counter and unique index protect new allocations.
+- Token-protected GET-only roadmap, direct-reference, and schema endpoints expose clean
+  Mongo-backed JSON for future ChatGPT tooling without granting mutation access.
+- ChatGPT still requires a separately configured and tested connector/tool; the endpoint
+  itself does not make roadmap data visible to external conversations.
+
 ## September 24, 2026 — Development Component Drag Ordering
 
 - Marker `P3-DEVELOPMENT-COMPONENT-DRAG-137` adds drag handles and clear insertion markers

@@ -14,6 +14,7 @@ const features: DevelopmentFeature[] = [
     createdAt: "2026-09-24T10:00:00.000Z",
     dependencies: [],
     description: "Attach an open conversation",
+    featureId: "CF-002",
     id: "34a28cb5-e40d-4da5-98b3-69d8de358c4d",
     notes: "Bridge contract",
     priority: "High",
@@ -28,6 +29,7 @@ const features: DevelopmentFeature[] = [
     createdAt: "2026-09-24T09:00:00.000Z",
     dependencies: [],
     description: "Reusable Play defaults",
+    featureId: "CF-001",
     id: "13790f39-b3d8-418d-b0eb-d11d483b1b36",
     notes: "Keep the form compact",
     priority: "Medium",
@@ -42,6 +44,7 @@ const features: DevelopmentFeature[] = [
     createdAt: "2026-09-24T08:00:00.000Z",
     dependencies: [],
     description: "Future assistance",
+    featureId: "CF-003",
     id: "98431bd0-e1b0-4106-8991-a0ca5630ea55",
     notes: "Not in the current phase",
     priority: "Low",
@@ -74,6 +77,12 @@ describe("Carnival Development feature domain", () => {
       query: "reusable",
       status: "All Statuses",
     }).map((feature) => feature.title)).toEqual(["Play templates"]);
+    expect(filterDevelopmentFeatures(features, {
+      componentId: "all",
+      priority: "All Priorities",
+      query: "cf-002",
+      status: "All Statuses",
+    }).map((feature) => feature.title)).toEqual(["Gmail bridge"]);
   });
 
   it("validates persisted sequence and dependency fields without accepting arbitrary values", () => {

@@ -85,6 +85,7 @@ describe("Mongo Development Console repository", () => {
       dependencies: input.dependencies,
       description: input.description,
       feature_id: "34a28cb5-e40d-4da5-98b3-69d8de358c4d",
+      human_feature_id: "CF-002",
       is_demo: false,
       notes: input.notes,
       owner_user_id: "owner-a",
@@ -99,22 +100,94 @@ describe("Mongo Development Console repository", () => {
       findOneAndUpdate: vi.fn().mockResolvedValue(persisted),
       insertOne: vi.fn().mockResolvedValue({ acknowledged: true }),
     };
-    const repository = repositoryWith({ components, features });
+    const meta = {
+      findOne: vi.fn().mockResolvedValue({ feature_reference_seed_version: 1 }),
+      findOneAndUpdate: vi.fn().mockResolvedValue({ last_feature_number: 3 }),
+    };
+    const repository = repositoryWith({ components, features, meta });
     await expect(repository.create("owner-a", input)).resolves.toEqual(expect.objectContaining({
       component: "PlayHouse",
       componentId,
+      featureId: "CF-003",
     }));
     expect(features.insertOne).toHaveBeenCalledWith(expect.objectContaining({
       component: "PlayHouse",
       component_id: componentId,
+      human_feature_id: "CF-003",
       owner_user_id: "owner-a",
     }));
-    await repository.update("owner-a", persisted.feature_id, input);
+    await expect(repository.update("owner-a", persisted.feature_id, input)).resolves
+      .toEqual(expect.objectContaining({ featureId: "CF-002" }));
     expect(features.findOneAndUpdate).toHaveBeenCalledWith(
       { feature_id: persisted.feature_id, owner_user_id: "owner-a" },
       { $set: expect.objectContaining({ component: "PlayHouse", component_id: componentId }) },
       { returnDocument: "after" },
     );
+    expect(vi.mocked(features.findOneAndUpdate).mock.calls[0][1].$set)
+      .not.toHaveProperty("human_feature_id");
+  });
+
+  it("assigns existing feature references deterministically without changing sequence", async () => {
+    const features = {
+      bulkWrite: vi.fn().mockResolvedValue({ modifiedCount: 2 }),
+      find: vi.fn(() => ({ toArray: vi.fn().mockResolvedValue([
+        {
+          created_at: new Date("2026-09-24T11:00:00.000Z"),
+          feature_id: "205d0598-b93c-49e1-aec3-4dac945e6e0a",
+          sequence: 1,
+        },
+        {
+          created_at: new Date("2026-09-24T10:00:00.000Z"),
+          feature_id: "34a28cb5-e40d-4da5-98b3-69d8de358c4d",
+          sequence: 9,
+        },
+      ]) })),
+    };
+    const meta = {
+      findOne: vi.fn().mockResolvedValue(null),
+      updateOne: vi.fn().mockResolvedValue({ acknowledged: true }),
+    };
+    await repositoryWith({ features, meta }).ensureFeatureReferences("owner-a");
+    expect(features.bulkWrite).toHaveBeenCalledWith([
+      { updateOne: {
+        filter: { feature_id: "34a28cb5-e40d-4da5-98b3-69d8de358c4d", owner_user_id: "owner-a" },
+        update: { $set: { human_feature_id: "CF-001" } },
+      } },
+      { updateOne: {
+        filter: { feature_id: "205d0598-b93c-49e1-aec3-4dac945e6e0a", owner_user_id: "owner-a" },
+        update: { $set: { human_feature_id: "CF-002" } },
+      } },
+    ], { ordered: true, session: undefined });
+    expect(meta.updateOne).toHaveBeenCalledWith(
+      { owner_user_id: "owner-a" },
+      { $set: expect.objectContaining({ last_feature_number: 2 }) },
+      { session: undefined, upsert: true },
+    );
+  });
+
+  it("atomically allocates unique never-reused feature references", async () => {
+    const inserted: Array<{ human_feature_id?: string }> = [];
+    const features = {
+      insertOne: vi.fn(async (document: { human_feature_id?: string }) => {
+        inserted.push(document);
+        return { acknowledged: true };
+      }),
+    };
+    const components = { findOne: vi.fn().mockResolvedValue(componentDocument) };
+    const meta = {
+      findOne: vi.fn().mockResolvedValue({ feature_reference_seed_version: 1 }),
+      findOneAndUpdate: vi.fn()
+        .mockResolvedValueOnce({ last_feature_number: 18 })
+        .mockResolvedValueOnce({ last_feature_number: 19 }),
+    };
+    const repository = repositoryWith({ components, features, meta });
+    const created = await Promise.all([
+      repository.create("owner-a", input),
+      repository.create("owner-a", { ...input, title: "Concurrent feature" }),
+    ]);
+    expect(created.map((feature) => feature?.featureId)).toEqual(["CF-018", "CF-019"]);
+    expect(new Set(inserted.map((document) => document.human_feature_id)).size).toBe(2);
+    expect(meta.findOneAndUpdate).toHaveBeenCalledTimes(2);
   });
 
   it("persists a complete global feature sequence with owner-scoped bulk updates", async () => {
@@ -171,6 +244,7 @@ describe("Mongo Development Console repository", () => {
       dependencies: [],
       description: "Description",
       feature_id: input.dependencies[0],
+      human_feature_id: "CF-004",
       is_demo: false,
       notes: "",
       owner_user_id: "owner-a",
@@ -189,6 +263,7 @@ describe("Mongo Development Console repository", () => {
     )).resolves.toEqual(expect.objectContaining({
       component: "Roller",
       componentId: destination.component_id,
+      featureId: "CF-004",
       priority: "High",
       sequence: 4,
     }));
@@ -200,6 +275,8 @@ describe("Mongo Development Console repository", () => {
       }) },
       { returnDocument: "after" },
     );
+    expect(vi.mocked(features.findOneAndUpdate).mock.calls[0][1].$set)
+      .not.toHaveProperty("human_feature_id");
   });
 
   it("adds, renames, changes icon, and hides a component within owner scope", async () => {
@@ -269,6 +346,31 @@ describe("Mongo Development Console repository", () => {
       "owner-a",
       componentId,
     )).resolves.toEqual({ deleted: false, featureCount: 3, reason: "component_in_use" });
+  });
+
+  it("never reuses a deleted feature reference", async () => {
+    const features = {
+      deleteOne: vi.fn().mockResolvedValue({ deletedCount: 1 }),
+      insertOne: vi.fn().mockResolvedValue({ acknowledged: true }),
+      updateMany: vi.fn().mockResolvedValue({ modifiedCount: 0 }),
+    };
+    const components = { findOne: vi.fn().mockResolvedValue(componentDocument) };
+    const meta = {
+      findOne: vi.fn().mockResolvedValue({ feature_reference_seed_version: 1 }),
+      findOneAndUpdate: vi.fn().mockResolvedValue({ last_feature_number: 21 }),
+    };
+    const repository = repositoryWith({ components, features, meta });
+    await expect(repository.delete("owner-a", input.dependencies[0])).resolves.toBe(true);
+    await expect(repository.create("owner-a", input)).resolves
+      .toEqual(expect.objectContaining({ featureId: "CF-021" }));
+    expect(meta.findOneAndUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("fails machine roadmap owner resolution closed when owners are ambiguous", async () => {
+    const meta = { distinct: vi.fn().mockResolvedValue(["owner-a", "owner-b"]) };
+    await expect(repositoryWith({ meta }).machineRoadmapOwner()).resolves.toBeNull();
+    meta.distinct.mockResolvedValue(["owner-a"]);
+    await expect(repositoryWith({ meta }).machineRoadmapOwner()).resolves.toBe("owner-a");
   });
 
   it("moves assigned features to an owner component before safe deletion", async () => {

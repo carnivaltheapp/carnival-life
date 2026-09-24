@@ -32,6 +32,10 @@ const featureComponentRoute = await readFile(
   new URL("../api/development/features/[featureId]/component/route.ts", import.meta.url),
   "utf8",
 );
+const roadmapRoute = await readFile(
+  new URL("../api/development/roadmap/route.ts", import.meta.url),
+  "utf8",
+);
 
 describe("Carnival Development Console contract", () => {
   it("is a direct dynamic /development route within the existing PlayHouse deployment", () => {
@@ -62,6 +66,16 @@ describe("Carnival Development Console contract", () => {
     expect(consoleSource).toContain("!item.hidden || item.id === draft.componentId");
     expect(consoleSource).toContain("value={item.id}");
     expect(consoleSource).not.toContain("const DEVELOPMENT_COMPONENTS");
+  });
+
+  it("shows searchable human feature references with an isolated copy control", () => {
+    expect(consoleSource).toContain("feature.featureId");
+    expect(consoleSource).toContain("navigator.clipboard.writeText(featureId)");
+    expect(consoleSource).toContain('aria-label={`Copy ${feature.featureId}`}');
+    expect(consoleSource).toContain("draggable={false}");
+    expect(consoleSource).toContain("event.stopPropagation()");
+    expect(consoleSource).toContain('<em role="status">Copied</em>');
+    expect(css).toContain(".featureReference");
   });
 
   it("supports optimistic feature reorder and component drops with filter-safe rollback", () => {
@@ -124,5 +138,12 @@ describe("Carnival Development Console contract", () => {
     expect(featureReorderRoute).toContain("reorderFeatures(ownerUserId, featureIds)");
     expect(featureComponentRoute).toContain("authenticatedDevelopmentOwner()");
     expect(featureComponentRoute).toContain("moveFeatureToComponent(ownerUserId, featureId, componentId)");
+  });
+
+  it("keeps machine roadmap access GET-only and separate from browser CRUD", () => {
+    expect(roadmapRoute).toContain("CARNIVAL_ROADMAP_READ_TOKEN");
+    expect(roadmapRoute).toContain("export async function GET");
+    expect(roadmapRoute).not.toMatch(/export async function (POST|PUT|PATCH|DELETE)/);
+    expect(collectionRoute).toContain("authenticatedDevelopmentOwner()");
   });
 });

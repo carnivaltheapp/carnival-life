@@ -73,6 +73,7 @@ icon identifier, numeric sort order, hidden flag, and created/updated times. Uni
 enforce owner-scoped component identity and component names.
 
 Every feature has a stable UUID, owner scope, title, description, stable `component_id`,
+permanent owner-scoped human reference (`CF-001`, `CF-002`, ...),
 compatibility component-name snapshot, status,
 priority, optional sequence, dependency feature IDs, notes, and created/updated times.
 Indexes enforce owner/feature identity and support sequence and filter reads. Deletes also
@@ -87,6 +88,13 @@ The migration is owner-scoped, idempotent, and recorded only after backfill comp
 The initial sample records are explicitly marked as demo data in Mongo and in their notes.
 They are inserted once per owner and can be edited or removed without being recreated.
 They are examples, not approved Carnival requirements.
+
+Existing features receive `CF-###` references deterministically by creation time (then
+existing sequence and stable UUID as tie-breakers) without changing development sequence.
+New references come from an atomic owner-scoped counter in
+`carnival_development_console_meta`; the feature collection also has a unique owner/reference
+index. Edits, component moves, and reorders never write the reference, and deletion never
+decrements the counter, so a reference is permanent and never reused.
 
 ## API
 
@@ -122,3 +130,42 @@ updates optimistically and restores its prior state if either operation fails.
 
 This structured API is the Version 1 machine-access boundary for future planning tools.
 No AI functionality is part of this implementation.
+
+## Read-only machine roadmap API
+
+Authorized development tools can read the current MongoDB roadmap without browser-session
+authentication:
+
+- `GET /api/development/roadmap`
+- `GET /api/development/roadmap/CF-###`
+- `GET /api/development/roadmap/schema`
+
+Send `Authorization: Bearer <token>`, where the server-only token is configured as
+`CARNIVAL_ROADMAP_READ_TOKEN`. The token should be generated as a cryptographically strong
+secret of at least 32 characters, must never use a `NEXT_PUBLIC_` prefix, and must be stored
+in Vercel Production/Preview environment configuration rather than Git. Missing, malformed,
+or incorrect credentials return HTTP 401. The machine routes export GET only; the token
+cannot authorize feature/component writes, deletion, reordering, or reassignment.
+
+The unfiltered roadmap response contains `components`, canonical `features`, explicit
+`dependencies`, and `globalSequence`. Feature objects include both internal `id` and the
+canonical human `featureId`, plus title, description, component data, status, priority,
+sequence, dependencies, notes, and timestamps. Dependency objects carry internal IDs and
+`CF-###` references. Hidden components are included. Supported convenience filters are
+`component`, `status`, `priority`, and case-insensitive `q`; for example:
+
+```text
+GET /api/development/roadmap?q=CF-014
+GET /api/development/roadmap?component=Roller&status=Planned
+GET /api/development/roadmap/CF-014
+```
+
+Machine access fails closed if the deployment contains more than one Development Console
+owner, rather than combining owner data. A future multi-owner connector must bind separate
+credentials to explicit owners.
+
+The API is connector-ready, but an HTTP endpoint alone does not let ChatGPT call it. The
+next integration step is to configure and test a Carnival ChatGPT connector/tool that sends
+the bearer token from its secure credential store and exposes the roadmap and schema GET
+operations. Do not claim ChatGPT access until that connector is installed, authenticated,
+and successfully retrieves a `CF-###` record.

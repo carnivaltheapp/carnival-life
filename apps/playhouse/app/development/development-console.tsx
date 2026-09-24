@@ -136,6 +136,7 @@ export function DevelopmentConsole({
   } | null>(null);
   const [componentDropTarget, setComponentDropTarget] = useState<string | null>(null);
   const [dragSaving, setDragSaving] = useState(false);
+  const [copiedFeatureId, setCopiedFeatureId] = useState<string | null>(null);
   const [draggedComponentId, setDraggedComponentId] = useState<string | null>(null);
   const [componentRowDropTarget, setComponentRowDropTarget] = useState<{
     edge: "after" | "before";
@@ -525,6 +526,20 @@ export function DevelopmentConsole({
     }
   }
 
+  async function copyFeatureId(event: React.MouseEvent<HTMLButtonElement>, featureId: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(featureId);
+      setCopiedFeatureId(featureId);
+      window.setTimeout(() => {
+        setCopiedFeatureId((current) => current === featureId ? null : current);
+      }, 1_500);
+    } catch {
+      setMessage("Feature ID could not be copied.");
+    }
+  }
+
   return (
     <main className={styles.console}>
       <aside className={styles.sidebar}>
@@ -687,6 +702,20 @@ export function DevelopmentConsole({
                           <span aria-hidden="true">⠿</span>
                         </button>
                         <span className={styles.featureText}>
+                          <span className={styles.featureReference}>
+                            <span>{feature.featureId}</span>
+                            <button
+                              aria-label={`Copy ${feature.featureId}`}
+                              draggable={false}
+                              onClick={(event) => void copyFeatureId(event, feature.featureId)}
+                              onDragStart={(event) => event.preventDefault()}
+                              onMouseDown={(event) => event.stopPropagation()}
+                              type="button"
+                            >
+                              <span aria-hidden="true">{copiedFeatureId === feature.featureId ? "✓" : "⧉"}</span>
+                            </button>
+                            {copiedFeatureId === feature.featureId ? <em role="status">Copied</em> : null}
+                          </span>
                           <strong>{feature.title}</strong>
                           <p>{feature.description}</p>
                         </span>
@@ -785,7 +814,7 @@ export function DevelopmentConsole({
                           })}
                           type="checkbox"
                         />
-                        <span>{feature.title}</span>
+                        <span>{feature.featureId} · {feature.title}</span>
                       </label>
                     ))}
                     {features.filter((feature) => feature.id !== editing?.id).length === 0

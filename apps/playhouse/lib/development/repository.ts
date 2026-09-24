@@ -4,10 +4,12 @@ import { randomUUID } from "node:crypto";
 import type { ClientSession, Collection } from "mongodb";
 
 import type { DevelopmentComponentInput } from "../../domain/development-component";
-import type {
-  DevelopmentComponentRecord,
-  DevelopmentFeature,
-  DevelopmentFeatureInput,
+import {
+  formatDevelopmentFeatureId,
+  normalizeDevelopmentFeatureId,
+  type DevelopmentComponentRecord,
+  type DevelopmentFeature,
+  type DevelopmentFeatureInput,
 } from "../../domain/development-feature";
 import { getCarnivalMongoClient, getCarnivalMongoDatabase } from "../playhouse/mongo-client";
 import {
@@ -20,6 +22,7 @@ import {
 const FEATURE_COLLECTION = "carnival_development_features";
 const COMPONENT_COLLECTION = "carnival_development_components";
 const META_COLLECTION = "carnival_development_console_meta";
+const FEATURE_REFERENCE_SEED_VERSION = 1;
 
 type DevelopmentFeatureDocument = {
   component: string;
@@ -28,6 +31,7 @@ type DevelopmentFeatureDocument = {
   dependencies: string[];
   description: string;
   feature_id: string;
+  human_feature_id?: string;
   is_demo: boolean;
   notes: string;
   owner_user_id: string;
@@ -55,6 +59,9 @@ type DevelopmentConsoleMetaDocument = {
   components_seeded_at?: Date;
   demo_seed_version?: number;
   demo_seeded_at?: Date;
+  feature_reference_seed_version?: number;
+  feature_references_seeded_at?: Date;
+  last_feature_number?: number;
   owner_user_id: string;
 };
 
@@ -81,6 +88,14 @@ async function defaultCollections(): Promise<Collections> {
     features.createIndex(
       { owner_user_id: 1, feature_id: 1 },
       { name: "owner_feature_unique", unique: true },
+    ),
+    features.createIndex(
+      { owner_user_id: 1, human_feature_id: 1 },
+      {
+        name: "owner_human_feature_unique",
+        partialFilterExpression: { human_feature_id: { $type: "string" } },
+        unique: true,
+      },
     ),
     features.createIndex(
       { owner_user_id: 1, sequence: 1, created_at: 1 },
@@ -147,6 +162,7 @@ function publicFeature(document: DevelopmentFeatureDocument): DevelopmentFeature
     createdAt: document.created_at.toISOString(),
     dependencies: document.dependencies,
     description: document.description,
+    featureId: document.human_feature_id ?? "",
     id: document.feature_id,
     notes: document.notes,
     priority: document.priority,
@@ -167,6 +183,61 @@ export class MongoDevelopmentFeatureRepository {
   async ensureDevelopmentData(ownerUserId: string) {
     await this.ensureComponentSeed(ownerUserId);
     await this.ensureDemoSeed(ownerUserId);
+    await this.ensureFeatureReferences(ownerUserId);
+  }
+
+  async ensureFeatureReferences(ownerUserId: string) {
+    const collections = await this.collections();
+    const ensure = async (session?: ClientSession) => {
+      const seeded = await collections.meta.findOne({
+        feature_reference_seed_version: { $gte: FEATURE_REFERENCE_SEED_VERSION },
+        owner_user_id: ownerUserId,
+      }, session ? { session } : undefined);
+      if (seeded) return;
+
+      const documents = await collections.features.find(
+        { owner_user_id: ownerUserId },
+        {
+          projection: { _id: 0, created_at: 1, feature_id: 1, human_feature_id: 1, sequence: 1 },
+          session,
+        },
+      ).toArray();
+      documents.sort((left, right) =>
+        left.created_at.getTime() - right.created_at.getTime() ||
+        (left.sequence ?? Number.MAX_SAFE_INTEGER) - (right.sequence ?? Number.MAX_SAFE_INTEGER) ||
+        left.feature_id.localeCompare(right.feature_id));
+      let lastFeatureNumber = documents.reduce((maximum, document) => {
+        const normalized = document.human_feature_id
+          ? normalizeDevelopmentFeatureId(document.human_feature_id)
+          : null;
+        return normalized ? Math.max(maximum, Number(normalized.slice(3))) : maximum;
+      }, 0);
+      const missing = documents.filter((document) => !document.human_feature_id);
+      if (missing.length > 0) {
+        await collections.features.bulkWrite(missing.map((document) => ({
+          updateOne: {
+            filter: { feature_id: document.feature_id, owner_user_id: ownerUserId },
+            update: { $set: { human_feature_id: formatDevelopmentFeatureId(++lastFeatureNumber) } },
+          },
+        })), { ordered: true, session });
+      }
+      const now = new Date();
+      await collections.meta.updateOne(
+        { owner_user_id: ownerUserId },
+        { $set: {
+          feature_reference_seed_version: FEATURE_REFERENCE_SEED_VERSION,
+          feature_references_seeded_at: now,
+          last_feature_number: lastFeatureNumber,
+          owner_user_id: ownerUserId,
+        } },
+        { session, upsert: true },
+      );
+    };
+    if (collections.runTransaction) {
+      await collections.runTransaction((session) => ensure(session));
+    } else {
+      await ensure();
+    }
   }
 
   async ensureComponentSeed(ownerUserId: string) {
@@ -403,31 +474,69 @@ export class MongoDevelopmentFeatureRepository {
   }
 
   async create(ownerUserId: string, input: DevelopmentFeatureInput) {
-    const { components, features } = await this.collections();
+    await this.ensureFeatureReferences(ownerUserId);
+    const collections = await this.collections();
+    const { components, features, meta } = collections;
     const component = await components.findOne({
       component_id: input.componentId,
       owner_user_id: ownerUserId,
     });
     if (!component) return null;
-    const now = new Date();
-    const document: DevelopmentFeatureDocument = {
-      component: component.name,
-      component_id: component.component_id,
-      created_at: now,
-      dependencies: input.dependencies,
-      description: input.description,
-      feature_id: randomUUID(),
-      is_demo: false,
-      notes: input.notes,
-      owner_user_id: ownerUserId,
-      priority: input.priority,
-      sequence: input.sequence,
-      status: input.status,
-      title: input.title,
-      updated_at: now,
+    const create = async (session?: ClientSession) => {
+      const counter = await meta.findOneAndUpdate(
+        { owner_user_id: ownerUserId },
+        { $inc: { last_feature_number: 1 } },
+        { returnDocument: "after", session },
+      );
+      const allocatedFeatureNumber = counter?.last_feature_number;
+      if (!Number.isSafeInteger(allocatedFeatureNumber)) {
+        throw new Error("Development feature reference counter is unavailable.");
+      }
+      const now = new Date();
+      const document: DevelopmentFeatureDocument = {
+        component: component.name,
+        component_id: component.component_id,
+        created_at: now,
+        dependencies: input.dependencies,
+        description: input.description,
+        feature_id: randomUUID(),
+        human_feature_id: formatDevelopmentFeatureId(allocatedFeatureNumber as number),
+        is_demo: false,
+        notes: input.notes,
+        owner_user_id: ownerUserId,
+        priority: input.priority,
+        sequence: input.sequence,
+        status: input.status,
+        title: input.title,
+        updated_at: now,
+      };
+      if (session) await features.insertOne(document, { session });
+      else await features.insertOne(document);
+      return publicFeature(document);
     };
-    await features.insertOne(document);
-    return publicFeature(document);
+    return collections.runTransaction
+      ? collections.runTransaction((session) => create(session))
+      : create();
+  }
+
+  async getByHumanFeatureId(ownerUserId: string, featureId: string) {
+    const normalized = normalizeDevelopmentFeatureId(featureId);
+    if (!normalized) return null;
+    const document = await (await this.collections()).features.findOne(
+      { human_feature_id: normalized, owner_user_id: ownerUserId },
+      { projection: { _id: 0, owner_user_id: 0 } },
+    );
+    return document ? publicFeature(document) : null;
+  }
+
+  async machineRoadmapOwner() {
+    const owners = await (await this.collections()).meta.distinct("owner_user_id", {
+      $or: [
+        { component_seed_version: { $gte: DEVELOPMENT_COMPONENT_SEED_VERSION } },
+        { feature_reference_seed_version: { $gte: FEATURE_REFERENCE_SEED_VERSION } },
+      ],
+    });
+    return owners.length === 1 && typeof owners[0] === "string" ? owners[0] : null;
   }
 
   async update(ownerUserId: string, featureId: string, input: DevelopmentFeatureInput) {
@@ -515,3 +624,4 @@ export class MongoDevelopmentFeatureRepository {
 export const DEVELOPMENT_FEATURE_COLLECTION = FEATURE_COLLECTION;
 export const DEVELOPMENT_COMPONENT_COLLECTION = COMPONENT_COLLECTION;
 export const DEVELOPMENT_CONSOLE_META_COLLECTION = META_COLLECTION;
+export const DEVELOPMENT_FEATURE_REFERENCE_SEED_VERSION = FEATURE_REFERENCE_SEED_VERSION;
