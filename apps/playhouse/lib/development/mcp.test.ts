@@ -136,7 +136,7 @@ describe("Carnival Development roadmap MCP tools", () => {
       .structuredContent).toEqual({ features: [expect.objectContaining({ featureId: "CF-011" })] });
   });
 
-  it("returns the canonical roadmap and advertises separately scoped read and write tools", async () => {
+  it("returns the canonical roadmap and requests the complete read/write grant during linking", async () => {
     expect((await call("get_roadmap")).structuredContent).toEqual(roadmap);
     expect((await call("list_components")).structuredContent).toEqual({ components: roadmap.components });
     const connection = await connectedClient();
@@ -156,19 +156,13 @@ describe("Carnival Development roadmap MCP tools", () => {
     ]);
     expect(tools.tools.slice(0, 5).every((tool) => tool.annotations?.readOnlyHint === true)).toBe(true);
     expect(tools.tools.slice(5).every((tool) => tool.annotations?.readOnlyHint === false)).toBe(true);
-    expect(tools.tools.slice(0, 5).every((tool) => {
+    expect(tools.tools.every((tool) => {
       const schemes = tool._meta?.securitySchemes;
       return Array.isArray(schemes) && schemes.some((scheme) =>
         typeof scheme === "object" && scheme !== null &&
         "type" in scheme && scheme.type === "oauth2" &&
         "scopes" in scheme && Array.isArray(scheme.scopes) &&
-        scheme.scopes.includes("roadmap:read"));
-    })).toBe(true);
-    expect(tools.tools.slice(5).every((tool) => {
-      const schemes = tool._meta?.securitySchemes;
-      return Array.isArray(schemes) && schemes.some((scheme) =>
-        typeof scheme === "object" && scheme !== null &&
-        "scopes" in scheme && Array.isArray(scheme.scopes) &&
+        scheme.scopes.includes("roadmap:read") &&
         scheme.scopes.includes("roadmap:write"));
     })).toBe(true);
     expect(tools.tools.map((tool) => tool.name).join(" ")).not.toMatch(/delete_feature|delete_component|mongo/);

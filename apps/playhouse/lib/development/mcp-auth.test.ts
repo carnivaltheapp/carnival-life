@@ -4,7 +4,9 @@ vi.mock("server-only", () => ({}));
 
 import {
   authenticateRoadmapMcpRequest,
+  roadmapMcpAuthenticationChallenge,
   roadmapMcpResourceMetadata,
+  roadmapMcpToolAuthenticationChallenge,
 } from "./mcp-auth.server";
 
 describe("Carnival roadmap MCP bearer authentication", () => {
@@ -41,5 +43,15 @@ describe("Carnival roadmap MCP bearer authentication", () => {
       }),
       { authenticateAccessToken },
     )).resolves.toBeNull();
+  });
+
+  it("requests the complete read/write grant from every OAuth challenge", () => {
+    const request = new Request("https://carnival.example/api/development/mcp");
+    expect(roadmapMcpAuthenticationChallenge(request)).toContain(
+      'scope="roadmap:read roadmap:write"',
+    );
+    expect(roadmapMcpToolAuthenticationChallenge(request)).toContain(
+      'scope="roadmap:read roadmap:write"',
+    );
   });
 });

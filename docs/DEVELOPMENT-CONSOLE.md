@@ -287,6 +287,13 @@ repository paths; canonical reorder remains exact-set/contiguous, dependencies r
 self, and duplicate references, and Notes append with paragraph preservation. Public roadmap and
 CF/component sharing routes remain read-only.
 
+Marker `P3-ROADMAP-OAUTH-FIX-148` corrects ChatGPT linking for that two-scope server. ChatGPT starts
+authorization from the descriptor of the first invoked tool; read-tool descriptors in 147 requested
+only `roadmap:read`, so the consent page and stored authorization code were necessarily read-only.
+All Carnival Roadmap tool descriptors and OAuth challenges now request the complete
+`roadmap:read roadmap:write` grant during linking, while server-side tool enforcement remains
+least-privilege and unchanged.
+
 ### One-time ChatGPT connection procedure
 
 1. In ChatGPT Settings → Security and login, enable Developer mode.
