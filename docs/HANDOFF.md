@@ -4,6 +4,10 @@ Architecture-only exploration handoff • September 2026
 
 ## September 24, 2026 — ChatGPT Roadmap MCP
 
+- Marker `P3-ROADMAP-PUBLIC-146` makes unauthenticated `/development` a server-rendered,
+  read-only All Features roadmap with complete planning fields and full Notes. Authenticated
+  owners still receive the existing interactive Console at the same URL. The public view is
+  Mongo-backed, mutation-free, free of owner/internal IDs and controls, and `noindex, nofollow`.
 - Marker `P3-COMPONENT-SHARE-145` adds current-name component URLs such as
   `/development/gmail`. Authenticated left-navigation selections update browser history and offer
   isolated copy-link controls; direct public requests server-render only that component's complete

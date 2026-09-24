@@ -66,7 +66,8 @@
 .header h1 { margin: 0; font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.08; letter-spacing: -.04em; }
 
 .section { margin-top: 30px; }
-.section h2 { margin: 0 0 11px; font-size: .92rem; }
+.section h2,
+.section h3 { margin: 0 0 11px; font-size: .92rem; }
 .section > p { margin: 0; color: #51495a; line-height: 1.7; }
 
 .details {

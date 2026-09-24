@@ -44,6 +44,9 @@ describe("Carnival Development Console contract", () => {
     expect(page).toContain("<DevelopmentConsole");
     expect(page).toContain("loadDevelopmentPageState");
     expect(pageState).toContain("MongoDevelopmentFeatureRepository");
+    expect(page).toContain("loadPublicDevelopmentRoadmap");
+    expect(page).toContain("PublicDevelopmentRoadmap");
+    expect(page).toContain("robots: { follow: false, index: false }");
   });
 
   it("contains the approved heading, subtitle, sidebar, filters, table, and feature editor", () => {

@@ -6,6 +6,7 @@ import type { DevelopmentFeature } from "../../domain/development-feature";
 import {
   loadPublicDevelopmentComponent,
   loadPublicDevelopmentFeature,
+  loadPublicDevelopmentRoadmap,
 } from "./roadmap.server";
 
 const longNotes = `First paragraph.\n\n${"Detailed roadmap context. ".repeat(500)}`;
@@ -131,5 +132,26 @@ describe("public Development feature loader", () => {
     const source = repository();
     await expect(loadPublicDevelopmentComponent("missing", source)).resolves.toBeNull();
     expect(source.list).not.toHaveBeenCalled();
+  });
+
+  it("returns the complete ordered public roadmap without owner or internal IDs", async () => {
+    const source = repository();
+    const result = await loadPublicDevelopmentRoadmap(source);
+
+    expect(result?.features).toHaveLength(3);
+    expect(result?.features[0]).toMatchObject({
+      component: "PlayHouse",
+      dependencies: [{ featureId: "CF-004", title: "Roadmap foundation" }],
+      description: "Complete feature description.",
+      featureId: "CF-010",
+      notes: longNotes,
+      priority: "High",
+      sequence: 10,
+      status: "Building",
+      title: "Public feature sharing",
+    });
+    expect(JSON.stringify(result)).not.toContain("private-owner-id");
+    expect(JSON.stringify(result)).not.toContain("component-internal-id");
+    expect(JSON.stringify(result)).not.toContain("dependency-internal-id");
   });
 });

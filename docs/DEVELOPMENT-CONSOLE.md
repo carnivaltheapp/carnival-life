@@ -36,6 +36,13 @@ internal IDs, navigation, or editing controls.
 The Development Console is modular and does not depend on PlayHouse grid state. Its UI,
 domain model, repository, and API are contained under the Development feature boundary.
 
+The root `/development` route is session-aware. Authenticated owners receive the complete
+interactive Console described below. Without a Carnival session, the same URL server-renders a
+public read-only **All Features** roadmap directly from current MongoDB records. That public view
+contains every feature's CF reference, title, description, component, status, priority, sequence,
+public dependency references/titles, and full Notes. It contains no owner/internal IDs or create,
+edit, delete, drag, or component-management controls and declares `noindex, nofollow`.
+
 ## Component navigation
 
 The left navigation is persisted and owner-scoped. `All Features` is a fixed system view;
@@ -256,6 +263,11 @@ Selecting a component in the authenticated Console updates browser history witho
 changing edit behavior, while the adjacent copy control provides its full current-origin public
 URL. Back/forward history restores the in-place component filter. Public component requests use
 the read-only server route and do not expose Console controls or other components' cards.
+
+Marker `P3-ROADMAP-PUBLIC-146` makes the root `/development` URL the shareable All Features
+equivalent. Authentication continues to select the unchanged interactive Console; signed-out
+requests receive the server-rendered read-only roadmap. The public loader reads but never seeds,
+backfills, or mutates Development Console data.
 
 ### One-time ChatGPT connection procedure
 

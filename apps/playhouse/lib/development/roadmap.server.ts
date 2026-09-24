@@ -24,6 +24,10 @@ export type PublicDevelopmentComponent = {
   slug: string;
 };
 
+export type PublicDevelopmentRoadmap = {
+  features: PublicDevelopmentFeature[];
+};
+
 type PublicFeatureRepository = Pick<
   MongoDevelopmentFeatureRepository,
   "get" | "getByHumanFeatureId" | "list" | "listComponents" | "machineRoadmapOwner"
@@ -45,6 +49,17 @@ function publicFeature(
     title: feature.title,
     updatedAt: feature.updatedAt,
   };
+}
+
+function publicFeatures(features: DevelopmentFeature[]) {
+  const byId = new Map(features.map((feature) => [feature.id, feature]));
+  return features.map((feature) => publicFeature(
+    feature,
+    feature.dependencies.flatMap((dependencyId) => {
+      const dependency = byId.get(dependencyId);
+      return dependency ? [{ featureId: dependency.featureId, title: dependency.title }] : [];
+    }),
+  ));
 }
 
 export async function loadOwnerRoadmap(ownerUserId: string) {
@@ -93,15 +108,18 @@ export async function loadPublicDevelopmentComponent(
   if (matches.length !== 1) return null;
   const component = matches[0];
   const allFeatures = await repository.list(ownerUserId);
-  const byId = new Map(allFeatures.map((feature) => [feature.id, feature]));
   return {
-    features: allFeatures
-      .filter((feature) => feature.componentId === component.id)
-      .map((feature) => publicFeature(feature, feature.dependencies.flatMap((dependencyId) => {
-        const dependency = byId.get(dependencyId);
-        return dependency ? [{ featureId: dependency.featureId, title: dependency.title }] : [];
-      }))),
+    features: publicFeatures(allFeatures).filter((_, index) =>
+      allFeatures[index].componentId === component.id),
     name: component.name,
     slug: requestedSlug,
   };
+}
+
+export async function loadPublicDevelopmentRoadmap(
+  repository: PublicFeatureRepository = new MongoDevelopmentFeatureRepository(),
+): Promise<PublicDevelopmentRoadmap | null> {
+  const ownerUserId = await repository.machineRoadmapOwner();
+  if (!ownerUserId) return null;
+  return { features: publicFeatures(await repository.list(ownerUserId)) };
 }
