@@ -30,7 +30,7 @@
     }
   ],
   "action": {
-    "default_title": "Summon Carnival workspace"
+    "default_title": "Toggle Carnival Aux and Misc"
   },
   "commands": {
     "toggle-right-surface": {

@@ -27,8 +27,9 @@ After extension source changes, click **Reload** for the unpacked extension and
 then refresh the open PlayHouse page. Chrome does not reliably inject a newly
 loaded content script into a page that was already open.
 
-Clicking the extension toolbar action is a non-global fallback that summons the
-same workspace and is useful before installing the native host.
+Clicking the extension toolbar action toggles the currently selected Aux/Misc
+right surface through the same serialized path as the PlayHouse control and
+`Alt+Shift+M`; it does not summon or retract the Drawer.
 
 ## Windows host
 
@@ -111,7 +112,7 @@ gutter to the right. Moving the pointer 100 pixels beyond the Context window's
 right edge for 150 ms retracts both live windows off the monitor's left edge. On
 an unusually narrow monitor, the gutter shrinks only enough to retain an 800
 pixel workspace and the rightmost available pixel becomes the monitor-aware
-fallback. The next hot-corner or toolbar activation reuses the same tabs,
+fallback. The next hot-corner activation reuses the same tabs,
 browser history, and authentication.
 
 Aux contains exactly five self-healing Hot Tabs in canonical order: Calendar,

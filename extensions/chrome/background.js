@@ -306,6 +306,10 @@ const workspaceActions = createWorkspaceActions({
   windowTrace,
 });
 
+function toggleCurrentRightSurface() {
+  return toggleRightSurface({ controller, currentWorkArea, reportDrawerState });
+}
+
 function connectNativeHost() {
   if (nativePort) return;
   try {
@@ -395,9 +399,9 @@ chrome.alarms.onAlarm.addListener(({ name }) => {
     connectNativeHost();
   }
 });
-chrome.action.onClicked.addListener(async () => {
-  const display = await currentWorkArea();
-  await workspaceActions.summon(display, "toolbar");
+chrome.action.onClicked.addListener(() => {
+  toggleCurrentRightSurface()
+    .catch((error) => console.error("Carnival toolbar right-surface toggle failed", error));
 });
 chrome.windows.onCreated.addListener((window) => {
   windowTrace.chromeWindowCreated(window);
@@ -446,7 +450,7 @@ chrome.tabs.onCreated.addListener((tab) => {
 });
 chrome.commands.onCommand.addListener((command) => {
   if (command !== "toggle-right-surface") return;
-  toggleRightSurface({ controller, currentWorkArea, reportDrawerState })
+  toggleCurrentRightSurface()
     .catch((error) => console.error("Carnival right-surface toggle failed", error));
 });
 chrome.tabs.onRemoved.addListener((_tabId, removeInfo) => {
@@ -519,7 +523,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (isToggleRightSurfaceMessage(message)) {
-    toggleRightSurface({ controller, currentWorkArea, reportDrawerState })
+    toggleCurrentRightSurface()
       .then((state) => sendResponse({ ok: true, rightSurface: state.rightSurface }))
       .catch((error) => sendResponse({ error: error.message, ok: false }));
     return true;

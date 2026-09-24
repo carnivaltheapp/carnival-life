@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-RIGHT-SLOT-THRESHOLD-130
+          P3-C-TOGGLE-131
         </small>
       </body>
     </html>
