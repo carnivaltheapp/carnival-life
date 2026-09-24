@@ -47,6 +47,9 @@ features before deleting the source component.
   and actions.
 - Create, edit, confirmed delete, optional manual sequence, notes, and multiple simple
   dependencies.
+- Notes support unrestricted long-form product/development documentation. The editor grows
+  with its content up to a viewport-safe limit, preserves paragraphs, and keeps Notes out of
+  the compact roadmap table; full text remains available in the editor and machine API.
 - Lower sequence values render first; unsequenced records render afterward.
 - Responsive layout that preserves the approved desktop table design.
 

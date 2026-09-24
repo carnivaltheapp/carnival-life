@@ -95,6 +95,14 @@ async function responseMessage(response: Response, fallback: string) {
   }
 }
 
+function sizeNotesTextarea(textarea: HTMLTextAreaElement | null) {
+  if (!textarea) return;
+  textarea.style.height = "auto";
+  const maximum = Math.max(240, Math.round(window.innerHeight * .55));
+  textarea.style.height = `${Math.min(textarea.scrollHeight, maximum)}px`;
+  textarea.style.overflowY = textarea.scrollHeight > maximum ? "auto" : "hidden";
+}
+
 export function DevelopmentConsole({
   dataError,
   identity,
@@ -821,8 +829,15 @@ export function DevelopmentConsole({
                       ? <p>No other features are available.</p> : null}
                   </div>
                 </fieldset>
-                <label className={styles.fullField}>Notes
-                  <textarea maxLength={4000} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} rows={4} value={draft.notes} />
+                <label className={`${styles.fullField} ${styles.notesField}`}>Notes
+                  <textarea
+                    className={styles.notesTextarea}
+                    onChange={(event) => setDraft({ ...draft, notes: event.target.value })}
+                    onInput={(event) => sizeNotesTextarea(event.currentTarget)}
+                    ref={sizeNotesTextarea}
+                    rows={10}
+                    value={draft.notes}
+                  />
                 </label>
               </div>
               {message ? <p className={styles.formMessage} role="alert">{message}</p> : null}

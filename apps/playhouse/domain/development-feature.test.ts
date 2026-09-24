@@ -110,4 +110,20 @@ describe("Carnival Development feature domain", () => {
       title: "Title",
     })).toEqual({ error: "Choose a valid component.", ok: false });
   });
+
+  it("preserves long-form Notes without trimming or truncation", () => {
+    const longNotes = `Opening paragraph\n\n${"development detail\n".repeat(650)}Closing paragraph`;
+    expect(longNotes.length).toBeGreaterThan(10_000);
+    const parsed = parseDevelopmentFeatureInput({
+      componentId: "684fa2ea-3077-47a4-b288-0ecf634ddf5f",
+      dependencies: [],
+      description: "A complete description",
+      notes: longNotes,
+      priority: "Medium",
+      sequence: null,
+      status: "Planned",
+      title: "Long-form documentation",
+    });
+    expect(parsed).toEqual({ input: expect.objectContaining({ notes: longNotes }), ok: true });
+  });
 });

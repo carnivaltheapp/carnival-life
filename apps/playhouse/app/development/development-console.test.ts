@@ -78,6 +78,16 @@ describe("Carnival Development Console contract", () => {
     expect(css).toContain(".featureReference");
   });
 
+  it("uses an unrestricted auto-growing Notes editor without expanding roadmap rows", () => {
+    expect(consoleSource).toContain("sizeNotesTextarea");
+    expect(consoleSource).toContain("className={styles.notesTextarea}");
+    expect(consoleSource).toContain("ref={sizeNotesTextarea}");
+    expect(consoleSource).not.toContain("maxLength={4000}");
+    expect(css).toContain(".formGrid .notesTextarea");
+    expect(css).toContain("max-height: 55vh");
+    expect(consoleSource.match(/feature\.notes/g)).toHaveLength(1);
+  });
+
   it("supports optimistic feature reorder and component drops with filter-safe rollback", () => {
     expect(consoleSource).toContain("moveDevelopmentFeature");
     expect(consoleSource).toContain("reorderVisibleDevelopmentFeatures");

@@ -2,6 +2,14 @@
 
 Architecture-only exploration handoff • September 2026
 
+## September 24, 2026 — Unrestricted Development Notes
+
+- Marker `P3-DEVELOPMENT-LONG-NOTES-139` removes the Development Console's former
+  4,000-character Notes truncation and preserves long-form text and paragraph breaks through
+  create, retrieve, edit, and read-only roadmap API paths.
+- The full-width Notes textarea now starts large and grows with content up to a viewport-safe
+  limit, while Notes remain absent from compact roadmap rows.
+
 ## September 24, 2026 — Human Feature References + Read-only Roadmap API
 
 - Marker `P3-ROADMAP-AI-138` gives every Development Console feature a permanent,

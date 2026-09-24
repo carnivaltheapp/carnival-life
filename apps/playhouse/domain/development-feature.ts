@@ -109,7 +109,7 @@ export function parseDevelopmentFeatureInput(
   const candidate = value as Record<string, unknown>;
   const title = normalizedString(candidate.title, 160);
   const description = normalizedString(candidate.description, 2_000);
-  const notes = normalizedString(candidate.notes, 4_000);
+  const notes = typeof candidate.notes === "string" ? candidate.notes : "";
   if (!title || !description) {
     return { error: "Title and description are required.", ok: false };
   }

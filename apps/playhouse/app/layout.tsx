@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-ROADMAP-AI-138
+          P3-DEVELOPMENT-LONG-NOTES-139
         </small>
       </body>
     </html>

@@ -165,6 +165,56 @@ describe("Mongo Development Console repository", () => {
     );
   });
 
+  it("saves, retrieves, and edits a long Notes string without truncation", async () => {
+    const longNotes = `Product documentation\n\n${"Detailed implementation context.\n".repeat(400)}`;
+    const editedNotes = `${longNotes}\nFinal edited paragraph.`;
+    expect(longNotes.length).toBeGreaterThan(10_000);
+    const now = new Date("2026-09-24T12:00:00.000Z");
+    const persisted = (notes: string) => ({
+      component: "PlayHouse",
+      component_id: componentId,
+      created_at: now,
+      dependencies: [],
+      description: input.description,
+      feature_id: input.dependencies[0],
+      human_feature_id: "CF-025",
+      is_demo: false,
+      notes,
+      owner_user_id: "owner-a",
+      priority: input.priority,
+      sequence: input.sequence,
+      status: input.status,
+      title: input.title,
+      updated_at: now,
+    });
+    const components = { findOne: vi.fn().mockResolvedValue(componentDocument) };
+    const features = {
+      findOne: vi.fn().mockResolvedValue(persisted(longNotes)),
+      findOneAndUpdate: vi.fn().mockResolvedValue(persisted(editedNotes)),
+      insertOne: vi.fn().mockResolvedValue({ acknowledged: true }),
+    };
+    const meta = {
+      findOne: vi.fn().mockResolvedValue({ feature_reference_seed_version: 1 }),
+      findOneAndUpdate: vi.fn().mockResolvedValue({ last_feature_number: 25 }),
+    };
+    const repository = repositoryWith({ components, features, meta });
+    await expect(repository.create("owner-a", { ...input, dependencies: [], notes: longNotes }))
+      .resolves.toEqual(expect.objectContaining({ notes: longNotes }));
+    expect(features.insertOne).toHaveBeenCalledWith(expect.objectContaining({ notes: longNotes }));
+    await expect(repository.get("owner-a", input.dependencies[0])).resolves
+      .toEqual(expect.objectContaining({ notes: longNotes }));
+    await expect(repository.update("owner-a", input.dependencies[0], {
+      ...input,
+      dependencies: [],
+      notes: editedNotes,
+    })).resolves.toEqual(expect.objectContaining({ notes: editedNotes }));
+    expect(features.findOneAndUpdate).toHaveBeenCalledWith(
+      { feature_id: input.dependencies[0], owner_user_id: "owner-a" },
+      { $set: expect.objectContaining({ notes: editedNotes }) },
+      { returnDocument: "after" },
+    );
+  });
+
   it("atomically allocates unique never-reused feature references", async () => {
     const inserted: Array<{ human_feature_id?: string }> = [];
     const features = {

@@ -97,6 +97,14 @@ describe("read-only Development roadmap", () => {
     expect(roadmapFeatureByReference(roadmap, "not-an-id")).toBeNull();
   });
 
+  it("returns a complete long Notes value without truncation", () => {
+    const longNotes = `Product context\n\n${"implementation paragraph\n".repeat(500)}`;
+    expect(longNotes.length).toBeGreaterThan(10_000);
+    const roadmap = buildRoadmap([component], [{ ...features[0], notes: longNotes }]);
+    expect(roadmap.features[0].notes).toBe(longNotes);
+    expect(roadmap.features[0].notes.length).toBe(longNotes.length);
+  });
+
   it("exposes GET-only token-protected roadmap, direct lookup, and schema routes", async () => {
     const route = await readFile(new URL("../../app/api/development/roadmap/route.ts", import.meta.url), "utf8");
     const itemRoute = await readFile(new URL("../../app/api/development/roadmap/[featureId]/route.ts", import.meta.url), "utf8");
