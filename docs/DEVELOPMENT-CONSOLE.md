@@ -354,3 +354,8 @@ Marker `P3-GMAIL-LIFECYCLE-160` makes Carnival lifecycle changes non-destructive
 and Trash both remove only Gmail's STARRED label after the authoritative Play mutation; Carnival
 Trash no longer moves the Gmail thread to Gmail Trash. Gmail linkage remains on inactive Plays,
 and explicit Carnival revival restores the Gmail star without an unnecessary Gmail-untrash call.
+
+Marker `P3-GMAIL-SHIFT-CONTACT-FIX-161` fixes the Shift-created Gmail contact follow-up for the
+Mongo Play store by accepting its native Play identifier before using the established People and
+Player assignment path. Add Contact now dismisses after either success or a concise failure, and
+Shift-hover labels the row action “Create Play” while normal Gmail drag retains “Link Gmail.”

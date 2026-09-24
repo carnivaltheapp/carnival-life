@@ -1124,6 +1124,10 @@ h1 {
   transform: translateY(-50%);
 }
 
+.playRow[data-gmail-drop-target="true"][data-gmail-drop-intent="create_new"]::after {
+  content: "Create Play";
+}
+
 .playDragPreviewHost {
   position: fixed;
   z-index: 9999;

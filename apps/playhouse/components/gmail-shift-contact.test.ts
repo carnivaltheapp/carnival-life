@@ -7,6 +7,7 @@ const assignee = readFileSync(
   "utf8",
 );
 const shell = readFileSync(new URL("./playhouse-shell.tsx", import.meta.url), "utf8");
+const stylesheet = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 
 function sourceBetween(source: string, start: string, end: string) {
   return source.slice(source.indexOf(start), source.indexOf(end));
@@ -53,6 +54,10 @@ describe("Shift-created Gmail Play contact follow-up", () => {
     );
     expect(add).toContain("playerContactId: resolution.contact.id");
     expect(add).toContain("playerResourceName: resolution.contact.providerResourceName");
+    expect(add).toContain('(source === "supabase" && !isUuid(request.playId))');
+    expect(shell).toMatch(
+      /result\.status !== "success"[\s\S]*?setGmailContactPrompt\(null\)[\s\S]*?setMoveError[\s\S]*?return[\s\S]*?setGmailContactPrompt\(null\)[\s\S]*?const updatedPlay = result\.play/,
+    );
   });
 
   it("makes Not Now a local dismissal that leaves the linked Play and Player untouched", () => {
@@ -74,7 +79,21 @@ describe("Shift-created Gmail Play contact follow-up", () => {
     expect(add).toContain("The Play was still created.");
     expect(add).not.toMatch(/repository\.(?:delete|trash|createGmail)/);
     expect(shell).toMatch(
-      /const result = await addGmailCounterpartyContact[\s\S]*?result\.status !== "success"[\s\S]*?setMoveError\(result\.message\)[\s\S]*?return/,
+      /const result = await addGmailCounterpartyContact[\s\S]*?result\.status !== "success"[\s\S]*?setGmailContactPrompt\(null\)[\s\S]*?setMoveError\(result\.message\)[\s\S]*?return/,
+    );
+    expect(shell).toMatch(
+      /catch \{[\s\S]*?setGmailContactPrompt\(null\)[\s\S]*?The Gmail contact could not be added\. The Play was still created\./,
+    );
+  });
+
+  it("shows Create Play only for Shift-create hover and retains the normal label", () => {
+    expect(shell).toContain('setGmailDropIntent(event.shiftKey ? "create_new" : "link_existing")');
+    expect(shell).toContain("data-gmail-drop-intent=");
+    expect(stylesheet).toMatch(
+      /\.playRow\[data-gmail-drop-target="true"\]::after[\s\S]*?content:\s*"Link Gmail"/,
+    );
+    expect(stylesheet).toMatch(
+      /data-gmail-drop-intent="create_new"[\s\S]*?content:\s*"Create Play"/,
     );
   });
 });

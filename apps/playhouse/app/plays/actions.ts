@@ -1207,7 +1207,12 @@ export async function addGmailCounterpartyContact(request: {
   try {
     const auth = await authenticatedClient();
     if (!auth) return errorState("Your session expired. Refresh the page and sign in again.");
-    if (!isUuid(request.playId)) return errorState("That Gmail Play is no longer available.");
+    const source = resolvePlayhouseDataSource();
+    if (
+      !request.playId ||
+      request.playId.length > 100 ||
+      (source === "supabase" && !isUuid(request.playId))
+    ) return errorState("That Gmail Play is no longer available.");
     const gmailParticipants = sanitizeGmailParticipants(request.gmailParticipants);
     if (!gmailParticipants || !Number.isInteger(request.accountIndex) || request.accountIndex < 0) {
       return errorState("The Gmail contact information is no longer available.");
@@ -1217,7 +1222,7 @@ export async function addGmailCounterpartyContact(request: {
     const repository = await createPlayRepository({
       baskets,
       ownerUserId: auth.userId,
-      source: resolvePlayhouseDataSource(),
+      source,
       supabase: auth.supabase,
     });
     if (!await repository.get(request.playId)) {

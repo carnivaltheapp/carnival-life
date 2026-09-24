@@ -330,6 +330,9 @@ function PlayhouseShellView({
   }>());
   const gmailDropTargetRef = useRef<string | null>(null);
   const [gmailDropTarget, setGmailDropTarget] = useState<string | null>(null);
+  const [gmailDropIntent, setGmailDropIntent] = useState<"create_new" | "link_existing">(
+    "link_existing",
+  );
   const [gmailReplacementPrompt, setGmailReplacementPrompt] = useState<{
     authorization: ManualGmailReplacementAuthorization;
     request: GmailRowCreateRequest;
@@ -384,6 +387,7 @@ function PlayhouseShellView({
           playId: prompt.playId,
         });
         if (result.status !== "success") {
+          setGmailContactPrompt(null);
           setMoveError(result.message);
           return;
         }
@@ -399,6 +403,7 @@ function PlayhouseShellView({
           router.refresh();
         }
       } catch {
+        setGmailContactPrompt(null);
         setMoveError("The Gmail contact could not be added. The Play was still created.");
       }
     });
@@ -654,6 +659,7 @@ function PlayhouseShellView({
     gmailDropTargetRef.current = null;
     gmailCorrelationIdRef.current = null;
     setGmailDropTarget(null);
+    setGmailDropIntent("link_existing");
     setDraggedIds([]);
     setDropTarget(null);
     setBullseyeCategory("calendar");
@@ -1839,6 +1845,9 @@ function PlayhouseShellView({
                   data-dragging={draggedIds.includes(play.id) || undefined}
                   data-drop-target={dropTarget === `play:${play.id}` || undefined}
                   data-gmail-drop-target={gmailDropTarget === play.id || undefined}
+                  data-gmail-drop-intent={gmailDropTarget === play.id
+                    ? gmailDropIntent
+                    : undefined}
                   data-selected={selectedIds.has(play.id) || undefined}
                   data-testid="play-row"
                   data-play-row-id={play.id}
@@ -1895,6 +1904,7 @@ function PlayhouseShellView({
                       inspectGmailDropDataTransfer(event, play.id);
                       event.preventDefault();
                       event.dataTransfer.dropEffect = "link";
+                      setGmailDropIntent(event.shiftKey ? "create_new" : "link_existing");
                       if (gmailDropTargetRef.current !== play.id) {
                         const correlationId = gmailCorrelationIdFromDragData(event.dataTransfer);
                         gmailCorrelationIdRef.current = correlationId;
