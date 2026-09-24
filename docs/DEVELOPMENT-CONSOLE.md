@@ -287,12 +287,13 @@ repository paths; canonical reorder remains exact-set/contiguous, dependencies r
 self, and duplicate references, and Notes append with paragraph preservation. Public roadmap and
 CF/component sharing routes remain read-only.
 
-Marker `P3-ROADMAP-OAUTH-REDIRECT-149` corrects the OAuth consent handoff. Consent is submitted by
+Marker `P3-ROADMAP-OAUTH-CALLBACK-150` corrects the OAuth consent handoff. Consent is submitted by
 POST, so its callback redirect uses HTTP 303 to produce the authorization protocol's required GET;
 the former 307 repeated the POST at ChatGPT's callback and was rejected before token exchange.
 Tool descriptors and runtime `mcp/www_authenticate` challenges are least-privilege: read tools ask
 for `roadmap:read`, write tools ask for `roadmap:write`, and the consent text reflects the exact
-requested scopes. Marker 149 supersedes marker 148's over-broad combined descriptors.
+requested scopes. Marker 150 supersedes marker 148's over-broad combined descriptors and the
+initial marker 149 deployment of this callback correction.
 
 ### One-time ChatGPT connection procedure
 

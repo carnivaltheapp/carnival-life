@@ -4,11 +4,12 @@ Architecture-only exploration handoff • September 2026
 
 ## September 24, 2026 — ChatGPT Roadmap MCP
 
-- Marker `P3-ROADMAP-OAUTH-REDIRECT-149` corrects the consent callback to use HTTP 303 after the
+- Marker `P3-ROADMAP-OAUTH-CALLBACK-150` corrects the consent callback to use HTTP 303 after the
   POST decision. The former 307 preserved POST at ChatGPT's GET callback, which rejected it before
   token exchange. Tool descriptors and runtime challenges now advertise least privilege:
   `roadmap:read` for reads and `roadmap:write` for writes, with standards-compliant error details.
-  Consent copy reflects the scopes actually requested.
+  Consent copy reflects the scopes actually requested. It also aligns OAuth discovery coverage with
+  both supported scopes. Marker 150 supersedes the initial 149 deployment of the same callback fix.
 - Marker `P3-ROADMAP-OAUTH-FIX-148` was the first OAuth repair attempt. It combined read and write
   on every descriptor but left the POST callback redirect at 307; marker 149 supersedes both parts.
 - Marker `P3-ROADMAP-WRITE-147` adds five narrowly scoped MCP mutations backed by the existing

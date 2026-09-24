@@ -5,7 +5,7 @@ vi.mock("server-only", () => ({}));
 import { GET } from "./route";
 
 describe("Carnival OAuth discovery", () => {
-  it("publishes authorization code, DCR, PKCE S256, and roadmap read scope", async () => {
+  it("publishes authorization code, DCR, PKCE S256, and both roadmap scopes", async () => {
     const response = await GET(new Request(
       "https://carnival.example/.well-known/oauth-authorization-server",
     ));
@@ -16,7 +16,7 @@ describe("Carnival OAuth discovery", () => {
       code_challenge_methods_supported: ["S256"],
       issuer: "https://carnival.example",
       registration_endpoint: "https://carnival.example/api/oauth/register",
-      scopes_supported: ["roadmap:read"],
+      scopes_supported: ["roadmap:read", "roadmap:write"],
       token_endpoint: "https://carnival.example/api/oauth/token",
       token_endpoint_auth_methods_supported: ["none"],
     }));
