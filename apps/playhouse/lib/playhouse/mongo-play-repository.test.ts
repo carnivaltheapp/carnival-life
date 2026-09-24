@@ -931,6 +931,120 @@ describe("MongoPlayRepository mutations", () => {
     expect(values).not.toHaveProperty("place");
   });
 
+  it("restores the same Done Play into a date using normal destination ordering", async () => {
+    const playId = new ObjectId();
+    const destinationId = new ObjectId();
+    const selected = {
+      _id: playId,
+      branch: "Preserved Branch",
+      contact_id: "people/preserved",
+      is_active: false,
+      is_deleted: false,
+      note: "Preserved note",
+      priority_index: "10-00000900",
+      task_date: new Date("2026-09-25T00:00:00.000Z"),
+      task_type: "H",
+      thread_id: "preserved-thread",
+    };
+    const destination = [{
+      _id: destinationId,
+      is_active: true,
+      is_deleted: false,
+      priority_index: "10-00000100",
+      task_date: new Date("2026-09-28T00:00:00.000Z"),
+      task_type: "H",
+    }];
+    const find = vi.fn()
+      .mockReturnValueOnce({ toArray: vi.fn().mockResolvedValue([selected]) })
+      .mockReturnValueOnce({
+        sort: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue(destination) }),
+      });
+    const bulkWrite = vi.fn().mockImplementation(async (operations) => ({
+      matchedCount: operations.length,
+    }));
+
+    await expect(repository({
+      bulkWrite: bulkWrite as never,
+      find: find as never,
+    }).reposition({
+      beforePlayId: null,
+      placement: { kind: "calendar", scheduledDate: "2026-09-28" },
+      playIds: [playId.toHexString()],
+      sourceLifecycle: "done",
+    })).resolves.toBe(true);
+
+    expect(find.mock.calls[0][0]).toMatchObject({
+      _id: { $in: [playId] },
+      is_active: false,
+      is_deleted: false,
+      user_id: 43,
+    });
+    const operation = bulkWrite.mock.calls[0][0].find(
+      (candidate: { updateOne: { filter: { _id: ObjectId } } }) =>
+        candidate.updateOne.filter._id.equals(playId),
+    ).updateOne;
+    expect(operation.filter).toMatchObject({
+      _id: playId,
+      is_active: false,
+      is_deleted: false,
+      user_id: 43,
+    });
+    expect(operation.update.$set).toMatchObject({
+      is_active: true,
+      is_deleted: false,
+      task_date: new Date("2026-09-28T00:00:00.000Z"),
+    });
+    for (const field of ["branch", "contact_id", "note", "thread_id"]) {
+      expect(operation.update.$set).not.toHaveProperty(field);
+    }
+  });
+
+  it("restores the same Trashed Play into a Basket without inserting a replacement", async () => {
+    const playId = new ObjectId();
+    const selected = {
+      _id: playId,
+      is_active: false,
+      is_deleted: true,
+      priority_index: "10-00000900",
+      task_date: new Date("2026-09-25T00:00:00.000Z"),
+      task_type: "S",
+    };
+    const find = vi.fn()
+      .mockReturnValueOnce({ toArray: vi.fn().mockResolvedValue([selected]) })
+      .mockReturnValueOnce({
+        sort: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) }),
+      });
+    const bulkWrite = vi.fn().mockImplementation(async (operations) => ({
+      matchedCount: operations.length,
+    }));
+    const insertOne = vi.fn();
+
+    await expect(repository({
+      bulkWrite: bulkWrite as never,
+      find: find as never,
+      insertOne: insertOne as never,
+    }).reposition({
+      beforePlayId: null,
+      placement: { basketId: baskets[0].id, kind: "basket" },
+      playIds: [playId.toHexString()],
+      sourceLifecycle: "trash",
+    })).resolves.toBe(true);
+
+    expect(insertOne).not.toHaveBeenCalled();
+    const operation = bulkWrite.mock.calls[0][0][0].updateOne;
+    expect(operation.filter).toMatchObject({
+      _id: playId,
+      is_active: false,
+      is_deleted: true,
+      user_id: 43,
+    });
+    expect(operation.update.$set).toMatchObject({
+      is_active: true,
+      is_deleted: false,
+      task_date: new Date("2400-01-11T00:00:00.000Z"),
+    });
+  });
+
   it("promotes due Reminders to deterministic top Headlines with scoped targeted sets", async () => {
     const dueFirst = new ObjectId();
     const dueSecond = new ObjectId();

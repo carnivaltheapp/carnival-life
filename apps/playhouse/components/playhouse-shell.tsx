@@ -938,7 +938,8 @@ function PlayhouseShellView({
     if (!playIds.length || bulkPending) return;
     const previousOptimisticPlays = optimisticPlays;
     const previousSelection = selectedIds;
-    const keepMovedInView = change.kind !== "move" || isCurrentPlacement(change.placement);
+    const keepMovedInView = lifecycle === "active" &&
+      (change.kind !== "move" || isCurrentPlacement(change.placement));
     let nextPlays = optimisticallyApplyBulkChange(
       localPlays,
       new Set(playIds),
@@ -952,14 +953,17 @@ function PlayhouseShellView({
         multiDate ? compareChronologicalPlays : comparePlayRankAndPriority,
       );
     }
+    if (lifecycle !== "active") {
+      nextPlays = nextPlays.filter((play) => !playIds.includes(play.id));
+    }
     setOptimisticPlays({ source: plays, value: nextPlays });
     setSelectedIds(new Set(playIds.filter((id) => nextPlays.some((play) => play.id === id))));
     clearDragState();
     startBulk(async () => {
       try {
-        const result = await bulkUpdatePlays({ change, playIds });
+        const result = await bulkUpdatePlays({ change, playIds, sourceLifecycle: lifecycle });
         if (result.status === "success") {
-          setMoveError(null);
+          setMoveError(result.warning ?? null);
           console.info("DRAG_ACTION_COMPLETE", { count: playIds.length, kind: change.kind });
           return;
         }
@@ -1062,7 +1066,7 @@ function PlayhouseShellView({
       source: plays,
       value: optimisticallyRepositionPlays({
         beforePlayId,
-        keepInCurrentView: isCurrentPlacement(placement),
+        keepInCurrentView: lifecycle === "active" && isCurrentPlacement(placement),
         playIds,
         plays: localPlays,
       }),
@@ -1070,7 +1074,12 @@ function PlayhouseShellView({
     clearDragState();
     startMove(async () => {
       try {
-        const result = await repositionPlays({ beforePlayId, placement, playIds });
+        const result = await repositionPlays({
+          beforePlayId,
+          placement,
+          playIds,
+          sourceLifecycle: lifecycle,
+        });
         if (result.status !== "success") {
           setOptimisticPlays(previousOptimisticPlays);
           setMoveError(result.message);
@@ -1082,7 +1091,7 @@ function PlayhouseShellView({
         }
         setSelectedIds(new Set());
         setSelectionAnchor(null);
-        setMoveError(null);
+        setMoveError(result.warning ?? null);
         console.info("DRAG_ACTION_COMPLETE", { count: playIds.length, kind: kind.toLowerCase() });
       } catch {
         setOptimisticPlays(previousOptimisticPlays);
@@ -1754,7 +1763,7 @@ function PlayhouseShellView({
                     setGmailDropTarget(null);
                     if (isPlaceContext || !reorderPlacement || draggedIds.includes(play.id)) return;
                     event.preventDefault();
-                    persistMove(reorderPlacement, play.id);
+                    persistMove(reorderPlacement, lifecycle === "active" ? play.id : null);
                   }}
                 >
                   <div className="playRowLine">

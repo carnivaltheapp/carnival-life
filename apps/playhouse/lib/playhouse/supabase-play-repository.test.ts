@@ -348,6 +348,48 @@ describe("Supabase scoped lifecycle views", () => {
     expect(plays.eq).toHaveBeenCalledWith("status", "trash");
     expect(plays.eq).toHaveBeenCalledWith("basket_id", "basket-1");
   });
+
+  it("restores one Trashed Play at its final date without creating another row", async () => {
+    const selected = query({
+      data: [{
+        basket_id: null,
+        id: "trashed-play",
+        play_type: "normal",
+        scheduled_date: "2026-09-25",
+        sort_order: 9000,
+        source_metadata: {},
+      }],
+      error: null,
+    });
+    const destination = query({ data: [], error: null });
+    const update = query({ data: { id: "trashed-play" }, error: null });
+    const from = vi.fn()
+      .mockReturnValueOnce(selected)
+      .mockReturnValueOnce(destination)
+      .mockReturnValueOnce(update);
+
+    await expect(new SupabasePlayRepository(
+      { from } as never,
+      "owner-user",
+    ).reposition({
+      beforePlayId: null,
+      placement: { kind: "calendar", scheduledDate: "2026-09-28" },
+      playIds: ["trashed-play"],
+      sourceLifecycle: "trash",
+    })).resolves.toBe(true);
+
+    expect(selected.eq).toHaveBeenCalledWith("status", "trash");
+    expect(update.update).toHaveBeenCalledWith(expect.objectContaining({
+      basket_id: null,
+      completed_at: null,
+      scheduled_date: "2026-09-28",
+      status: "open",
+    }));
+    expect(update.eq).toHaveBeenCalledWith("id", "trashed-play");
+    expect(update.eq).toHaveBeenCalledWith("owner_user_id", "owner-user");
+    expect(update.eq).toHaveBeenCalledWith("status", "trash");
+    expect(update.insert).not.toHaveBeenCalled();
+  });
 });
 
 describe("Supabase rank flip", () => {

@@ -58,6 +58,17 @@ function gmailLifecycle(task: LegacyTaskDocument) {
   if (task.is_active === false) return "done" as const;
   return "active" as const;
 }
+
+function mongoLifecycleMutationScope(lifecycle: PlayLifecycle) {
+  return {
+    ...(lifecycle === "active"
+      ? { is_active: true, is_deleted: false }
+      : lifecycle === "done"
+        ? { is_active: false, is_deleted: false }
+        : { is_active: false, is_deleted: true }),
+    user_id: MONGO_LEGACY_USER_ID,
+  };
+}
 import { mongoDiagnostic } from "./mongo-options";
 
 type ContactReferenceRow = {
@@ -357,11 +368,11 @@ export class MongoPlayRepository implements PlayRepository {
     });
   }
 
-  async get(playId: string) {
+  async get(playId: string, lifecycle: PlayLifecycle = "active") {
     let filter: Filter<LegacyTaskDocument>;
     try {
       filter = {
-        ...mongoActiveFilter(),
+        ...mongoLifecycleFilter(lifecycle),
         ...mongoMutationFilter(playId),
       };
     } catch {
@@ -656,7 +667,11 @@ export class MongoPlayRepository implements PlayRepository {
     return result.matchedCount === 1;
   }
 
-  async bulkUpdate(playIds: string[], change: BulkPlayChange) {
+  async bulkUpdate(
+    playIds: string[],
+    change: BulkPlayChange,
+    sourceLifecycle: PlayLifecycle = "active",
+  ) {
     let objectIds: ObjectId[];
     try {
       objectIds = playIds.map((playId) => {
@@ -667,14 +682,19 @@ export class MongoPlayRepository implements PlayRepository {
       return false;
     }
     const tasks = await this.dependencies.collection.find({
-      ...mongoActiveFilter(),
+      ...mongoLifecycleFilter(sourceLifecycle),
       _id: { $in: objectIds },
     }).toArray();
     if (tasks.length !== playIds.length || tasks.some((task) => task.task_type === "A")) {
       return false;
     }
     if (change.kind === "move") {
-      return this.reposition({ beforePlayId: null, placement: change.placement, playIds });
+      return this.reposition({
+        beforePlayId: null,
+        placement: change.placement,
+        playIds,
+        sourceLifecycle,
+      });
     }
 
     const updatedAt = new Date();
@@ -687,11 +707,14 @@ export class MongoPlayRepository implements PlayRepository {
       } else {
         values = { task_type: "S" };
       }
+      if (sourceLifecycle !== "active") {
+        values = { ...values, is_active: true, is_deleted: false };
+      }
       return {
         updateOne: {
           filter: {
             _id: task._id,
-            ...mongoActiveFilter(),
+            ...mongoLifecycleMutationScope(sourceLifecycle),
             task_type: { $ne: "A" },
           },
           update: { $set: { ...values, updated_date: updatedAt } },
@@ -706,6 +729,7 @@ export class MongoPlayRepository implements PlayRepository {
     beforePlayId,
     placement,
     playIds,
+    sourceLifecycle = "active",
   }: RepositionPlaysRequest) {
     let objectIds: ObjectId[];
     try {
@@ -719,7 +743,7 @@ export class MongoPlayRepository implements PlayRepository {
 
     const selectedTasks = await this.dependencies.collection
       .find({
-        ...mongoActiveFilter(),
+        ...mongoLifecycleFilter(sourceLifecycle),
         _id: { $in: objectIds },
       })
       .toArray();
@@ -794,6 +818,13 @@ export class MongoPlayRepository implements PlayRepository {
           task_date: destinationDate,
         });
       }
+      if (sourceLifecycle !== "active") {
+        updates.set(playId, {
+          ...(updates.get(playId) ?? {}),
+          is_active: true,
+          is_deleted: false,
+        });
+      }
     }
 
     if (!updates.size) return true;
@@ -801,12 +832,15 @@ export class MongoPlayRepository implements PlayRepository {
     const result = await this.dependencies.collection.bulkWrite(
       [...updates].map(([playId, values]) => ({
         updateOne: {
-          filter: {
-            _id: new ObjectId(playId),
-            is_active: true,
-            is_deleted: false,
-            user_id: MONGO_LEGACY_USER_ID,
-          },
+          filter: selectedById.has(playId)
+            ? {
+                ...mongoLifecycleMutationScope(sourceLifecycle),
+                _id: new ObjectId(playId),
+              }
+            : {
+                ...mongoActiveFilter(),
+                _id: new ObjectId(playId),
+              },
           update: { $set: { ...values, updated_date: updatedAt } },
         },
       })),

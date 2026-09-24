@@ -225,14 +225,15 @@ export class SupabasePlayRepository implements PlayRepository {
     return !error && data?.id === playId;
   }
 
-  async get(playId: string) {
+  async get(playId: string, lifecycle: PlayLifecycle = "active") {
     const { data, error } = await this.supabase
       .from("plays")
       .select(
         "id, title, play_type, source_type, scheduled_date, basket_id, duration_minutes, player_contact_id, branch, note, url, push_rule, place, sort_order, source_metadata",
       )
       .eq("id", playId)
-      .eq("status", "open")
+      .eq("owner_user_id", this.ownerUserId)
+      .eq("status", lifecycle === "active" ? "open" : lifecycle)
       .maybeSingle();
     if (error || !data) return null;
 
@@ -610,12 +611,17 @@ export class SupabasePlayRepository implements PlayRepository {
     return !error && Boolean(data);
   }
 
-  async bulkUpdate(playIds: string[], change: BulkPlayChange) {
+  async bulkUpdate(
+    playIds: string[],
+    change: BulkPlayChange,
+    sourceLifecycle: PlayLifecycle = "active",
+  ) {
+    const sourceStatus = sourceLifecycle === "active" ? "open" : sourceLifecycle;
     const { data: rows, error: rowsError } = await this.supabase
       .from("plays")
       .select("id, scheduled_date, basket_id, source_metadata")
       .eq("owner_user_id", this.ownerUserId)
-      .eq("status", "open")
+      .eq("status", sourceStatus)
       .in("id", playIds);
     if (
       rowsError ||
@@ -623,7 +629,12 @@ export class SupabasePlayRepository implements PlayRepository {
       rows.some((play) => legacyTaskTypeFromMetadata(play.source_metadata) === "A")
     ) return false;
     if (change.kind === "move") {
-      return this.reposition({ beforePlayId: null, placement: change.placement, playIds });
+      return this.reposition({
+        beforePlayId: null,
+        placement: change.placement,
+        playIds,
+        sourceLifecycle,
+      });
     }
 
     const results = await Promise.all(rows.map((play) => {
@@ -635,12 +646,15 @@ export class SupabasePlayRepository implements PlayRepository {
       } else {
         values = { play_type: "reminder" };
       }
+      if (sourceLifecycle !== "active") {
+        values = { ...values, completed_at: null, status: "open" };
+      }
       return this.supabase
         .from("plays")
         .update(values)
         .eq("id", play.id)
         .eq("owner_user_id", this.ownerUserId)
-        .eq("status", "open")
+        .eq("status", sourceStatus)
         .select("id")
         .maybeSingle();
     }));
@@ -651,12 +665,14 @@ export class SupabasePlayRepository implements PlayRepository {
     beforePlayId,
     placement,
     playIds,
+    sourceLifecycle = "active",
   }: RepositionPlaysRequest) {
+    const sourceStatus = sourceLifecycle === "active" ? "open" : sourceLifecycle;
     const { data: selectedRows, error: selectedError } = await this.supabase
       .from("plays")
       .select("id, play_type, scheduled_date, basket_id, sort_order, source_metadata")
       .eq("owner_user_id", this.ownerUserId)
-      .eq("status", "open")
+      .eq("status", sourceStatus)
       .in("id", playIds);
     if (
       selectedError ||
@@ -719,19 +735,27 @@ export class SupabasePlayRepository implements PlayRepository {
           scheduled_date: placement.kind === "calendar" ? placement.scheduledDate : null,
         });
       }
+      if (sourceLifecycle !== "active") {
+        updates.set(playId, {
+          ...(updates.get(playId) ?? {}),
+          completed_at: null,
+          status: "open",
+        });
+      }
     }
 
     if (!updates.size) return true;
-    const results = await Promise.all([...updates].map(([playId, values]) =>
-      this.supabase
+    const results = await Promise.all([...updates].map(([playId, values]) => {
+      const restoringSelected = selectedById.has(playId);
+      return this.supabase
         .from("plays")
         .update(values)
         .eq("id", playId)
         .eq("owner_user_id", this.ownerUserId)
-        .eq("status", "open")
+        .eq("status", restoringSelected ? sourceStatus : "open")
         .select("id")
-        .maybeSingle()
-    ));
+        .maybeSingle();
+    }));
     return results.every(({ data, error }) => !error && Boolean(data));
   }
 

@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-LIFECYCLE-SCOPE-132
+          P3-LIFECYCLE-DRAG-RESTORE-133
         </small>
       </body>
     </html>

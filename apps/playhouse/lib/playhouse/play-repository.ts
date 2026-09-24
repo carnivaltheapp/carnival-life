@@ -29,6 +29,7 @@ export type RepositionPlaysRequest = {
   beforePlayId: string | null;
   placement: PlayPlacement;
   playIds: string[];
+  sourceLifecycle?: PlayLifecycle;
 };
 
 export type FlipPlayRankRequest = {
@@ -84,13 +85,17 @@ export interface PlayRepository {
   createGmail(request: CreateGmailPlayRequest): Promise<CreateGmailPlayResult | null>;
   unlinkGmail(request: UnlinkGmailRequest): Promise<boolean>;
   assignPlayer(request: AssignPlayerRequest): Promise<boolean>;
-  get(playId: string): Promise<PlayListItem | null>;
+  get(playId: string, lifecycle?: PlayLifecycle): Promise<PlayListItem | null>;
   getLifecycleIdentity(playId: string): Promise<Pick<PlayListItem, "gmailThreadId" | "sourceType"> | null>;
   manualLinkGmail(request: AttachGmailRequest): Promise<ManualLinkGmailResult | null>;
   list(selectedView?: SelectedView, lifecycle?: PlayLifecycle): Promise<RepositoryPlayList>;
   reconcileDueReminders(todayDate: string): Promise<boolean>;
   flipRank(request: FlipPlayRankRequest): Promise<boolean>;
-  bulkUpdate(playIds: string[], change: BulkPlayChange): Promise<boolean>;
+  bulkUpdate(
+    playIds: string[],
+    change: BulkPlayChange,
+    sourceLifecycle?: PlayLifecycle,
+  ): Promise<boolean>;
   reposition(request: RepositionPlaysRequest): Promise<boolean>;
   save(request: SavePlayRequest): Promise<boolean>;
   setStatus(playId: string, status: "done" | "trash"): Promise<boolean>;

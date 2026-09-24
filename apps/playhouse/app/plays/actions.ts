@@ -15,6 +15,7 @@ import {
 import type { BasketSummary, PlayListItem } from "../../domain/play";
 import type { PlayPlacement } from "../../domain/play";
 import { isBulkSelectablePlay, type BulkPlayChange } from "../../domain/play-bulk-change";
+import type { PlayLifecycle } from "../../domain/playhouse-view";
 import {
   parseGmailAttachmentUrl,
   sanitizeGmailParticipants,
@@ -213,6 +214,80 @@ async function persistPlayLifecycle({
     });
   }
   return { persisted: true, warning: gmailLifecycleWarning(status, cleanup) };
+}
+
+async function restoreGmailAfterExplicitRevival({
+  ownerUserId,
+  plays,
+  priorLifecycle,
+  supabase,
+}: {
+  ownerUserId: string;
+  plays: PlayListItem[];
+  priorLifecycle: Exclude<PlayLifecycle, "active">;
+  supabase: NonNullable<Awaited<ReturnType<typeof authenticatedClient>>>["supabase"];
+}) {
+  const gmailPlays = plays.filter((play) => play.sourceType === "gmail");
+  const results = await Promise.all(gmailPlays.map(async (play) => {
+    let context: GmailLifecycleContext;
+    try {
+      context = await resolveGmailLifecycleContext({
+        accountIndex: play.gmailAccountIndex,
+        ownerUserId,
+        supabase,
+      });
+    } catch {
+      context = { accountResolved: false, googleAccountId: null, reason: "account_missing" };
+    }
+    await recordGmailDiagnostic({
+      ownerUserId,
+      playId: play.id,
+      priorLifecycle: priorLifecycle === "trash" ? "trashed" : "done",
+      reason: "explicit_drag_restore",
+      stage: "MANUAL_GMAIL_REVIVAL",
+      success: true,
+      threadId: play.gmailApiThreadId,
+    });
+    let restored: Awaited<ReturnType<typeof restoreGmailThreadForManualLink>>;
+    try {
+      restored = await restoreGmailThreadForManualLink({
+        apiThreadId: play.gmailApiThreadId,
+        context,
+        ownerUserId,
+      });
+    } catch {
+      await recordGmailDiagnostic({
+        accountResolved: context.accountResolved,
+        ownerUserId,
+        playId: play.id,
+        reason: "token_unavailable",
+        stage: "GMAIL_MANUAL_RESTORE_RESULT",
+        success: false,
+        threadId: play.gmailApiThreadId,
+      });
+      return false;
+    }
+    const success = restored.star.success && restored.untrash.success;
+    await recordGmailDiagnostic({
+      accountResolved: restored.accountResolved,
+      ownerUserId,
+      playId: play.id,
+      reason: !restored.untrash.success
+        ? restored.untrash.reason
+        : !restored.star.success
+          ? restored.star.reason
+          : "completed",
+      stage: "GMAIL_MANUAL_RESTORE_RESULT",
+      starAttempted: restored.star.attempted,
+      starSuccess: restored.star.success,
+      success,
+      threadId: play.gmailApiThreadId,
+      untrashAttempted: restored.untrash.attempted,
+      untrashSuccess: restored.untrash.success,
+    });
+    return success;
+  }));
+  return results.filter((success) => !success).length;
 }
 
 async function savePlayInternal(
@@ -433,9 +508,11 @@ export async function repositionPlays(request: {
   beforePlayId: string | null;
   placement: PlayPlacement;
   playIds: string[];
+  sourceLifecycle?: PlayLifecycle;
 }): Promise<PlayMutationState> {
   try {
     const playIds = Array.from(new Set(request.playIds));
+    const sourceLifecycle = request.sourceLifecycle ?? "active";
     if (
       playIds.length === 0 ||
       playIds.length > 200 ||
@@ -446,7 +523,8 @@ export async function repositionPlays(request: {
         playIds.includes(request.beforePlayId)
       )) ||
       (request.placement.kind === "calendar" &&
-        !isIsoCalendarDate(request.placement.scheduledDate))
+        !isIsoCalendarDate(request.placement.scheduledDate)) ||
+      !["active", "done", "trash"].includes(sourceLifecycle)
     ) {
       return errorState("This move request is invalid. Refresh and try again.");
     }
@@ -483,18 +561,37 @@ export async function repositionPlays(request: {
       source,
       supabase: auth.supabase,
     });
+    const restorePlays = sourceLifecycle === "active"
+      ? []
+      : await Promise.all(playIds.map((playId) => repository.get(playId, sourceLifecycle)));
+    if (restorePlays.some((play) => !play || !isBulkSelectablePlay(play))) {
+      return errorState("One or more Plays can no longer be restored. Refresh and try again.");
+    }
     const moved = await repository.reposition({
       beforePlayId: request.beforePlayId,
       placement: request.placement,
       playIds,
+      sourceLifecycle,
     });
     if (!moved) {
       return errorState("These Plays could not be moved. The previous order was restored.");
     }
 
+    const gmailFailures = sourceLifecycle === "active"
+      ? 0
+      : await restoreGmailAfterExplicitRevival({
+          ownerUserId: auth.userId,
+          plays: restorePlays.filter((play) => play !== null),
+          priorLifecycle: sourceLifecycle,
+          supabase: auth.supabase,
+        });
+    revalidatePath("/");
     return {
       message: playIds.length === 1 ? "Play moved." : `${playIds.length} Plays moved.`,
       status: "success",
+      ...(gmailFailures
+        ? { warning: "Play restored, but Gmail could not be fully restored and starred." }
+        : {}),
     };
   } catch {
     return errorState("PlayHouse could not move these Plays. The previous order was restored.");
@@ -974,10 +1071,12 @@ export async function unlinkGmailFromPlay(request: {
 export async function bulkUpdatePlays(request: {
   change: BulkPlayChange;
   playIds: string[];
+  sourceLifecycle?: PlayLifecycle;
 }): Promise<PlayMutationState> {
   try {
     const playIds = Array.from(new Set(request.playIds));
     const change = request.change;
+    const sourceLifecycle = request.sourceLifecycle ?? "active";
     const validChange = change.kind === "push"
         ? ["everyday", "weekdays", "weekends"].includes(change.pushRule)
         : change.kind === "rank"
@@ -986,6 +1085,7 @@ export async function bulkUpdatePlays(request: {
             isIsoCalendarDate(change.placement.scheduledDate);
     if (
       !validChange ||
+      !["active", "done", "trash"].includes(sourceLifecycle) ||
       playIds.length === 0 ||
       playIds.length > 200 ||
       playIds.some((playId) => !playId || playId.length > 100)
@@ -1013,12 +1113,30 @@ export async function bulkUpdatePlays(request: {
       source,
       supabase: auth.supabase,
     });
-    if (!(await repository.bulkUpdate(playIds, change))) {
+    const restorePlays = sourceLifecycle === "active"
+      ? []
+      : await Promise.all(playIds.map((playId) => repository.get(playId, sourceLifecycle)));
+    if (restorePlays.some((play) => !play || !isBulkSelectablePlay(play))) {
+      return errorState("One or more Plays can no longer be restored. Refresh and try again.");
+    }
+    if (!(await repository.bulkUpdate(playIds, change, sourceLifecycle))) {
       return errorState("These Plays could not be changed. The previous values were restored.");
     }
+    const gmailFailures = sourceLifecycle === "active"
+      ? 0
+      : await restoreGmailAfterExplicitRevival({
+          ownerUserId: auth.userId,
+          plays: restorePlays.filter((play) => play !== null),
+          priorLifecycle: sourceLifecycle,
+          supabase: auth.supabase,
+        });
+    revalidatePath("/");
     return {
       message: `${playIds.length} ${playIds.length === 1 ? "Play" : "Plays"} changed.`,
       status: "success",
+      ...(gmailFailures
+        ? { warning: "Play restored, but Gmail could not be fully restored and starred." }
+        : {}),
     };
   } catch {
     return errorState("PlayHouse could not change these Plays. The previous values were restored.");
