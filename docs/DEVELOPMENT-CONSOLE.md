@@ -18,7 +18,21 @@ refresh.
 The Development Console is modular and does not depend on PlayHouse grid state. Its UI,
 domain model, repository, and API are contained under the Development feature boundary.
 
-## Version 1 behavior
+## Component navigation
+
+The left navigation is persisted and owner-scoped. `All Features` is a fixed system view;
+it is not a component record and cannot be renamed, reordered, hidden, or deleted. The
+subtle **Edit Components** control opens the component manager, where an owner can add,
+rename, reorder, choose a supported icon, hide/unhide, and safely delete components.
+
+Hidden components remain in MongoDB and retain their assigned features, but do not appear
+in normal navigation or as choices for new features. When editing a feature already assigned
+to a hidden component, that current assignment remains visible and valid. Deleting an empty
+component requires confirmation. Deleting a component that owns features first reports the
+feature count and requires a destination component; the repository moves those owner-scoped
+features before deleting the source component.
+
+## Current behavior
 
 - Component navigation and All Features view.
 - Search across title, description, and notes.
@@ -38,12 +52,24 @@ GitHub synchronization, assignments, sprints, notifications, comments, and attac
 Operational records use the existing Carnival MongoDB connection and database:
 
 - `carnival_development_features` stores owner-scoped roadmap records.
-- `carnival_development_console_meta` records the one-time demo seed version per owner.
+- `carnival_development_components` stores owner-scoped navigation components.
+- `carnival_development_console_meta` records one-time component and demo seed versions per owner.
 
-Every feature has a stable UUID, owner scope, title, description, component, status,
+Each component has a stable UUID (`component_id`), owner scope, name, normalized name key,
+icon identifier, numeric sort order, hidden flag, and created/updated times. Unique indexes
+enforce owner-scoped component identity and component names.
+
+Every feature has a stable UUID, owner scope, title, description, stable `component_id`,
+compatibility component-name snapshot, status,
 priority, optional sequence, dependency feature IDs, notes, and created/updated times.
 Indexes enforce owner/feature identity and support sequence and filter reads. Deletes also
 remove the deleted ID from remaining dependency lists for the same owner.
+
+The component seed preserves the exact marker-134 names and order with deterministic stable
+IDs. On first load for each owner, it upserts those components and backfills legacy feature
+records that only contain a component name. The compatibility name remains on feature
+documents so older readers keep working, while all new writes use the stable component ID.
+The migration is owner-scoped, idempotent, and recorded only after backfill completes.
 
 The initial sample records are explicitly marked as demo data in Mongo and in their notes.
 They are inserted once per owner and can be edited or removed without being recreated.
@@ -58,12 +84,21 @@ Authenticated, owner-scoped JSON endpoints are available for machine access:
 - `GET /api/development/features/{featureId}`
 - `PATCH /api/development/features/{featureId}`
 - `DELETE /api/development/features/{featureId}`
+- `GET /api/development/components`
+- `POST /api/development/components`
+- `GET /api/development/components/{componentId}`
+- `PATCH /api/development/components/{componentId}`
+- `DELETE /api/development/components/{componentId}`
+- `PATCH /api/development/components/reorder`
 
 Responses use public camel-case feature objects and never return Mongo `_id` or
 `owner_user_id`. Writes derive ownership from the authenticated Supabase session; clients
 cannot supply or override it. Title and description are required, enums and lengths are
 validated, dependency IDs must exist for the owner, and a feature cannot depend on itself.
-The endpoints return private, no-store responses.
+The endpoints return private, no-store responses. Component deletion returns HTTP 409 with
+`component_in_use` and an owner-scoped feature count when a move destination is required.
+The reorder endpoint accepts the complete unique component-ID set so another owner's
+component can never be injected into the order.
 
 This structured API is the Version 1 machine-access boundary for future planning tools.
 No AI functionality is part of this implementation.

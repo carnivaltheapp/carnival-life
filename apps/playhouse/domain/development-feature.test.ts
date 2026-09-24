@@ -10,6 +10,7 @@ import {
 const features: DevelopmentFeature[] = [
   {
     component: "Gmail",
+    componentId: "e6e439d1-b237-407d-86dc-86baa8366592",
     createdAt: "2026-09-24T10:00:00.000Z",
     dependencies: [],
     description: "Attach an open conversation",
@@ -23,6 +24,7 @@ const features: DevelopmentFeature[] = [
   },
   {
     component: "PlayHouse",
+    componentId: "684fa2ea-3077-47a4-b288-0ecf634ddf5f",
     createdAt: "2026-09-24T09:00:00.000Z",
     dependencies: [],
     description: "Reusable Play defaults",
@@ -36,6 +38,7 @@ const features: DevelopmentFeature[] = [
   },
   {
     component: "Carnival AI",
+    componentId: "28910726-4e1d-4b54-9717-d421cc102de8",
     createdAt: "2026-09-24T08:00:00.000Z",
     dependencies: [],
     description: "Future assistance",
@@ -60,13 +63,13 @@ describe("Carnival Development feature domain", () => {
 
   it("combines component, status, priority, and free-text filters", () => {
     expect(filterDevelopmentFeatures(features, {
-      component: "Gmail",
+      componentId: "e6e439d1-b237-407d-86dc-86baa8366592",
       priority: "High",
       query: "contract",
       status: "Building",
     }).map((feature) => feature.title)).toEqual(["Gmail bridge"]);
     expect(filterDevelopmentFeatures(features, {
-      component: "All Features",
+      componentId: "all",
       priority: "All Priorities",
       query: "reusable",
       status: "All Statuses",
@@ -75,7 +78,7 @@ describe("Carnival Development feature domain", () => {
 
   it("validates persisted sequence and dependency fields without accepting arbitrary values", () => {
     const parsed = parseDevelopmentFeatureInput({
-      component: "PlayHouse",
+      componentId: "684fa2ea-3077-47a4-b288-0ecf634ddf5f",
       dependencies: [features[0].id],
       description: "A complete description",
       notes: "Some notes",
@@ -89,7 +92,7 @@ describe("Carnival Development feature domain", () => {
       ok: true,
     });
     expect(parseDevelopmentFeatureInput({
-      component: "Unknown",
+      componentId: "not-a-uuid",
       dependencies: [],
       description: "Description",
       priority: "Medium",

@@ -11,7 +11,7 @@ export async function GET() {
   if (!ownerUserId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   try {
     const repository = new MongoDevelopmentFeatureRepository();
-    await repository.ensureDemoSeed(ownerUserId);
+    await repository.ensureDevelopmentData(ownerUserId);
     return NextResponse.json(
       { features: await repository.list(ownerUserId) },
       { headers: noStore },
@@ -46,6 +46,12 @@ export async function POST(request: Request) {
       );
     }
     const feature = await repository.create(ownerUserId, parsed.input);
+    if (!feature) {
+      return NextResponse.json(
+        { error: "invalid_component", message: "Choose an existing component." },
+        { status: 400 },
+      );
+    }
     return NextResponse.json({ feature }, { headers: noStore, status: 201 });
   } catch (error) {
     console.error("CARNIVAL_DEVELOPMENT FEATURE_CREATE_FAILED", {

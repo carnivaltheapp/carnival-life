@@ -74,6 +74,30 @@
   gap: 3px;
 }
 
+.editComponentsButton {
+  display: flex;
+  min-height: 36px;
+  margin-top: 10px;
+  padding: 8px 11px;
+  gap: 9px;
+  align-items: center;
+  color: #a99eb7;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 9px;
+  background: rgba(255,255,255,.035);
+  cursor: pointer;
+  font: inherit;
+  font-size: .7rem;
+  font-weight: 700;
+  text-align: left;
+}
+
+.editComponentsButton:hover {
+  color: #fff;
+  border-color: rgba(255,255,255,.2);
+  background: rgba(255,255,255,.08);
+}
+
 .navItem,
 .navActive {
   display: grid;
@@ -593,6 +617,170 @@
 
 .modal button:disabled { cursor: wait; opacity: .58; }
 
+.componentManager {
+  width: min(900px, 100%);
+}
+
+.componentManagerBody {
+  display: grid;
+  padding: 22px 24px;
+  gap: 17px;
+}
+
+.addComponent {
+  display: grid;
+  padding: 14px;
+  grid-template-columns: minmax(180px, 1fr) 125px minmax(180px, 1.1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #e3dee8;
+  border-radius: 11px;
+  background: #f9f7fb;
+}
+
+.addComponent > div { display: grid; }
+.addComponent strong { font-size: .78rem; }
+.addComponent small { margin-top: 4px; color: var(--dev-muted); font-size: .65rem; }
+
+.addComponent input,
+.addComponent select,
+.componentEditorRow input,
+.componentEditorRow select,
+.componentDeleteConfirmation select {
+  width: 100%;
+  min-height: 37px;
+  padding: 0 10px;
+  color: var(--dev-ink);
+  border: 1px solid #ddd8e2;
+  border-radius: 7px;
+  outline: none;
+  background: #fff;
+  font: inherit;
+  font-size: .7rem;
+}
+
+.addComponent button,
+.componentManagerFooter button {
+  min-height: 37px;
+  padding: 0 14px;
+  color: #fff;
+  border: 0;
+  border-radius: 7px;
+  background: var(--dev-purple);
+  cursor: pointer;
+  font: inherit;
+  font-size: .69rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.componentList {
+  display: grid;
+  gap: 7px;
+}
+
+.componentEditorRow {
+  display: grid;
+  min-width: 0;
+  padding: 9px 10px;
+  grid-template-columns: 34px 106px minmax(150px, 1fr) 66px 64px 52px 32px;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #e8e3eb;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.componentEditorRow[data-hidden] {
+  border-style: dashed;
+  background: #f5f3f7;
+  opacity: .72;
+}
+
+.componentIconPreview {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  color: var(--dev-purple);
+  border-radius: 8px;
+  background: #efe9fb;
+}
+
+.componentIconPreview svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.componentNameField { min-width: 0; }
+.componentOrderControls { display: flex; gap: 3px; }
+
+.componentOrderControls button,
+.visibilityButton,
+.componentSaveButton,
+.componentDeleteButton {
+  min-height: 31px;
+  padding: 0 8px;
+  color: #675d70;
+  border: 1px solid #ded9e2;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: .65rem;
+  font-weight: 700;
+}
+
+.componentOrderControls button { width: 30px; padding: 0; font-size: .8rem; }
+.visibilityButton:hover,
+.componentSaveButton:not(:disabled):hover { color: var(--dev-purple); border-color: #bba6e6; }
+.componentDeleteButton { padding: 0; color: #a64254; font-size: 1rem; }
+
+.componentDeleteConfirmation {
+  display: grid;
+  padding: 15px;
+  gap: 12px;
+  border: 1px solid #efccd2;
+  border-radius: 10px;
+  background: #fff5f6;
+}
+
+.componentDeleteConfirmation strong { color: #8f3546; font-size: .79rem; }
+.componentDeleteConfirmation p { margin: 4px 0 0; color: #826f77; font-size: .7rem; line-height: 1.45; }
+.componentDeleteConfirmation label { display: grid; gap: 6px; color: #6e5b64; font-size: .68rem; font-weight: 700; }
+.componentDeleteConfirmation > span { display: flex; gap: 8px; justify-content: flex-end; }
+.componentDeleteConfirmation button {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid #dfc6cc;
+  border-radius: 7px;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: .68rem;
+  font-weight: 750;
+}
+.componentDeleteConfirmation button:last-child { color: #fff; border-color: #a94254; background: #a94254; }
+
+.componentManagerFooter {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  padding: 14px 24px;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  border-top: 1px solid var(--dev-line);
+  background: rgba(255,255,255,.97);
+}
+
+.componentManagerFooter small { color: var(--dev-muted); font-size: .65rem; }
+
 @media (max-width: 1000px) {
   .console { grid-template-columns: 210px minmax(0, 1fr); }
   .sidebar { padding-inline: 12px; }
@@ -617,6 +805,7 @@
     padding-bottom: 4px;
     overflow-x: auto;
   }
+  .editComponentsButton { min-width: max-content; margin: 0 0 0 5px; }
   .navItem,
   .navActive {
     width: auto;
@@ -639,4 +828,13 @@
   .modalActions { padding-inline: 18px; grid-template-columns: 1fr 1fr; }
   .deleteButton { grid-column: 1 / -1; }
   .deleteConfirmation { align-items: stretch; flex-direction: column; }
+  .addComponent { grid-template-columns: 1fr 1fr; }
+  .addComponent > div { grid-column: 1 / -1; }
+  .componentEditorRow {
+    grid-template-columns: 34px 90px minmax(130px, 1fr) 66px;
+  }
+  .visibilityButton,
+  .componentSaveButton,
+  .componentDeleteButton { grid-row: 2; }
+  .componentOrderControls { grid-column: 4; grid-row: 1; }
 }

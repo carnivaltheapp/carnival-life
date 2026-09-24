@@ -1,18 +1,3 @@
-export const DEVELOPMENT_COMPONENTS = [
-  "PlayHouse",
-  "Roller",
-  "Gmail",
-  "Calendar",
-  "Slack",
-  "Contacts / Players",
-  "Chrome Extension",
-  "Mobile / PWA",
-  "Incoming / Integrations",
-  "Logger / Changelog",
-  "Carnival AI",
-  "Settings / Infrastructure",
-] as const;
-
 export const DEVELOPMENT_STATUSES = [
   "Idea",
   "Planned",
@@ -24,12 +9,40 @@ export const DEVELOPMENT_STATUSES = [
 
 export const DEVELOPMENT_PRIORITIES = ["High", "Medium", "Low"] as const;
 
-export type DevelopmentComponent = (typeof DEVELOPMENT_COMPONENTS)[number];
+export const DEVELOPMENT_ICON_IDS = [
+  "grid",
+  "house",
+  "roller",
+  "mail",
+  "calendar",
+  "slack",
+  "people",
+  "extension",
+  "mobile",
+  "incoming",
+  "logger",
+  "sparkles",
+  "settings",
+] as const;
+
+export type DevelopmentComponent = string;
+export type DevelopmentIconId = (typeof DEVELOPMENT_ICON_IDS)[number];
 export type DevelopmentStatus = (typeof DEVELOPMENT_STATUSES)[number];
 export type DevelopmentPriority = (typeof DEVELOPMENT_PRIORITIES)[number];
 
+export type DevelopmentComponentRecord = {
+  createdAt: string;
+  hidden: boolean;
+  icon: DevelopmentIconId;
+  id: string;
+  name: string;
+  sortOrder: number;
+  updatedAt: string;
+};
+
 export type DevelopmentFeature = {
   component: DevelopmentComponent;
+  componentId: string;
   createdAt: string;
   dependencies: string[];
   description: string;
@@ -44,7 +57,7 @@ export type DevelopmentFeature = {
 
 export type DevelopmentFeatureInput = Pick<
   DevelopmentFeature,
-  | "component"
+  | "componentId"
   | "dependencies"
   | "description"
   | "notes"
@@ -55,7 +68,7 @@ export type DevelopmentFeatureInput = Pick<
 >;
 
 export type DevelopmentFeatureFilters = {
-  component: DevelopmentComponent | "All Features";
+  componentId: string | "all";
   priority: DevelopmentPriority | "All Priorities";
   query: string;
   status: DevelopmentStatus | "All Statuses";
@@ -88,7 +101,7 @@ export function parseDevelopmentFeatureInput(
   if (!title || !description) {
     return { error: "Title and description are required.", ok: false };
   }
-  if (!isOneOf(DEVELOPMENT_COMPONENTS, candidate.component)) {
+  if (typeof candidate.componentId !== "string" || !isDevelopmentFeatureId(candidate.componentId)) {
     return { error: "Choose a valid component.", ok: false };
   }
   if (!isOneOf(DEVELOPMENT_STATUSES, candidate.status)) {
@@ -115,7 +128,7 @@ export function parseDevelopmentFeatureInput(
   }
   return {
     input: {
-      component: candidate.component,
+      componentId: candidate.componentId,
       dependencies: dependencies as string[],
       description,
       notes,
@@ -145,7 +158,7 @@ export function filterDevelopmentFeatures(
 ) {
   const query = filters.query.trim().toLocaleLowerCase();
   return sortDevelopmentFeatures(features.filter((feature) => {
-    if (filters.component !== "All Features" && feature.component !== filters.component) return false;
+    if (filters.componentId !== "all" && feature.componentId !== filters.componentId) return false;
     if (filters.status !== "All Statuses" && feature.status !== filters.status) return false;
     if (filters.priority !== "All Priorities" && feature.priority !== filters.priority) return false;
     if (!query) return true;

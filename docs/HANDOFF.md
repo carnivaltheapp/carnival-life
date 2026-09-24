@@ -2,6 +2,18 @@
 
 Architecture-only exploration handoff • September 2026
 
+## September 24, 2026 — Editable Development Components
+
+- Marker `P3-DEVELOPMENT-COMPONENTS-135` makes `/development` component navigation
+  owner-editable without redesigning the approved console.
+- Components now live in `carnival_development_components` with stable UUIDs, icon IDs,
+  explicit order, visibility, and timestamps. `All Features` remains a fixed system view.
+- The marker-134 names and order are seeded idempotently, and legacy name-only feature
+  records are backfilled to stable component IDs while retaining their compatibility name.
+- Owner-scoped component CRUD/reorder endpoints support add, rename, icon changes,
+  hide/unhide, and safe move-before-delete behavior.
+- See `docs/DEVELOPMENT-CONSOLE.md` for the full data, migration, and API contract.
+
 ## September 24, 2026 — Development Console V1
 
 - Marker `P3-DEVELOPMENT-CONSOLE-134` adds the Carnival Development Console at the stable

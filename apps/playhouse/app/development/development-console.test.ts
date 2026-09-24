@@ -12,6 +12,18 @@ const itemRoute = await readFile(
   new URL("../api/development/features/[featureId]/route.ts", import.meta.url),
   "utf8",
 );
+const componentCollectionRoute = await readFile(
+  new URL("../api/development/components/route.ts", import.meta.url),
+  "utf8",
+);
+const componentItemRoute = await readFile(
+  new URL("../api/development/components/[componentId]/route.ts", import.meta.url),
+  "utf8",
+);
+const componentReorderRoute = await readFile(
+  new URL("../api/development/components/reorder/route.ts", import.meta.url),
+  "utf8",
+);
 
 describe("Carnival Development Console contract", () => {
   it("is a direct dynamic /development route within the existing PlayHouse deployment", () => {
@@ -30,7 +42,18 @@ describe("Carnival Development Console contract", () => {
     expect(consoleSource).toContain("New Feature");
     expect(consoleSource).toContain("Save Changes");
     expect(consoleSource).toContain("Confirm Delete");
+    expect(consoleSource).toContain("Edit Components");
+    expect(consoleSource).toContain("All Features is a permanent system view and is not editable.");
+    expect(consoleSource).toContain("Move Features & Delete");
     expect(consoleSource).toContain("filterDevelopmentFeatures");
+  });
+
+  it("renders navigation and the feature component selector from persisted component records", () => {
+    expect(page).toContain("initialComponents={state.components}");
+    expect(consoleSource).toContain("visibleComponents.map");
+    expect(consoleSource).toContain("!item.hidden || item.id === draft.componentId");
+    expect(consoleSource).toContain("value={item.id}");
+    expect(consoleSource).not.toContain("const DEVELOPMENT_COMPONENTS");
   });
 
   it("uses a responsive table layout and restrained status/priority pill colors", () => {
@@ -51,5 +74,16 @@ describe("Carnival Development Console contract", () => {
     expect(itemRoute).toContain("export async function DELETE");
     expect(itemRoute).toContain("ownerUserId");
     expect(itemRoute).toContain('"Cache-Control": "private, no-store"');
+  });
+
+  it("exposes owner-scoped component CRUD and exact-set reordering endpoints", () => {
+    expect(componentCollectionRoute).toContain("authenticatedDevelopmentOwner()");
+    expect(componentCollectionRoute).toContain("export async function GET");
+    expect(componentCollectionRoute).toContain("export async function POST");
+    expect(componentItemRoute).toContain("export async function GET");
+    expect(componentItemRoute).toContain("export async function PATCH");
+    expect(componentItemRoute).toContain("export async function DELETE");
+    expect(componentItemRoute).toContain('result.reason === "component_in_use"');
+    expect(componentReorderRoute).toContain("reorderComponents(ownerUserId, componentIds)");
   });
 });
