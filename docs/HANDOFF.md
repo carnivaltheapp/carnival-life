@@ -4,6 +4,9 @@ Architecture-only exploration handoff • September 2026
 
 ## September 24, 2026 — Unrestricted Development Notes
 
+- Marker `P3-DEVELOPMENT-RECOVERY-140` restores Development Console reads by returning a
+  completion value from the already-seeded CF-reference transaction; production roadmap
+  records remain intact and no data repair or migration is required.
 - Marker `P3-DEVELOPMENT-LONG-NOTES-139` removes the Development Console's former
   4,000-character Notes truncation and preserves long-form text and paragraph breaks through
   create, retrieve, edit, and read-only roadmap API paths.

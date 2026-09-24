@@ -441,7 +441,7 @@ test("outside-row region selection skips Appointments and locks row reorder", as
   });
   expect(error).toBeNull();
   await auth.page.reload();
-  await expect(auth.page.getByText("P3-DEVELOPMENT-LONG-NOTES-139", { exact: true })).toBeVisible();
+  await expect(auth.page.getByText("P3-DEVELOPMENT-RECOVERY-140", { exact: true })).toBeVisible();
 
   const panel = auth.page.locator(".playPanel");
   const selectionSurface = auth.page.locator('[data-playhouse-selection-surface="true"]');

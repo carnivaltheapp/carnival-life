@@ -13,12 +13,19 @@ function repositoryWith({
   components = {},
   features = {},
   meta = {},
+  runTransaction,
 }: {
   components?: Record<string, unknown>;
   features?: Record<string, unknown>;
   meta?: Record<string, unknown>;
+  runTransaction?: (operation: (session: unknown) => Promise<unknown>) => Promise<unknown>;
 }) {
-  return new MongoDevelopmentFeatureRepository(async () => ({ components, features, meta }) as never);
+  return new MongoDevelopmentFeatureRepository(async () => ({
+    components,
+    features,
+    meta,
+    runTransaction,
+  }) as never);
 }
 
 const input = {
@@ -162,6 +169,28 @@ describe("Mongo Development Console repository", () => {
       { owner_user_id: "owner-a" },
       { $set: expect.objectContaining({ last_feature_number: 2 }) },
       { session: undefined, upsert: true },
+    );
+  });
+
+  it("completes an already-seeded feature-reference check through the transaction wrapper", async () => {
+    const meta = {
+      findOne: vi.fn().mockResolvedValue({ feature_reference_seed_version: 1 }),
+    };
+    const runTransaction = vi.fn(async (operation: (session: unknown) => Promise<unknown>) => {
+      const result = await operation({});
+      if (result === undefined) throw new Error("Development transaction produced no result.");
+      return result;
+    });
+    const repository = repositoryWith({ meta, runTransaction });
+
+    await expect(repository.ensureFeatureReferences("owner-a")).resolves.toBeUndefined();
+    expect(runTransaction).toHaveBeenCalledOnce();
+    expect(meta.findOne).toHaveBeenCalledWith(
+      {
+        feature_reference_seed_version: { $gte: 1 },
+        owner_user_id: "owner-a",
+      },
+      { session: {} },
     );
   });
 

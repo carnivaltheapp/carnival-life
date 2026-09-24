@@ -234,7 +234,10 @@ export class MongoDevelopmentFeatureRepository {
       );
     };
     if (collections.runTransaction) {
-      await collections.runTransaction((session) => ensure(session));
+      await collections.runTransaction(async (session) => {
+        await ensure(session);
+        return true;
+      });
     } else {
       await ensure();
     }

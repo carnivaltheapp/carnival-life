@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-DEVELOPMENT-LONG-NOTES-139
+          P3-DEVELOPMENT-RECOVERY-140
         </small>
       </body>
     </html>
