@@ -343,3 +343,9 @@ Marker `P3-GMAIL-SHIFT-CREATE-158` adds an explicit Gmail row-drop intent. A nor
 continues linking or confirming replacement on the existing Headline/Reminder. Holding Shift at
 drop uses the established Gmail Play creation and row-positioning path instead, leaving the target
 Play unchanged and allowing the deliberate conversation link to coexist on multiple Plays.
+
+Marker `P3-GMAIL-SHIFT-CONTACT-159` completes the existing Gmail counterpart workflow after a
+Shift-created Play. Exact existing Google Contacts remain assigned during creation; a missing
+counterpart now offers Add Contact or Not Now only after the Play has committed. Add Contact uses
+the established People/contact-reference path and assigns the canonical Player, while dismissal or
+contact failure leaves the newly created, Gmail-linked Play intact.

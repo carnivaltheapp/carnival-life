@@ -16,6 +16,7 @@ import {
 } from "react";
 
 import {
+  addGmailCounterpartyContact,
   bulkSetPlayStatus,
   bulkUpdatePlays,
   cancelManualGmailReplacement,
@@ -47,6 +48,7 @@ import {
   mayContainGmailDrag,
   parseGmailAttachmentUrl,
   type GmailAttachment,
+  type GmailParticipants,
 } from "../domain/gmail-attachment";
 import {
   claimGmailRowCreate,
@@ -332,6 +334,12 @@ function PlayhouseShellView({
     authorization: ManualGmailReplacementAuthorization;
     request: GmailRowCreateRequest;
   } | null>(null);
+  const [gmailContactPrompt, setGmailContactPrompt] = useState<{
+    accountIndex: number;
+    contact: { email: string; name: string | null };
+    gmailParticipants: GmailParticipants;
+    playId: string;
+  } | null>(null);
   const [gmailContextMenu, setGmailContextMenu] = useState<{
     hasGmail: boolean;
     playId: string;
@@ -358,6 +366,43 @@ function PlayhouseShellView({
   const [gmailAttachPending, startGmailAttach] = useTransition();
   const [gmailCreatePending, startGmailCreate] = useTransition();
   const localPlays = optimisticPlays?.source === plays ? optimisticPlays.value : plays;
+
+  const dismissGmailContactPrompt = useCallback(() => {
+    if (gmailCreatePending) return;
+    setGmailContactPrompt(null);
+    setMoveError(null);
+  }, [gmailCreatePending]);
+
+  function addGmailContact() {
+    const prompt = gmailContactPrompt;
+    if (!prompt || gmailCreatePending) return;
+    startGmailCreate(async () => {
+      try {
+        const result = await addGmailCounterpartyContact({
+          accountIndex: prompt.accountIndex,
+          gmailParticipants: prompt.gmailParticipants,
+          playId: prompt.playId,
+        });
+        if (result.status !== "success") {
+          setMoveError(result.message);
+          return;
+        }
+        setGmailContactPrompt(null);
+        setMoveError(null);
+        const updatedPlay = result.play;
+        if (updatedPlay) {
+          setOptimisticPlays({
+            source: plays,
+            value: localPlays.map((play) => play.id === updatedPlay.id ? updatedPlay : play),
+          });
+        } else {
+          router.refresh();
+        }
+      } catch {
+        setMoveError("The Gmail contact could not be added. The Play was still created.");
+      }
+    });
+  }
 
   const cancelGmailReplacement = useCallback(() => {
     const prompt = gmailReplacementPrompt;
@@ -408,6 +453,17 @@ function PlayhouseShellView({
     window.addEventListener("keydown", cancelOnEscape);
     return () => window.removeEventListener("keydown", cancelOnEscape);
   }, [gmailReplacementPrompt, cancelGmailReplacement]);
+
+  useEffect(() => {
+    if (!gmailContactPrompt) return;
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      dismissGmailContactPrompt();
+    };
+    window.addEventListener("keydown", dismissOnEscape);
+    return () => window.removeEventListener("keydown", dismissOnEscape);
+  }, [gmailContactPrompt, dismissGmailContactPrompt]);
 
   useEffect(() => {
     function showLifecycleWarning(event: Event) {
@@ -724,6 +780,14 @@ function PlayhouseShellView({
             setOptimisticPlays({ source: plays, value: nextPlays });
           } else {
             router.refresh();
+          }
+          if (result.contactPrompt && parsed.gmailParticipants) {
+            setGmailContactPrompt({
+              accountIndex: parsed.attachment.accountIndex,
+              contact: result.contactPrompt,
+              gmailParticipants: parsed.gmailParticipants,
+              playId: result.playId,
+            });
           }
           void recordGmailOutgoingSync({
             apiThreadIdPresent: Boolean(parsed.attachment.apiThreadId),
@@ -2022,6 +2086,45 @@ function PlayhouseShellView({
                 type="button"
               >
                 Replace
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+      {gmailContactPrompt ? (
+        <div
+          className="gmailReplacementBackdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) dismissGmailContactPrompt();
+          }}
+        >
+          <section
+            aria-labelledby="gmail-contact-title"
+            aria-modal="true"
+            className="gmailReplacementDialog"
+            role="dialog"
+          >
+            <h2 id="gmail-contact-title">Add Contact?</h2>
+            <p>
+              {gmailContactPrompt.contact.name ?? gmailContactPrompt.contact.email} is not in
+              Google Contacts. Add this person and assign them as Player?
+            </p>
+            <div className="gmailReplacementActions">
+              <button
+                autoFocus
+                disabled={gmailCreatePending}
+                onClick={dismissGmailContactPrompt}
+                type="button"
+              >
+                Not Now
+              </button>
+              <button
+                className="gmailReplacementConfirm"
+                disabled={gmailCreatePending}
+                onClick={addGmailContact}
+                type="button"
+              >
+                Add Contact
               </button>
             </div>
           </section>

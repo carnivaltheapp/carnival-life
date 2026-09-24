@@ -32,7 +32,10 @@ import {
   parseSubmittedPlayerReferences,
   type SubmittedPlayerReference,
 } from "../../domain/player-references";
-import { resolveGmailAssigneeForParticipants } from "../../lib/google/gmail-assignee.server";
+import {
+  createGmailAssigneeForParticipants,
+  resolveGmailAssigneeForParticipants,
+} from "../../lib/google/gmail-assignee.server";
 import { changedPlayerSlackFromFormData } from "../../lib/google/contact-slack";
 import { isGooglePeopleResourceName } from "../../lib/google/contact-reference";
 import {
@@ -1039,7 +1042,11 @@ export async function manualLinkGmailToPlay(
 
 export async function createGmailPlayFromRow(
   request: GmailRowCreateRequest,
-): Promise<PlayMutationState & { play?: PlayListItem; playId?: string }> {
+): Promise<PlayMutationState & {
+  contactPrompt?: { email: string; name: string | null };
+  play?: PlayListItem;
+  playId?: string;
+}> {
   const parsed = parseGmailRowCreateRequest(request);
   const diagnostic = {
     correlationId: typeof request?.correlationId === "string"
@@ -1113,6 +1120,7 @@ export async function createGmailPlayFromRow(
     console.info("GMAIL_ROW_CREATE_METADATA_RESOLVED", resolvedDiagnostic);
     let playerContactId: string | null = null;
     let playerResourceName: string | null = null;
+    let contactPrompt: { email: string; name: string | null } | undefined;
     if (parsed.gmailParticipants) {
       try {
         const resolution = await resolveGmailAssigneeForParticipants({
@@ -1125,6 +1133,8 @@ export async function createGmailPlayFromRow(
         if (resolution.status === "matched") {
           playerContactId = resolution.contact.id;
           playerResourceName = resolution.contact.providerResourceName;
+        } else if (resolution.status === "contact_not_found") {
+          contactPrompt = resolution.counterparty;
         }
       } catch {
         // A missing Player must not prevent the Gmail Play from being created.
@@ -1209,6 +1219,7 @@ export async function createGmailPlayFromRow(
     revalidatePath("/");
     return {
       message: "Gmail Play created.",
+      ...(contactPrompt ? { contactPrompt } : {}),
       ...(play ? { play } : {}),
       playId,
       status: "success",
@@ -1216,6 +1227,64 @@ export async function createGmailPlayFromRow(
   } catch {
     console.warn("GMAIL_ROW_CREATE_FAILED", { ...diagnostic, reason: "unexpected_failure" });
     return errorState("That Gmail Play could not be created.");
+  }
+}
+
+export async function addGmailCounterpartyContact(request: {
+  accountIndex: number;
+  gmailParticipants: unknown;
+  playId: string;
+}): Promise<PlayMutationState & { play?: PlayListItem }> {
+  try {
+    const auth = await authenticatedClient();
+    if (!auth) return errorState("Your session expired. Refresh the page and sign in again.");
+    if (!isUuid(request.playId)) return errorState("That Gmail Play is no longer available.");
+    const gmailParticipants = sanitizeGmailParticipants(request.gmailParticipants);
+    if (!gmailParticipants || !Number.isInteger(request.accountIndex) || request.accountIndex < 0) {
+      return errorState("The Gmail contact information is no longer available.");
+    }
+    const baskets = await loadBaskets(auth.supabase);
+    if (!baskets) return errorState("Your Baskets could not be loaded. Refresh and try again.");
+    const repository = await createPlayRepository({
+      baskets,
+      ownerUserId: auth.userId,
+      source: resolvePlayhouseDataSource(),
+      supabase: auth.supabase,
+    });
+    if (!await repository.get(request.playId)) {
+      return errorState("That Gmail Play is no longer available.");
+    }
+    const resolution = await createGmailAssigneeForParticipants({
+      accountIndex: request.accountIndex,
+      authenticatedEmail: auth.email,
+      gmailParticipants,
+      ownerUserId: auth.userId,
+      supabase: auth.supabase,
+    });
+    if (resolution.status !== "matched") {
+      return errorState(
+        resolution.reason === "contacts_write_permission_missing"
+          ? "Reconnect Google Contacts to add this Player."
+          : "The Gmail contact could not be added. The Play was still created.",
+      );
+    }
+    const assigned = await repository.assignPlayer({
+      playId: request.playId,
+      playerContactId: resolution.contact.id,
+      playerResourceName: resolution.contact.providerResourceName,
+    });
+    if (!assigned) {
+      return errorState("The Gmail contact was added, but could not be assigned to the Play.");
+    }
+    const play = await repository.get(request.playId);
+    revalidatePath("/");
+    return {
+      message: "Contact added and assigned.",
+      ...(play ? { play } : {}),
+      status: "success",
+    };
+  } catch {
+    return errorState("The Gmail contact could not be added. The Play was still created.");
   }
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   canSearchGooglePeople,
+  createGoogleContact,
   getGoogleContactGroupMembers,
   getGoogleContact,
   getGoogleContactSlack,
@@ -15,6 +16,30 @@ import {
 } from "./people";
 
 describe("Google People search", () => {
+  it("creates a contact from only the reliable Gmail counterpart name and email", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      emailAddresses: [{ value: "counterpart@example.com" }],
+      names: [{ displayName: "Gmail Counterpart" }],
+      resourceName: "people/counterpart",
+    }), { status: 200 }));
+
+    await expect(createGoogleContact("token", {
+      email: " Counterpart@Example.com ",
+      name: " Gmail Counterpart ",
+    }, request)).resolves.toEqual({
+      displayName: "Gmail Counterpart",
+      email: "counterpart@example.com",
+      resourceName: "people/counterpart",
+    });
+    const url = new URL(String(request.mock.calls[0]?.[0]));
+    expect(url.pathname).toBe("/v1/people:createContact");
+    expect(url.searchParams.get("personFields")).toBe("names,emailAddresses");
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({
+      emailAddresses: [{ value: "counterpart@example.com" }],
+      names: [{ unstructuredName: "Gmail Counterpart" }],
+    });
+  });
+
   it("normalizes queries and requires at least two characters", () => {
     expect(normalizePlayerSearchQuery("  David   Example ")).toBe(
       "David Example",

@@ -262,6 +262,37 @@ export async function getGoogleContact(
   return contact;
 }
 
+export async function createGoogleContact(
+  accessToken: string,
+  contact: { email: string; name: string | null },
+  request: typeof fetch = fetch,
+): Promise<GoogleContactSummary> {
+  const email = contact.email.trim().toLocaleLowerCase();
+  const name = contact.name?.trim() || null;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("Google contact email is invalid.");
+  }
+  const url = new URL("/v1/people:createContact", PEOPLE_API_ORIGIN);
+  url.searchParams.set("personFields", "names,emailAddresses");
+  const response = await request(url, {
+    body: JSON.stringify({
+      emailAddresses: [{ value: email }],
+      ...(name ? { names: [{ unstructuredName: name }] } : {}),
+    }),
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+  if (!response.ok) throw new Error("Google contact could not be created.");
+  const created = mapGooglePerson((await response.json()) as GooglePerson);
+  if (!created || created.email?.trim().toLocaleLowerCase() !== email) {
+    throw new Error("Google contact could not be verified.");
+  }
+  return created;
+}
+
 export async function getGoogleContactSlack(
   accessToken: string,
   resourceName: string,

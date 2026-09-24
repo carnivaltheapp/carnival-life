@@ -10,8 +10,16 @@ import {
   resolveGmailAssignee,
   type GmailAssigneeAccount,
 } from "./gmail-assignee";
-import { searchPeopleForAccount } from "./people.server";
-import { GOOGLE_CONTACTS_READONLY_SCOPE } from "./scopes";
+import { createPersonForAccount, searchPeopleForAccount } from "./people.server";
+import { GOOGLE_CONTACTS_READONLY_SCOPE, GOOGLE_CONTACTS_WRITE_SCOPE } from "./scopes";
+
+type GmailAssigneeServerRequest = {
+  accountIndex: number;
+  authenticatedEmail: string | null;
+  gmailParticipants: GmailParticipants;
+  ownerUserId: string;
+  supabase: SupabaseClient<Database>;
+};
 
 export async function resolveGmailAssigneeForParticipants({
   accountIndex,
@@ -19,13 +27,7 @@ export async function resolveGmailAssigneeForParticipants({
   gmailParticipants,
   ownerUserId,
   supabase,
-}: {
-  accountIndex: number;
-  authenticatedEmail: string | null;
-  gmailParticipants: GmailParticipants;
-  ownerUserId: string;
-  supabase: SupabaseClient<Database>;
-}) {
+}: GmailAssigneeServerRequest) {
   const { data, error } = await supabase
     .from("google_accounts")
     .select("id, email, connection_status, granted_scopes")
@@ -98,4 +100,55 @@ export async function resolveGmailAssigneeForParticipants({
       },
     }),
   });
+}
+
+export async function createGmailAssigneeForParticipants(
+  request: GmailAssigneeServerRequest,
+) {
+  const resolution = await resolveGmailAssigneeForParticipants(request);
+  if (resolution.status !== "contact_not_found") return resolution;
+  if (!resolution.googleAccountId) {
+    return { reason: "google_account_unavailable", status: "failed" } as const;
+  }
+  const { data: account, error } = await request.supabase
+    .from("google_accounts")
+    .select("granted_scopes")
+    .eq("id", resolution.googleAccountId)
+    .eq("owner_user_id", request.ownerUserId)
+    .maybeSingle();
+  if (error || !account?.granted_scopes.includes(GOOGLE_CONTACTS_WRITE_SCOPE)) {
+    return { reason: "contacts_write_permission_missing", status: "failed" } as const;
+  }
+  const contact = await createPersonForAccount({
+    email: resolution.counterparty.email,
+    googleAccountId: resolution.googleAccountId,
+    name: resolution.counterparty.name,
+    ownerUserId: request.ownerUserId,
+  });
+  const saved = await upsertSelectedContactReference({
+    contact,
+    googleAccountId: resolution.googleAccountId,
+    ownerUserId: request.ownerUserId,
+    persist: async (values) => {
+      const { data, error: saveError } = await request.supabase
+        .from("contact_references")
+        .upsert(values, { onConflict: "google_account_id,provider_resource_name" })
+        .select("id, display_name, provider_resource_name")
+        .single();
+      if (saveError || !data?.provider_resource_name) {
+        throw new Error("Player reference could not be saved.");
+      }
+      return {
+        displayName: data.display_name,
+        id: data.id,
+        providerResourceName: data.provider_resource_name,
+      };
+    },
+  });
+  return {
+    contact: saved,
+    counterparty: resolution.counterparty,
+    source: "google_people" as const,
+    status: "matched" as const,
+  };
 }

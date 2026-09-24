@@ -29,6 +29,7 @@ export type GmailAssigneeResolution =
     }
   | {
       counterparty: GmailParticipant;
+      googleAccountId: string | null;
       status: "contact_not_found";
     }
   | { reason: string; status: "failed" };
@@ -110,14 +111,14 @@ export async function resolveGmailAssignee({
   }
 
   const account = accounts[0];
-  if (!account) return { counterparty, status: "contact_not_found" };
+  if (!account) return { counterparty, googleAccountId: null, status: "contact_not_found" };
 
   const googleContact = exactEmailContact(
     await searchGoogleContacts(account, counterparty.email),
     counterparty.email,
   );
   if (!googleContact) {
-    return { counterparty, status: "contact_not_found" };
+    return { counterparty, googleAccountId: account.id, status: "contact_not_found" };
   }
 
   return {

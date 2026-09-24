@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  createGoogleContact,
   getGoogleContact,
   getGoogleContactGroup,
   getGoogleContactGroupMembers,
@@ -109,6 +110,21 @@ export async function resolvePersonForAccount({
     ownerUserId,
   });
   return getGoogleContact(accessToken, resourceName);
+}
+
+export async function createPersonForAccount({
+  email,
+  googleAccountId,
+  name,
+  ownerUserId,
+}: {
+  email: string;
+  googleAccountId: string;
+  name: string | null;
+  ownerUserId: string;
+}) {
+  const accessToken = await getGoogleAccessToken({ googleAccountId, ownerUserId });
+  return createGoogleContact(accessToken, { email, name });
 }
 
 export async function resolveContactGroupForAccount({

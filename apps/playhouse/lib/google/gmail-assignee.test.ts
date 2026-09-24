@@ -83,7 +83,11 @@ describe("Gmail Assignee resolution", () => {
       findExistingContact: vi.fn().mockResolvedValue(null),
       searchGoogleContacts: vi.fn().mockResolvedValue([]),
       persistGoogleContact,
-    })).resolves.toEqual({ counterparty: kayla, status: "contact_not_found" });
+    })).resolves.toEqual({
+      counterparty: kayla,
+      googleAccountId: account.id,
+      status: "contact_not_found",
+    });
     expect(persistGoogleContact).not.toHaveBeenCalled();
   });
 });
