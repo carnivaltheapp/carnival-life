@@ -545,7 +545,9 @@ test("Aux and Misc swap in one right slot without moving PlayHouse or animating"
   const opened = await workspace.summon(workArea, "display-1");
   const playhouseBefore = { ...chrome.getWindow(opened.phWindowId) };
   const auxBefore = { ...chrome.getWindow(opened.auxWindowId) };
+  const rightRect = (({ height, left, top, width }) => ({ height, left, top, width }))(auxBefore);
   const animationCount = animations.length;
+  chrome.calls.updateWindow.length = 0;
 
   const misc = await workspace.switchRightSurface("misc", workArea);
   const miscWindowId = misc.miscWindowId;
@@ -553,18 +555,79 @@ test("Aux and Misc swap in one right slot without moving PlayHouse or animating"
   assert.equal(chrome.getWindow(opened.auxWindowId).state, "minimized");
   assert.deepEqual(
     (({ height, left, top, width }) => ({ height, left, top, width }))(chrome.getWindow(miscWindowId)),
-    (({ height, left, top, width }) => ({ height, left, top, width }))(auxBefore),
+    rightRect,
   );
   assert.deepEqual(chrome.getWindow(opened.phWindowId), playhouseBefore);
+  const miscPlaceIndex = chrome.calls.updateWindow.findIndex(({ id, options }) => (
+    id === miscWindowId && options.left === rightRect.left && options.width === rightRect.width
+  ));
+  const miscActivateIndex = chrome.calls.updateWindow.findIndex(({ id, options }) => (
+    id === miscWindowId && options.focused === true && !Object.hasOwn(options, "left")
+  ));
+  const auxHideIndex = chrome.calls.updateWindow.findIndex(({ id, options }) => (
+    id === opened.auxWindowId && options.state === "minimized"
+  ));
+  assert.ok(auxHideIndex >= 0 && auxHideIndex < miscPlaceIndex && miscPlaceIndex < miscActivateIndex);
+  assert.equal(chrome.calls.updateWindow.some(({ id }) => id === opened.phWindowId), false);
 
+  chrome.calls.updateWindow.length = 0;
   const aux = await workspace.toggleRightSurface(workArea);
   assert.equal(aux.rightSurface, "aux");
   assert.equal(chrome.getWindow(miscWindowId).state, "minimized");
   assert.equal(chrome.getWindow(opened.auxWindowId).state, "normal");
+  assert.deepEqual(
+    (({ height, left, top, width }) => ({ height, left, top, width }))(chrome.getWindow(opened.auxWindowId)),
+    rightRect,
+  );
   assert.deepEqual(chrome.getWindow(opened.phWindowId), playhouseBefore);
+  const auxPlaceIndex = chrome.calls.updateWindow.findIndex(({ id, options }) => (
+    id === opened.auxWindowId && options.left === rightRect.left && options.width === rightRect.width
+  ));
+  const auxActivateIndex = chrome.calls.updateWindow.findIndex(({ id, options }) => (
+    id === opened.auxWindowId && options.focused === true && !Object.hasOwn(options, "left")
+  ));
+  const miscHideIndex = chrome.calls.updateWindow.findIndex(({ id, options }) => (
+    id === miscWindowId && options.state === "minimized"
+  ));
+  assert.ok(miscHideIndex >= 0 && miscHideIndex < auxPlaceIndex && auxPlaceIndex < auxActivateIndex);
+  assert.equal(chrome.calls.updateWindow.some(({ id }) => id === opened.phWindowId), false);
   assert.equal(animations.length, animationCount);
   assert.equal(chrome.calls.createWindow.length, 3);
   assert.equal((await controller(chrome).state()).rightSurface, "aux");
+});
+
+test("persisted or manually moved Misc geometry cannot override the Aux right rectangle", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  const rightRect = (({ height, left, top, width }) => ({ height, left, top, width }))(
+    chrome.getWindow(opened.auxWindowId),
+  );
+  const misc = await workspace.switchRightSurface("misc", workArea);
+  chrome.resizeWindow(misc.miscWindowId, { left: 125, top: 90, width: 475 });
+
+  await controller(chrome).rememberVisibleBounds(misc.miscWindowId);
+  assert.deepEqual(
+    (({ height, left, top, width }) => ({ height, left, top, width }))(chrome.getWindow(misc.miscWindowId)),
+    rightRect,
+  );
+  const state = await workspace.state();
+  chrome.setWorkspaceState({
+    ...state,
+    miscSession: { ...state.miscSession, geometry: { left: 200, width: 500 } },
+    rightSlotGeometry: { left: 200, width: 500 },
+  });
+  const restarted = controller(chrome);
+
+  for (const surface of ["aux", "misc", "aux", "misc"]) {
+    const switched = await restarted.switchRightSurface(surface, workArea);
+    const windowId = surface === "aux" ? switched.auxWindowId : switched.miscWindowId;
+    assert.deepEqual(
+      (({ height, left, top, width }) => ({ height, left, top, width }))(chrome.getWindow(windowId)),
+      rightRect,
+    );
+  }
 });
 
 test("saved Misc is reused and the hot corner passes it to the verified native rollout", async () => {
@@ -640,6 +703,21 @@ test("a PlayHouse route swaps Misc for Aux without drawer animation", async () =
     "https://mail.google.com/mail/u/0/#all/thread");
   assert.deepEqual(chrome.getWindow(opened.phWindowId), playhouseBefore);
   assert.equal(animations.length, animationCount);
+});
+
+test("routing while Aux is already visible performs no right-slot bounds update", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  chrome.calls.updateWindow.length = 0;
+
+  await workspace.openCarnivalContext("https://mail.google.com/mail/u/0/#all/thread", workArea, "display-1");
+
+  assert.equal(chrome.calls.updateWindow.some(({ id, options }) => (
+    id === opened.auxWindowId && (Object.hasOwn(options, "left") || Object.hasOwn(options, "width"))
+  )), false);
+  assert.equal(chrome.calls.updateWindow.some(({ id }) => id === opened.phWindowId), false);
 });
 
 test("Aux repairs reordered and externally moved Hot Tabs back to canonical order", async () => {
@@ -1652,11 +1730,16 @@ test("PH and Misc sessions restore independently while Aux remains canonical", a
   chrome.addTab(opened.contextWindowId, "https://youtube.com/", { active: true });
   await workspace.rememberWorkspaceTabs(opened.playhouseWindowId);
   await workspace.reconcileAuxTabs(opened.contextWindowId, { revealMisc: true });
+  await workspace.switchRightSurface("aux", workArea);
+  const canonicalAux = await workspace.state();
+  chrome.resizeWindow(canonicalAux.auxWindowId, { left: 900, width: 650 });
+  await controller(chrome).rememberVisibleBounds(canonicalAux.auxWindowId);
+  await workspace.switchRightSurface("misc", workArea);
   const withMisc = await workspace.state();
   await workspace.rememberWorkspaceTabs(withMisc.miscWindowId);
   chrome.resizeWindow(opened.playhouseWindowId, { left: 120, width: 700 });
-  chrome.resizeWindow(withMisc.miscWindowId, { left: 900, width: 650 });
-  await workspace.rememberVisibleBounds();
+  chrome.resizeWindow(withMisc.miscWindowId, { left: 800, width: 500 });
+  await controller(chrome).rememberVisibleBounds();
   chrome.closeWindow(opened.playhouseWindowId);
   chrome.closeWindow(opened.contextWindowId);
   chrome.closeWindow(withMisc.miscWindowId);

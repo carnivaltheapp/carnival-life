@@ -155,8 +155,8 @@ function miscSession(state) {
     tabs: legacyExtras.map((tab) => ({ pinned: tab.pinned, role: null, url: tab.url })),
   } : null;
   return {
-    geometry: storedGeometry(state.miscSession?.geometry) ??
-      storedGeometry(state.rightSlotGeometry) ?? legacySession(state, "aux").geometry,
+    geometry: legacySession(state, "aux").geometry ??
+      storedGeometry(state.rightSlotGeometry) ?? storedGeometry(state.miscSession?.geometry),
     tabs: explicit ?? migrated,
   };
 }
@@ -169,12 +169,6 @@ function selectedRightWindowId(state) {
   return normalizedRightSurface(state.rightSurface) === "misc"
     ? state.miscWindowId
     : state.auxWindowId;
-}
-
-function selectedRightSession(state) {
-  return normalizedRightSurface(state.rightSurface) === "misc"
-    ? state.miscSession
-    : state.auxSession;
 }
 
 function normalizedWorkspaceState(raw) {
@@ -194,9 +188,8 @@ function normalizedWorkspaceState(raw) {
   const rightSurface = normalizedRightSurface(raw.rightSurface);
   const normalizedAuxSession = canonicalAuxSession(raw);
   const normalizedMiscSession = miscSession(raw);
-  const rightSlotGeometry = storedGeometry(raw.rightSlotGeometry) ??
-    storedGeometry(rightSurface === "misc" ? normalizedMiscSession.geometry : normalizedAuxSession.geometry) ??
-    storedGeometry(normalizedAuxSession.geometry) ?? storedGeometry(normalizedMiscSession.geometry);
+  const rightSlotGeometry = storedGeometry(normalizedAuxSession.geometry) ??
+    storedGeometry(raw.rightSlotGeometry) ?? storedGeometry(normalizedMiscSession.geometry);
   return {
     ...raw,
     auxActiveTabId,
@@ -251,9 +244,8 @@ export function canonicalWorkspaceLayout(prior, workArea) {
   const phGeometry = storedGeometry(prior.phSession?.geometry) ?? geometryFromBounds(
     prior.savedVisibleBounds?.playhouse ?? prior.playhouseBounds,
   );
-  const auxGeometry = storedGeometry(prior.rightSlotGeometry) ??
-    storedGeometry(selectedRightSession(prior)?.geometry) ??
-    storedGeometry(prior.auxSession?.geometry) ?? geometryFromBounds(
+  const auxGeometry = storedGeometry(prior.auxSession?.geometry) ??
+    storedGeometry(prior.rightSlotGeometry) ?? geometryFromBounds(
     prior.savedVisibleBounds?.context ?? prior.contextBounds,
   );
   if (!phGeometry || !auxGeometry) return fallback;
@@ -1176,35 +1168,44 @@ export class CarnivalWorkspaceController {
       throw new Error("A valid monitor work area is required to switch Carnival surfaces.");
     }
     const layout = canonicalWorkspaceLayout(prior, activeWorkArea);
+    const auxWindow = await existingWindow(this.chrome, prior.auxWindowId);
+    const auxBounds = storedBounds(auxWindow);
+    const rightRect = auxBounds && horizontalBoundsFitWorkArea(auxBounds, activeWorkArea)
+      ? { ...auxBounds, height: activeWorkArea.height, top: activeWorkArea.top }
+      : layout.context;
     const outgoingId = selectedRightWindowId(prior);
     const outgoingWindow = await existingWindow(this.chrome, outgoingId);
-    const slotBounds = actualRestingBounds(outgoingWindow, activeWorkArea) ?? layout.context;
+    const targetAlreadyVisible = requestedSurface === prior.rightSurface &&
+      outgoingWindow?.state !== "minimized" && compareAnimationLanding(outgoingWindow, rightRect).landed;
     if (outgoingWindow) {
       await this.rememberWorkspaceTabs(outgoingWindow.id, "right-surface-switch");
       prior = await this.state();
+      if (outgoingWindow.id !== (requestedSurface === "aux" ? prior.auxWindowId : prior.miscWindowId)) {
+        await this.updateWindow(outgoingWindow.id, {
+          focused: false,
+          state: "minimized",
+        }, `hide-${prior.rightSurface}-for-${requestedSurface}`);
+      }
     }
 
     const target = requestedSurface === "aux"
-      ? await this.findContext(prior, slotBounds, true)
-      : await this.findMisc(prior, slotBounds, true);
-    if (outgoingWindow && outgoingWindow.id !== target.window.id) {
-      await this.updateWindow(outgoingWindow.id, {
+      ? await this.findContext(prior, rightRect, false, false)
+      : await this.findMisc(prior, rightRect, false);
+    if (!targetAlreadyVisible) {
+      await this.updateWindow(target.window.id, {
+        ...rightRect,
         focused: false,
-        state: "minimized",
-      }, `hide-${prior.rightSurface}-for-${requestedSurface}`);
+        state: "normal",
+      }, `place-${requestedSurface}-in-right-slot`);
+      await this.updateWindow(target.window.id, { focused: true }, `activate-${requestedSurface}-surface`);
     }
-    await this.updateWindow(target.window.id, {
-      ...slotBounds,
-      focused: true,
-      state: "normal",
-    }, `show-${requestedSurface}-surface`);
 
     const saved = await this.save({
       ...prior,
       ...(requestedSurface === "aux" ? {
         auxActiveTabId: target.tab.id,
         auxRoleTabIds: target.roleTabIds,
-        auxSession: { geometry: geometryFromBounds(slotBounds), tabs: target.tabState },
+        auxSession: { geometry: geometryFromBounds(rightRect), tabs: target.tabState },
         auxWindowId: target.window.id,
         contextRoleTabIds: target.roleTabIds,
         contextTabId: target.tab.id,
@@ -1219,12 +1220,12 @@ export class CarnivalWorkspaceController {
         } : {}),
       } : {
         miscActiveTabId: target.tab.id,
-        miscSession: { geometry: geometryFromBounds(slotBounds), tabs: target.tabState },
+        miscSession: { geometry: geometryFromBounds(rightRect), tabs: target.tabState },
         miscTabs: target.tabState,
         miscWindowId: target.window.id,
       }),
-      contextBounds: slotBounds,
-      rightSlotGeometry: geometryFromBounds(slotBounds),
+      contextBounds: rightRect,
+      rightSlotGeometry: geometryFromBounds(rightRect),
       rightSurface: requestedSurface,
       workArea: activeWorkArea,
     });
@@ -1493,8 +1494,8 @@ export class CarnivalWorkspaceController {
     const prior = await this.state();
     const layout = canonicalWorkspaceLayout(prior, workArea);
     const savedPlayhouse = storedGeometry(prior.phSession.geometry);
-    const savedContext = storedGeometry(prior.rightSlotGeometry) ??
-      storedGeometry(selectedRightSession(prior)?.geometry);
+    const savedContext = storedGeometry(prior.auxSession?.geometry) ??
+      storedGeometry(prior.rightSlotGeometry);
     if (!savedPlayhouse || !savedContext) {
       this.logger.info?.("Carnival: using default workspace bounds");
     } else if (layout.playhouse.left === savedPlayhouse.left && layout.playhouse.width === savedPlayhouse.width &&
@@ -1679,11 +1680,18 @@ export class CarnivalWorkspaceController {
     const playhouseVisible = playhouseActual
       ? getAnchoredPlayhouseGeometry(state.workArea, playhouseActual.width)
       : null;
-    const contextVisible = actualRestingBounds(contextWindow, state.workArea);
+    const contextVisible = state.rightSurface === "aux"
+      ? actualRestingBounds(contextWindow, state.workArea)
+      : null;
     const layout = {
       context: contextVisible ?? persistedLayout.context,
       playhouse: playhouseVisible ?? persistedLayout.playhouse,
     };
+    if (state.rightSurface === "misc" &&
+      !compareAnimationLanding(contextWindow, layout.context).landed) {
+      await this.updateWindow(contextWindow.id,
+        { ...layout.context, focused: false, state: "normal" }, "restore-misc-right-slot-before-retract");
+    }
     if (playhouseActual?.left !== layout.playhouse.left || playhouseActual?.top !== layout.playhouse.top) {
       this.windowTrace?.emit("workspace-controller", "PH_ANCHOR_CORRECTED", {
         actualLeft: playhouseActual?.left ?? null,
@@ -1702,12 +1710,9 @@ export class CarnivalWorkspaceController {
     }
     const visibleState = {
       ...state,
-      ...(state.rightSurface === "misc" ? {
-        miscSession: { ...state.miscSession, geometry: geometryFromBounds(layout.context) },
-      } : {
-        auxSession: { ...state.auxSession, geometry: geometryFromBounds(layout.context) },
-      }),
+      auxSession: { ...state.auxSession, geometry: geometryFromBounds(layout.context) },
       contextBounds: layout.context,
+      miscSession: { ...state.miscSession, geometry: geometryFromBounds(layout.context) },
       phSession: { ...state.phSession, geometry: geometryFromBounds(layout.playhouse) },
       playhouseBounds: layout.playhouse,
       rightSlotGeometry: geometryFromBounds(layout.context),
@@ -1856,6 +1861,7 @@ export class CarnivalWorkspaceController {
     const state = await this.state();
     if (state.drawerState !== "open" || !validWorkArea(state.workArea)) return null;
     const rightWindowId = selectedRightWindowId(state);
+    const miscIsSelected = state.rightSurface === "misc";
     const changedRole = changedWindowId === state.phWindowId
       ? "playhouse"
       : changedWindowId === rightWindowId ? "context" : null;
@@ -1869,7 +1875,9 @@ export class CarnivalWorkspaceController {
     const playhouse = playhouseActual
       ? getAnchoredPlayhouseGeometry(state.workArea, playhouseActual.width)
       : null;
-    const context = actualRestingBounds(contextWindow, state.workArea);
+    const context = miscIsSelected
+      ? canonicalWorkspaceLayout(state, state.workArea).context
+      : actualRestingBounds(contextWindow, state.workArea);
     const capturePlayhouse = changedRole !== "context";
     const captureContext = changedRole !== "playhouse";
     if ((capturePlayhouse && !playhouse) || (captureContext && !context)) return null;
@@ -1904,10 +1912,9 @@ export class CarnivalWorkspaceController {
         selectedRightWindowId(currentState) !== rightWindowId) return null;
       return {
         ...currentState,
-        ...(captureContext ? {
+        ...(captureContext && !miscIsSelected ? {
           auxSession: { ...currentState.auxSession, geometry: geometryFromBounds(context) },
           contextBounds: context,
-          miscSession: { ...currentState.miscSession, geometry: geometryFromBounds(context) },
           rightSlotGeometry: geometryFromBounds(context),
         } : {}),
         ...(capturePlayhouse ? {
@@ -1918,6 +1925,12 @@ export class CarnivalWorkspaceController {
     });
     if (!nextState) return null;
     const verticalUpdates = [];
+    if (captureContext && miscIsSelected &&
+      !compareAnimationLanding(contextActual, context).landed) {
+      verticalUpdates.push(this.updateWindow(rightWindowId, {
+        ...context,
+      }, "restore-misc-canonical-right-slot"));
+    }
     if (changedRole !== "context" &&
       (playhouseActual.left !== playhouse.left || playhouseActual.top !== playhouse.top ||
         playhouseActual.height !== playhouse.height)) {
@@ -1925,7 +1938,7 @@ export class CarnivalWorkspaceController {
         ...playhouse, focused: false, state: "normal",
       }, "normalize-playhouse-anchor"));
     }
-    if (changedRole !== "playhouse" &&
+    if (!miscIsSelected && changedRole !== "playhouse" &&
       (contextActual.top !== context.top || contextActual.height !== context.height)) {
       verticalUpdates.push(this.updateWindow(rightWindowId, {
         focused: false, height: context.height, state: "normal", top: context.top,

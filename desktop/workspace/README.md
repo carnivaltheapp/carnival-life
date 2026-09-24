@@ -130,6 +130,10 @@ selects which right window participates in the next hot-corner rollout. Internal
 extension callers can send `{ type: "openCarnivalContext", url }`; only HTTP(S)
 destinations are accepted, and that path always selects Aux before routing.
 
+Aux and Misc share one canonical physical right-hand slot based on the existing
+Aux resting rectangle. Right-surface switching changes only the occupant of that
+slot; PH and drawer behavior remain untouched.
+
 After updating the checked-out extension or native-host source, reload the
 extension at `chrome://extensions` and rerun the platform installer before
 manual verification. The extension service-worker console confirms the current
