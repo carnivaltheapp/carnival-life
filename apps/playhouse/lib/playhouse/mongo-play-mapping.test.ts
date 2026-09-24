@@ -304,6 +304,94 @@ describe("Mongo Play mapping", () => {
     });
   });
 
+  it("uses the canonical Google full display name without changing contact identity", () => {
+    const task = {
+      _id: new ObjectId(),
+      action_type: "Gmail follow-up",
+      carnival_players: [{
+        contact_reference_id: "stale-reference-id",
+        display_name: "Sophi",
+        kind: "contact",
+        resource_name: "people/sophi",
+      }],
+      contact_id: "people/sophi",
+      is_active: true,
+      is_deleted: false,
+      task_date: new Date("2026-09-17T00:00:00.000Z"),
+      task_type: "H",
+      user_id: 43,
+    };
+
+    const play = mapMongoPlay(task, baskets, {
+      displayName: "Sophi Nabavi",
+      id: "33333333-3333-4333-8333-333333333333",
+    });
+
+    expect(play.playerDisplayName).toBe("Sophi Nabavi");
+    expect(play.playerContactId).toBe("33333333-3333-4333-8333-333333333333");
+    expect(play.playerEntries).toEqual([{
+      contactId: "33333333-3333-4333-8333-333333333333",
+      displayName: "Sophi Nabavi",
+      kind: "contact",
+      resourceName: "people/sophi",
+    }]);
+  });
+
+  it("shows a newly assigned contact's canonical first and last name", () => {
+    const task = {
+      _id: new ObjectId(),
+      action_type: "New Gmail Player",
+      contact_id: "people/sophi",
+      is_active: true,
+      is_deleted: false,
+      task_date: new Date("2026-09-17T00:00:00.000Z"),
+      task_type: "H",
+      user_id: 43,
+    };
+
+    expect(mapMongoPlay(task, baskets, {
+      displayName: "Sophi Nabavi",
+      id: "33333333-3333-4333-8333-333333333333",
+    })).toMatchObject({
+      playerContactId: "33333333-3333-4333-8333-333333333333",
+      playerDisplayName: "Sophi Nabavi",
+      playerEntries: [{
+        displayName: "Sophi Nabavi",
+        resourceName: "people/sophi",
+      }],
+    });
+  });
+
+  it("keeps a canonical single-name Google Contact display name", () => {
+    const task = {
+      _id: new ObjectId(),
+      action_type: "Single-name Player",
+      carnival_players: [{
+        display_name: "Old",
+        kind: "contact",
+        resource_name: "people/prince",
+      }],
+      contact_id: "people/prince",
+      is_active: true,
+      is_deleted: false,
+      task_date: new Date("2026-09-17T00:00:00.000Z"),
+      task_type: "H",
+      user_id: 43,
+    };
+
+    expect(mapMongoPlay(task, baskets, {
+      displayName: "Prince",
+      id: "44444444-4444-4444-8444-444444444444",
+    })).toMatchObject({
+      playerContactId: "44444444-4444-4444-8444-444444444444",
+      playerDisplayName: "Prince",
+      playerEntries: [{
+        displayName: "Prince",
+        resourceName: "people/prince",
+      }],
+    });
+  });
+
   it("uses targeted editable fields and preserves unrelated legacy fields", () => {
     const values = mongoEditableSet({
       baskets,

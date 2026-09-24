@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-GMAIL-SHIFT-CONTACT-FIX-161
+          P3-PLAYER-FULL-NAME-162
         </small>
       </body>
     </html>

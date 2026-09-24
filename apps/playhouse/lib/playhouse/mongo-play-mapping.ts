@@ -369,7 +369,7 @@ export function mapMongoPlay(
   const persistedPlayers = mongoPlayerReferences(task);
   const playerEntries = persistedPlayers.length
     ? persistedPlayers.map((entry) => entry.kind === "contact" && contact?.id && entry.resourceName === resourceName
-      ? { ...entry, contactId: contact.id }
+      ? { ...entry, contactId: contact.id, displayName: contact.displayName }
       : entry)
     : resourceName
       ? [{

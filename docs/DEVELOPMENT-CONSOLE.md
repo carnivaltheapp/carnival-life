@@ -359,3 +359,8 @@ Marker `P3-GMAIL-SHIFT-CONTACT-FIX-161` fixes the Shift-created Gmail contact fo
 Mongo Play store by accepting its native Play identifier before using the established People and
 Player assignment path. Add Contact now dismisses after either success or a concise failure, and
 Shift-hover labels the row action “Create Play” while normal Gmail drag retains “Link Gmail.”
+
+Marker `P3-PLAYER-FULL-NAME-162` makes the canonical Google Contact reference authoritative for a
+Player's displayed name. Mongo Play snapshots may retain an older shortened label, but rendering
+now uses Google's full cached display name while preserving the same stable contact ID and People
+resource name; single-name contacts continue to render normally.
