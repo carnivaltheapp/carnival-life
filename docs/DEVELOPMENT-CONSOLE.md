@@ -297,7 +297,7 @@ exercise the same PKCE flow without relaxing exact redirect matching at authoriz
 exchange. Marker 151 supersedes marker 148's over-broad combined descriptors and the initial
 149/150 deployments of this callback correction.
 
-Marker `P3-ROADMAP-OAUTH-REFRESH-153` makes normal OAuth expiration recoverable. Production
+Marker `P3-ROADMAP-OAUTH-REFRESH-154` makes normal OAuth expiration recoverable. Production
 reconnect traces showed the expired MCP request receive `401`, complete discovery, and then stop at
 dynamic registration while the authorization server still advertised and issued only the
 authorization-code grant. Carnival now advertises and registers `refresh_token`, issues a hashed

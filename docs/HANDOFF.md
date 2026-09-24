@@ -4,7 +4,7 @@ Architecture-only exploration handoff • September 2026
 
 ## September 24, 2026 — ChatGPT Roadmap MCP
 
-- Marker `P3-ROADMAP-OAUTH-REFRESH-153` adds rotating OAuth refresh credentials after production
+- Marker `P3-ROADMAP-OAUTH-REFRESH-154` adds rotating OAuth refresh credentials after production
   reconnect traces proved that the former 15-minute access-only grant stranded an otherwise valid
   ChatGPT connection. Dynamic registration and discovery now advertise authorization-code plus
   refresh-token grants. Refresh credentials are stored only as hashes, expire after 30 days, rotate
