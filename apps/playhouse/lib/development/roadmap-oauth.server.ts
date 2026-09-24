@@ -72,15 +72,24 @@ function requestedScopes(value: string | null) {
   return ROADMAP_SCOPES.filter((scope) => scopes.includes(scope));
 }
 
-function validChatGptRedirect(value: string) {
+function validOAuthRedirect(value: string) {
   try {
     const url = new URL(value);
-    return url.origin === "https://chatgpt.com" &&
+    const chatGptRedirect = url.origin === "https://chatgpt.com" &&
       !url.username &&
       !url.password &&
       !url.search &&
       !url.hash &&
       (url.href === CHATGPT_STABLE_REDIRECT || CHATGPT_CALLBACK_PATH.test(url.pathname));
+    const inspectorLoopbackRedirect = url.protocol === "http:" &&
+      (url.hostname === "127.0.0.1" || url.hostname === "[::1]") &&
+      Boolean(url.port) &&
+      url.pathname === "/oauth/callback" &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash;
+    return chatGptRedirect || inspectorLoopbackRedirect;
   } catch {
     return false;
   }
@@ -147,7 +156,7 @@ export class CarnivalRoadmapOAuthService {
     if (
       !redirectUris?.length ||
       redirectUris.length > 4 ||
-      !redirectUris.every(validChatGptRedirect) ||
+      !redirectUris.every(validOAuthRedirect) ||
       !grantTypes?.includes("authorization_code") ||
       !responseTypes?.includes("code") ||
       (record.token_endpoint_auth_method !== undefined && record.token_endpoint_auth_method !== "none")

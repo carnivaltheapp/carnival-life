@@ -108,6 +108,28 @@ describe("Carnival roadmap OAuth 2.1", () => {
     })).rejects.toMatchObject({ code: "invalid_client_metadata" });
   });
 
+  it("registers MCP Inspector's validated loopback callback without broadening redirects", async () => {
+    const service = new CarnivalRoadmapOAuthService(
+      new MemoryRepository(),
+      () => new Date("2026-09-24T12:00:00.000Z"),
+    );
+    await expect(service.registerClient(issuer, {
+      client_name: "MCP Inspector",
+      grant_types: ["authorization_code"],
+      redirect_uris: ["http://127.0.0.1:6276/oauth/callback"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+    })).resolves.toEqual(expect.objectContaining({
+      redirect_uris: ["http://127.0.0.1:6276/oauth/callback"],
+    }));
+    await expect(service.registerClient(issuer, {
+      redirect_uris: ["http://localhost:6276/oauth/callback"],
+    })).rejects.toMatchObject({ code: "invalid_client_metadata" });
+    await expect(service.registerClient(issuer, {
+      redirect_uris: ["http://127.0.0.1:6276/not-the-callback"],
+    })).rejects.toMatchObject({ code: "invalid_client_metadata" });
+  });
+
   it("issues a one-time code and short-lived token bound to owner, issuer, resource, and scope", async () => {
     const { client, repository, service } = await registeredService();
     const request = await service.validateAuthorizationRequest(
