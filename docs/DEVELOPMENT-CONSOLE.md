@@ -287,12 +287,12 @@ repository paths; canonical reorder remains exact-set/contiguous, dependencies r
 self, and duplicate references, and Notes append with paragraph preservation. Public roadmap and
 CF/component sharing routes remain read-only.
 
-Marker `P3-ROADMAP-OAUTH-FIX-148` corrects ChatGPT linking for that two-scope server. ChatGPT starts
-authorization from the descriptor of the first invoked tool; read-tool descriptors in 147 requested
-only `roadmap:read`, so the consent page and stored authorization code were necessarily read-only.
-All Carnival Roadmap tool descriptors and OAuth challenges now request the complete
-`roadmap:read roadmap:write` grant during linking, while server-side tool enforcement remains
-least-privilege and unchanged.
+Marker `P3-ROADMAP-OAUTH-REDIRECT-149` corrects the OAuth consent handoff. Consent is submitted by
+POST, so its callback redirect uses HTTP 303 to produce the authorization protocol's required GET;
+the former 307 repeated the POST at ChatGPT's callback and was rejected before token exchange.
+Tool descriptors and runtime `mcp/www_authenticate` challenges are least-privilege: read tools ask
+for `roadmap:read`, write tools ask for `roadmap:write`, and the consent text reflects the exact
+requested scopes. Marker 149 supersedes marker 148's over-broad combined descriptors.
 
 ### One-time ChatGPT connection procedure
 

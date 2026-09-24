@@ -4,6 +4,7 @@ import { authenticatedDevelopmentOwner } from "../../../../lib/development/auth"
 import {
   authorizationRedirect,
   CarnivalRoadmapOAuthService,
+  ROADMAP_AUTHORIZATION_REDIRECT_STATUS,
   RoadmapOAuthError,
   roadmapOAuthIssuer,
 } from "../../../../lib/development/roadmap-oauth.server";
@@ -40,7 +41,7 @@ export async function POST(request: Request) {
     if (form.get("decision") === "deny") {
       return NextResponse.redirect(authorizationRedirect(issuer, authorization, {
         error: "access_denied",
-      }));
+      }), ROADMAP_AUTHORIZATION_REDIRECT_STATUS);
     }
     if (form.get("decision") !== "allow") {
       throw new RoadmapOAuthError("invalid_request", "Authorization decision is invalid.");
@@ -50,7 +51,10 @@ export async function POST(request: Request) {
       throw new RoadmapOAuthError("access_denied", "Carnival sign-in is required.", 401);
     }
     const code = await oauth.issueAuthorizationCode(issuer, ownerUserId, authorization);
-    return NextResponse.redirect(authorizationRedirect(issuer, authorization, { code }));
+    return NextResponse.redirect(
+      authorizationRedirect(issuer, authorization, { code }),
+      ROADMAP_AUTHORIZATION_REDIRECT_STATUS,
+    );
   } catch (error) {
     const oauthError = error instanceof RoadmapOAuthError
       ? error

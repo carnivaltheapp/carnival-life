@@ -45,13 +45,16 @@ describe("Carnival roadmap MCP bearer authentication", () => {
     )).resolves.toBeNull();
   });
 
-  it("requests the complete read/write grant from every OAuth challenge", () => {
+  it("returns documented least-privilege OAuth challenges with runtime errors", () => {
     const request = new Request("https://carnival.example/api/development/mcp");
     expect(roadmapMcpAuthenticationChallenge(request)).toContain(
-      'scope="roadmap:read roadmap:write"',
+      'scope="roadmap:read"',
     );
-    expect(roadmapMcpToolAuthenticationChallenge(request)).toContain(
-      'scope="roadmap:read roadmap:write"',
-    );
+    expect(roadmapMcpToolAuthenticationChallenge(request, "roadmap:read"))
+      .toContain('scope="roadmap:read"');
+    expect(roadmapMcpToolAuthenticationChallenge(request, "roadmap:write"))
+      .toContain('scope="roadmap:write"');
+    expect(roadmapMcpToolAuthenticationChallenge(request)).toContain('error="insufficient_scope"');
+    expect(roadmapMcpToolAuthenticationChallenge(request)).toContain("error_description=");
   });
 });

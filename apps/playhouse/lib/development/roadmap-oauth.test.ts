@@ -8,11 +8,13 @@ vi.mock("server-only", () => ({}));
 
 import {
   CarnivalRoadmapOAuthService,
+  ROADMAP_AUTHORIZATION_REDIRECT_STATUS,
   ROADMAP_SCOPE,
   ROADMAP_WRITE_SCOPE,
   RoadmapOAuthError,
   roadmapAuthorizationServerMetadata,
   roadmapMcpResource,
+  roadmapOAuthConsentDescription,
   type RoadmapOAuthRepository,
 } from "./roadmap-oauth.server";
 import type {
@@ -247,12 +249,23 @@ describe("Carnival roadmap OAuth 2.1", () => {
     });
   });
 
+  it("describes read-only, write-only, and combined consent accurately", () => {
+    expect(ROADMAP_AUTHORIZATION_REDIRECT_STATUS).toBe(303);
+    expect(roadmapOAuthConsentDescription([ROADMAP_SCOPE])).toContain("read-only access");
+    expect(roadmapOAuthConsentDescription([ROADMAP_WRITE_SCOPE])).toContain(
+      "permission to make your explicitly requested",
+    );
+    expect(roadmapOAuthConsentDescription([ROADMAP_WRITE_SCOPE])).not.toContain("read-only");
+    expect(roadmapOAuthConsentDescription([ROADMAP_SCOPE, ROADMAP_WRITE_SCOPE])).toContain(
+      "permission to read and make your explicitly requested",
+    );
+  });
+
   it("uses the existing Carnival session at consent and clearly discloses write access", () => {
     const page = readFileSync(join(process.cwd(), "app", "oauth", "authorize", "page.tsx"), "utf8");
     expect(page).toContain("authenticatedDevelopmentOwner");
     expect(page).toContain("GoogleSignInButton");
-    expect(page).toContain("ROADMAP_WRITE_SCOPE");
-    expect(page).toContain("explicitly requested Development Roadmap changes");
+    expect(page).toContain("roadmapOAuthConsentDescription");
     expect(RoadmapOAuthError).toBeTypeOf("function");
   });
 });

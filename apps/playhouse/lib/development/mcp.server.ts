@@ -57,8 +57,11 @@ const readOnlyAnnotations = {
   openWorldHint: false,
   readOnlyHint: true,
 } as const;
-const oauthMetadata = {
-  securitySchemes: [{ scopes: ["roadmap:read", "roadmap:write"], type: "oauth2" }],
+const readOauthMetadata = {
+  securitySchemes: [{ scopes: ["roadmap:read"], type: "oauth2" }],
+};
+const writeOauthMetadata = {
+  securitySchemes: [{ scopes: ["roadmap:write"], type: "oauth2" }],
 };
 const writeAnnotations = {
   destructiveHint: false,
@@ -133,7 +136,7 @@ export function createRoadmapMcpServer(
   );
 
   server.registerTool("get_feature", {
-    _meta: oauthMetadata,
+    _meta: readOauthMetadata,
     annotations: readOnlyAnnotations,
     description:
       "Retrieve the current Carnival Development Console feature identified by its CF-### reference. Use whenever the user references a Carnival feature ID such as CF-010.",
@@ -154,7 +157,7 @@ export function createRoadmapMcpServer(
   });
 
   server.registerTool("search_features", {
-    _meta: oauthMetadata,
+    _meta: readOauthMetadata,
     annotations: readOnlyAnnotations,
     description: "Search current Carnival Development Console features by CF ID, title, description, component, and Notes.",
     inputSchema: { query: z.string().min(1) },
@@ -168,7 +171,7 @@ export function createRoadmapMcpServer(
   });
 
   server.registerTool("list_features", {
-    _meta: oauthMetadata,
+    _meta: readOauthMetadata,
     annotations: readOnlyAnnotations,
     description: "List current Carnival Development Console features, optionally filtered by component, status, or priority.",
     inputSchema: {
@@ -186,7 +189,7 @@ export function createRoadmapMcpServer(
   });
 
   server.registerTool("list_components", {
-    _meta: oauthMetadata,
+    _meta: readOauthMetadata,
     annotations: readOnlyAnnotations,
     description: "List current Carnival Development Console components, including hidden components and their canonical navigation order.",
     outputSchema: { components: z.array(componentSchema) },
@@ -199,7 +202,7 @@ export function createRoadmapMcpServer(
   });
 
   server.registerTool("get_roadmap", {
-    _meta: oauthMetadata,
+    _meta: readOauthMetadata,
     annotations: readOnlyAnnotations,
     description: "Retrieve the current ordered Carnival Development roadmap when reasoning about development sequence, priorities, components, or dependencies across multiple features.",
     outputSchema: {
@@ -218,7 +221,7 @@ export function createRoadmapMcpServer(
   const writeDescription = "Use only when the user explicitly requests this exact Development Console change. Never use for suggestions, planning discussion, or inferred preferences.";
 
   server.registerTool("update_feature", {
-    _meta: oauthMetadata,
+    _meta: writeOauthMetadata,
     annotations: writeAnnotations,
     description: `Update approved editable fields on an existing Carnival feature. ${writeDescription}`,
     inputSchema: {
@@ -249,7 +252,7 @@ export function createRoadmapMcpServer(
   });
 
   server.registerTool("reorder_feature", {
-    _meta: oauthMetadata,
+    _meta: writeOauthMetadata,
     annotations: writeAnnotations,
     description: `Move one feature to a requested one-based position in the canonical global sequence while preserving the relative order of all other features. ${writeDescription}`,
     inputSchema: {
@@ -271,7 +274,7 @@ export function createRoadmapMcpServer(
   });
 
   server.registerTool("add_dependency", {
-    _meta: oauthMetadata,
+    _meta: writeOauthMetadata,
     annotations: writeAnnotations,
     description: `Add one existing Carnival feature as a dependency of another. Self-dependencies and duplicates are rejected. ${writeDescription}`,
     inputSchema: { dependencyFeatureId: z.string(), featureId: z.string() },
@@ -290,7 +293,7 @@ export function createRoadmapMcpServer(
   });
 
   server.registerTool("remove_dependency", {
-    _meta: oauthMetadata,
+    _meta: writeOauthMetadata,
     annotations: writeAnnotations,
     description: `Remove one existing dependency from a Carnival feature. ${writeDescription}`,
     inputSchema: { dependencyFeatureId: z.string(), featureId: z.string() },
@@ -309,7 +312,7 @@ export function createRoadmapMcpServer(
   });
 
   server.registerTool("append_notes", {
-    _meta: oauthMetadata,
+    _meta: writeOauthMetadata,
     annotations: writeAnnotations,
     description: `Append text to an existing feature's Notes with a paragraph break; never replaces existing Notes. ${writeDescription}`,
     inputSchema: { featureId: z.string(), text: z.string().min(1) },

@@ -12,6 +12,7 @@ import {
 export const ROADMAP_SCOPE = "roadmap:read";
 export const ROADMAP_WRITE_SCOPE = "roadmap:write";
 export const ROADMAP_SCOPES = [ROADMAP_SCOPE, ROADMAP_WRITE_SCOPE] as const;
+export const ROADMAP_AUTHORIZATION_REDIRECT_STATUS = 303;
 const AUTHORIZATION_CODE_TTL_MS = 5 * 60 * 1_000;
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const CHATGPT_STABLE_REDIRECT = "https://chatgpt.com/connector_platform_oauth_redirect";
@@ -97,6 +98,18 @@ export function roadmapOAuthIssuer(request: Request) {
 
 export function roadmapMcpResource(issuer: string) {
   return `${issuer}/api/development/mcp`;
+}
+
+export function roadmapOAuthConsentDescription(scopes: readonly string[]) {
+  const canRead = scopes.includes(ROADMAP_SCOPE);
+  const canWrite = scopes.includes(ROADMAP_WRITE_SCOPE);
+  if (canRead && canWrite) {
+    return "ChatGPT is requesting permission to read and make your explicitly requested Development Roadmap changes. It cannot delete features or components.";
+  }
+  if (canWrite) {
+    return "ChatGPT is requesting permission to make your explicitly requested Development Roadmap changes. It cannot delete features or components.";
+  }
+  return "ChatGPT is requesting read-only access to your Carnival Development Roadmap. It cannot create, edit, delete, move, or reorder roadmap data.";
 }
 
 export function roadmapAuthorizationServerMetadata(issuer: string) {

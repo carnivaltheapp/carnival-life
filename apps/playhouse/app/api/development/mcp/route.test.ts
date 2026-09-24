@@ -20,7 +20,7 @@ describe("Development roadmap MCP authentication", () => {
     }));
   }
 
-  it("exposes the MCP handshake and requests read/write scopes from every linking entry point", async () => {
+  it("exposes the MCP handshake with least-privilege per-tool scopes", async () => {
     const initialized = await request({
       id: 1,
       jsonrpc: "2.0",
@@ -57,10 +57,12 @@ describe("Development roadmap MCP authentication", () => {
       tool.securitySchemes?.some((scheme) =>
         typeof scheme === "object" && scheme !== null &&
         "type" in scheme && scheme.type === "oauth2"))).toBe(true);
-    expect(tools.every((tool: { securitySchemes?: Array<{ scopes?: string[] }> }) =>
+    expect(tools.slice(0, 5).every((tool: { securitySchemes?: Array<{ scopes?: string[] }> }) =>
       tool.securitySchemes?.some((scheme) =>
-        scheme.scopes?.includes("roadmap:read") &&
-        scheme.scopes?.includes("roadmap:write")))).toBe(true);
+        scheme.scopes?.length === 1 && scheme.scopes[0] === "roadmap:read"))).toBe(true);
+    expect(tools.slice(5).every((tool: { securitySchemes?: Array<{ scopes?: string[] }> }) =>
+      tool.securitySchemes?.some((scheme) =>
+        scheme.scopes?.length === 1 && scheme.scopes[0] === "roadmap:write"))).toBe(true);
   });
 
   it("returns a tool-level OAuth challenge without loading private roadmap data", async () => {
@@ -75,7 +77,7 @@ describe("Development roadmap MCP authentication", () => {
     expect(result.isError).toBe(true);
     expect(result._meta["mcp/www_authenticate"][0]).toContain("insufficient_scope");
     expect(result._meta["mcp/www_authenticate"][0]).toContain(
-      'scope="roadmap:read roadmap:write"',
+      'scope="roadmap:read"',
     );
     expect(result._meta["mcp/www_authenticate"][0]).toContain(
       "https://carnival.example/.well-known/oauth-protected-resource/api/development/mcp",
@@ -96,7 +98,7 @@ describe("Development roadmap MCP authentication", () => {
     const result = (await response.json()).result;
     expect(result.isError).toBe(true);
     expect(result._meta["mcp/www_authenticate"][0]).toContain(
-      'scope="roadmap:read roadmap:write"',
+      'scope="roadmap:write"',
     );
   });
 
@@ -111,7 +113,7 @@ describe("Development roadmap MCP authentication", () => {
       "https://carnival.example/.well-known/oauth-protected-resource/api/development/mcp",
     );
     expect(response.headers.get("www-authenticate")).toContain(
-      'scope="roadmap:read roadmap:write"',
+      'scope="roadmap:read"',
     );
     expect(await response.json()).toEqual({ error: "unauthorized" });
   });

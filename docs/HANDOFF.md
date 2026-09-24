@@ -4,11 +4,13 @@ Architecture-only exploration handoff • September 2026
 
 ## September 24, 2026 — ChatGPT Roadmap MCP
 
-- Marker `P3-ROADMAP-OAUTH-FIX-148` makes every Carnival Roadmap MCP descriptor and OAuth challenge
-  advertise the complete `roadmap:read roadmap:write` grant. Production evidence showed ChatGPT
-  began OAuth from a read tool and therefore requested only that tool's former read-only descriptor;
-  consent created read-only authorization codes and ChatGPT never exchanged them. Server-side
-  per-tool enforcement remains unchanged: reads require read scope and writes require write scope.
+- Marker `P3-ROADMAP-OAUTH-REDIRECT-149` corrects the consent callback to use HTTP 303 after the
+  POST decision. The former 307 preserved POST at ChatGPT's GET callback, which rejected it before
+  token exchange. Tool descriptors and runtime challenges now advertise least privilege:
+  `roadmap:read` for reads and `roadmap:write` for writes, with standards-compliant error details.
+  Consent copy reflects the scopes actually requested.
+- Marker `P3-ROADMAP-OAUTH-FIX-148` was the first OAuth repair attempt. It combined read and write
+  on every descriptor but left the POST callback redirect at 307; marker 149 supersedes both parts.
 - Marker `P3-ROADMAP-WRITE-147` adds five narrowly scoped MCP mutations backed by the existing
   owner-scoped Development Console repository: approved field updates, canonical global reorder,
   dependency add/remove, and paragraph-preserving Notes append. The new `roadmap:write` OAuth scope
