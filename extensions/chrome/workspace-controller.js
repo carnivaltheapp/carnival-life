@@ -383,6 +383,7 @@ export class CarnivalWorkspaceController {
       COLD_START_CANDIDATE_TIMEOUT_MS;
     this.nativeActivate = options.nativeActivate ?? null;
     this.nativeAnimate = options.nativeAnimate ?? null;
+    this.nativeTransferRightSurfaceOwner = options.nativeTransferRightSurfaceOwner ?? null;
     this.phSessionDiagnostics = options.phSessionDiagnostics ?? null;
     this.movingWindowIds = new Set();
     this.phRestoreInProgress = false;
@@ -1206,14 +1207,29 @@ export class CarnivalWorkspaceController {
       }, `place-${requestedSurface}-in-right-slot`);
       await this.updateWindow(target.window.id, { focused: true }, `activate-${requestedSurface}-surface`);
     }
-    if (outgoingWindow && outgoingWindow.id !== target.window.id) {
-      await this.updateWindow(outgoingWindow.id, {
-        focused: false,
-        state: "minimized",
-      }, `hide-${prior.rightSurface}-for-${requestedSurface}`);
+    const swapsPhysicalOwner = Boolean(outgoingWindow && outgoingWindow.id !== target.window.id);
+    if (swapsPhysicalOwner && this.nativeTransferRightSurfaceOwner) {
+      const transferred = await this.nativeTransferRightSurfaceOwner({
+        bounds: rightRect,
+        fromSurface: prior.rightSurface,
+        incomingWindowId: target.window.id,
+        outgoingWindowId: outgoingWindow.id,
+        surface: requestedSurface,
+      });
+      if (!transferred) {
+        this.logger.warn?.("RIGHT_SURFACE_THRESHOLD_TRANSFER_FAILED", {
+          fromSurface: prior.rightSurface,
+          surface: requestedSurface,
+        });
+        throw new Error("Carnival could not transfer the drawer threshold to the incoming right surface.");
+      }
+      this.logger.info?.("RIGHT_SURFACE_THRESHOLD_TRANSFER_COMPLETE", {
+        fromSurface: prior.rightSurface,
+        surface: requestedSurface,
+      });
     }
 
-    const saved = await this.save({
+    const nextState = {
       ...prior,
       ...(requestedSurface === "aux" ? {
         auxActiveTabId: target.tab.id,
@@ -1241,7 +1257,28 @@ export class CarnivalWorkspaceController {
       rightSlotGeometry: geometryFromBounds(rightRect),
       rightSurface: requestedSurface,
       workArea: activeWorkArea,
-    });
+    };
+    let saved;
+    try {
+      saved = await this.save(nextState);
+    } catch (error) {
+      if (swapsPhysicalOwner && this.nativeTransferRightSurfaceOwner) {
+        await this.nativeTransferRightSurfaceOwner({
+          bounds: rightRect,
+          fromSurface: requestedSurface,
+          incomingWindowId: outgoingWindow.id,
+          outgoingWindowId: target.window.id,
+          surface: prior.rightSurface,
+        }).catch(() => false);
+      }
+      throw error;
+    }
+    if (swapsPhysicalOwner) {
+      await this.updateWindow(outgoingWindow.id, {
+        focused: false,
+        state: "minimized",
+      }, `hide-${prior.rightSurface}-for-${requestedSurface}`);
+    }
     if (target.restore) {
       await this.finalizeRestoredWindow(
         requestedSurface === "aux" ? "context" : "misc",

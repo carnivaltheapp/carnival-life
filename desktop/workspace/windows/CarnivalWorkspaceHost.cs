@@ -14,7 +14,7 @@ using Microsoft.Win32;
 
 internal static class CarnivalWorkspaceHost
 {
-    private const string HostMarker = "DRAWER-HOST-20";
+    private const string HostMarker = "DRAWER-HOST-21";
     private const string BranchRoot = @"C:\Google Drive";
     private const int FcsmInfoTip = 0x4;
     private const uint FcsRead = 0x1;
@@ -52,6 +52,7 @@ internal static class CarnivalWorkspaceHost
     private static int configuredMonitorBottom;
     private static IntPtr playhouseHandle;
     private static IntPtr contextHandle;
+    private static long contextOwnerVersion;
     private static string pendingSummon;
     private static DateTime pendingSummonQueuedAt;
     private static DateTime pendingSummonSentAt;
@@ -329,7 +330,7 @@ internal static class CarnivalWorkspaceHost
             using (var chromeInput = Console.OpenStandardInput())
             using (var chromeOutput = Console.OpenStandardOutput())
             {
-                if (!SendNative(chromeOutput, "{\"type\":\"hostReady\",\"version\":\"" + HostMarker + "\",\"nativeWindowAnimation\":true}"))
+                if (!SendNative(chromeOutput, "{\"type\":\"hostReady\",\"version\":\"" + HostMarker + "\",\"nativeWindowAnimation\":true,\"rightSurfaceOwnerTransfer\":true}"))
                 {
                     WriteDiagnostic("bridge exiting reason=hostReady stdout write failure");
                     return;
@@ -578,6 +579,7 @@ internal static class CarnivalWorkspaceHost
                 int monitorTop;
                 int monitorBottom;
                 IntPtr currentContextHandle;
+                long currentContextOwnerVersion;
                 lock (StateLock)
                 {
                     open = drawerOpen;
@@ -586,10 +588,21 @@ internal static class CarnivalWorkspaceHost
                     monitorTop = configuredMonitorTop;
                     monitorBottom = configuredMonitorBottom;
                     currentContextHandle = contextHandle;
+                    currentContextOwnerVersion = contextOwnerVersion;
                 }
                 var liveContextRect = new Rect();
                 var hasLiveContext = open && currentContextHandle != IntPtr.Zero &&
                     IsWindow(currentContextHandle) && GetWindowRect(currentContextHandle, out liveContextRect);
+                lock (StateLock)
+                {
+                    if (currentContextHandle != contextHandle ||
+                        currentContextOwnerVersion != contextOwnerVersion)
+                    {
+                        retractDwell = null;
+                        retractCandidateActive = false;
+                        continue;
+                    }
+                }
                 var auxInteractionActive = hasLiveContext && leftButtonDown &&
                     IsPointerOnOrNearAux(pointer, liveContextRect);
                 if (hasLiveContext && !leftButtonDown)
@@ -803,6 +816,10 @@ internal static class CarnivalWorkspaceHost
         else if (Regex.IsMatch(json, "\\\"type\\\"\\s*:\\s*\\\"activateWindows\\\""))
         {
             ApplyActivationRequest(json);
+        }
+        else if (Regex.IsMatch(json, "\\\"type\\\"\\s*:\\s*\\\"transferRightSurfaceOwner\\\""))
+        {
+            ApplyRightSurfaceOwnerTransfer(json);
         }
         else if (Regex.IsMatch(json, "\\\"type\\\"\\s*:\\s*\\\"summonAccepted\\\""))
         {
@@ -1389,6 +1406,7 @@ internal static class CarnivalWorkspaceHost
             configuredMonitorBottom = parsedMonitorBottom;
             playhouseHandle = mappedPlayhouse;
             contextHandle = mappedContext;
+            contextOwnerVersion += 1;
             drawerOpen = true;
             offsetPointX = parsedContextRight + RetractOffsetPixels;
         }
@@ -1403,6 +1421,46 @@ internal static class CarnivalWorkspaceHost
     private static int EffectiveRetractThreshold(int rightEdge, int monitorRight)
     {
         return Math.Min(rightEdge + RetractOffsetPixels, monitorRight - 1);
+    }
+
+    private static void ApplyRightSurfaceOwnerTransfer(string json)
+    {
+        int requestId;
+        var incomingBounds = ReadBounds(json, "context");
+        var valid = TryReadInteger(json, "requestId", out requestId) && ValidBounds(incomingBounds);
+        IntPtr outgoing;
+        IntPtr playhouse;
+        bool open;
+        lock (StateLock)
+        {
+            outgoing = contextHandle;
+            playhouse = playhouseHandle;
+            open = drawerOpen;
+        }
+        var incoming = IntPtr.Zero;
+        if (valid && open)
+        {
+            incoming = ClosestWindow(EnumerateChromeWindows(), new[] { incomingBounds }, outgoing, playhouse);
+            valid = incoming != IntPtr.Zero && IsWindow(incoming) && BoundsMatch(incoming, incomingBounds);
+        }
+        if (valid)
+        {
+            Rect incomingRect;
+            valid = GetWindowRect(incoming, out incomingRect);
+            if (valid)
+            {
+                lock (StateLock)
+                {
+                    contextHandle = incoming;
+                    contextOwnerVersion += 1;
+                    offsetPointX = OffsetPointForAux(incomingRect);
+                }
+            }
+        }
+        WriteDiagnostic("right-surface threshold owner transfer " + (valid ? "complete" : "failed"));
+        SendToChrome(string.Format(CultureInfo.InvariantCulture,
+            "{{\"type\":\"rightSurfaceOwnerTransferred\",\"requestId\":{0},\"ok\":{1}}}",
+            requestId, valid ? "true" : "false"));
     }
 
     private static int OffsetPointForAux(Rect context)
@@ -1662,13 +1720,14 @@ internal static class CarnivalWorkspaceHost
         return windows;
     }
 
-    private static IntPtr ClosestWindow(List<ChromeWindow> windows, WindowBounds[] expectedBounds, IntPtr excluded)
+    private static IntPtr ClosestWindow(List<ChromeWindow> windows, WindowBounds[] expectedBounds, IntPtr excluded,
+        IntPtr alsoExcluded = default(IntPtr))
     {
         long bestScore = long.MaxValue;
         var best = IntPtr.Zero;
         foreach (var candidate in windows)
         {
-            if (candidate.Handle == excluded) continue;
+            if (candidate.Handle == excluded || candidate.Handle == alsoExcluded) continue;
             var width = candidate.Rect.Right - candidate.Rect.Left;
             var height = candidate.Rect.Bottom - candidate.Rect.Top;
             long score = long.MaxValue;
@@ -1728,6 +1787,15 @@ internal static class CarnivalWorkspaceHost
         AssertSelfTest(ShouldEnterRetract(true, false, 1600,
             1800, 100, 2000, 0, 900),
             "retract must resume after Aux manipulation settles");
+        var sharedRightBounds = new WindowBounds { Height = 900, Left = 900, Top = 0, Width = 600 };
+        var sameSlotWindows = new List<ChromeWindow>
+        {
+            new ChromeWindow { Handle = new IntPtr(1), Rect = aux },
+            new ChromeWindow { Handle = new IntPtr(2), Rect = aux },
+            new ChromeWindow { Handle = new IntPtr(3), Rect = aux },
+        };
+        AssertSelfTest(ClosestWindow(sameSlotWindows, new[] { sharedRightBounds }, new IntPtr(1), new IntPtr(2)) ==
+            new IntPtr(3), "right-surface transfer must exclude the outgoing owner and PlayHouse");
         AssertSelfTest(EffectiveRetractThreshold(1950, 2000) == 1999,
             "unreachable Aux offset must clamp to the monitor edge");
         AssertSelfTest(IsBranchInfoTip("branch=1") && !IsBranchInfoTip("Branch=1") &&

@@ -506,10 +506,15 @@ test("an extra Slack tab moves to Misc while the canonical Slack Hot Tab routes"
 test("an arbitrary Aux tab moves to persistent Misc without changing the five Hot Tabs", async () => {
   const chrome = fakeChrome();
   const animations = [];
+  const thresholdTransfers = [];
   const workspace = new CarnivalWorkspaceController(chrome, {
     logger: { warn() {} },
     nativeAnimate: async (animation) => {
       animations.push(animation);
+      return true;
+    },
+    nativeTransferRightSurfaceOwner: async (transfer) => {
+      thresholdTransfers.push({ ...transfer, updateCount: chrome.calls.updateWindow.length });
       return true;
     },
   });
@@ -535,6 +540,8 @@ test("an arbitrary Aux tab moves to persistent Misc without changing the five Ho
     id === first.contextWindowId && options.state === "minimized"
   ));
   assert.ok(miscActivateIndex >= 0 && miscActivateIndex < auxHideIndex);
+  assert.equal(thresholdTransfers[0].surface, "misc");
+  assert.ok(thresholdTransfers[0].updateCount <= auxHideIndex);
   assert.deepEqual(chrome.getWindow(first.playhouseWindowId), playhouseBefore);
   assert.equal(chrome.calls.updateWindow.some(({ id }) => id === first.playhouseWindowId), false);
   assert.equal(animations.length, animationCount);
@@ -556,15 +563,34 @@ test("an arbitrary Aux tab moves to persistent Misc without changing the five Ho
 test("Aux and Misc swap in one right slot without moving PlayHouse or animating", async () => {
   const chrome = fakeChrome();
   const animations = [];
-  const workspace = new CarnivalWorkspaceController(chrome, {
+  const thresholdTransfers = [];
+  let thresholdOwner = null;
+  let simulatedRetracts = 0;
+  let workspace;
+  workspace = new CarnivalWorkspaceController(chrome, {
     logger: { warn() {} },
     nativeAnimate: async (animation) => {
       animations.push(animation);
       return true;
     },
+    nativeTransferRightSurfaceOwner: async (transfer) => {
+      thresholdTransfers.push({
+        ...transfer,
+        stateAtTransfer: (await workspace.state()).rightSurface,
+        updateCount: chrome.calls.updateWindow.length,
+      });
+      thresholdOwner = transfer.incomingWindowId;
+      return true;
+    },
   });
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
   const opened = await workspace.summon(workArea, "display-1");
+  thresholdOwner = opened.auxWindowId;
+  const updateWindow = chrome.windows.update.bind(chrome.windows);
+  chrome.windows.update = async (id, options) => {
+    if (options.state === "minimized" && id === thresholdOwner) simulatedRetracts += 1;
+    return updateWindow(id, options);
+  };
   const playhouseBefore = { ...chrome.getWindow(opened.phWindowId) };
   const auxBefore = { ...chrome.getWindow(opened.auxWindowId) };
   const rightRect = (({ height, left, top, width }) => ({ height, left, top, width }))(auxBefore);
@@ -590,6 +616,11 @@ test("Aux and Misc swap in one right slot without moving PlayHouse or animating"
     id === opened.auxWindowId && options.state === "minimized"
   ));
   assert.ok(miscPlaceIndex >= 0 && miscPlaceIndex < miscActivateIndex && miscActivateIndex < auxHideIndex);
+  assert.equal(thresholdTransfers[0].incomingWindowId, miscWindowId);
+  assert.equal(thresholdTransfers[0].stateAtTransfer, "aux");
+  assert.ok(thresholdTransfers[0].updateCount <= auxHideIndex);
+  assert.equal(thresholdOwner, miscWindowId);
+  assert.equal(simulatedRetracts, 0);
   assert.equal(chrome.calls.updateWindow.some(({ id }) => id === opened.phWindowId), false);
 
   chrome.calls.updateWindow.length = 0;
@@ -612,10 +643,56 @@ test("Aux and Misc swap in one right slot without moving PlayHouse or animating"
     id === miscWindowId && options.state === "minimized"
   ));
   assert.ok(auxPlaceIndex >= 0 && auxPlaceIndex < auxActivateIndex && auxActivateIndex < miscHideIndex);
+  assert.equal(thresholdTransfers[1].incomingWindowId, opened.auxWindowId);
+  assert.equal(thresholdTransfers[1].stateAtTransfer, "misc");
+  assert.ok(thresholdTransfers[1].updateCount <= miscHideIndex);
+  assert.equal(thresholdOwner, opened.auxWindowId);
+  assert.equal(simulatedRetracts, 0);
   assert.equal(chrome.calls.updateWindow.some(({ id }) => id === opened.phWindowId), false);
   assert.equal(animations.length, animationCount);
   assert.equal(chrome.calls.createWindow.length, 3);
   assert.equal((await controller(chrome).state()).rightSurface, "aux");
+});
+
+test("logical rightSurface alone determines toggle direction despite focus and minimized state", async () => {
+  const chrome = fakeChrome();
+  const requestedSurfaces = [];
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { warn() {} },
+    nativeTransferRightSurfaceOwner: async ({ surface }) => {
+      requestedSurfaces.push(surface);
+      return true;
+    },
+  });
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  const misc = await workspace.switchRightSurface("misc", workArea);
+  chrome.resizeWindow(opened.auxWindowId, { focused: true, state: "normal" });
+  chrome.resizeWindow(misc.miscWindowId, { focused: false, state: "normal" });
+
+  const toggled = await workspace.toggleRightSurface(workArea);
+
+  assert.deepEqual(requestedSurfaces, ["misc", "aux"]);
+  assert.equal(toggled.rightSurface, "aux");
+});
+
+test("failed threshold transfer preserves the outgoing surface and releases the transition queue", async () => {
+  const chrome = fakeChrome();
+  let attempts = 0;
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { warn() {} },
+    nativeTransferRightSurfaceOwner: async () => ++attempts > 1,
+  });
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+
+  await assert.rejects(workspace.switchRightSurface("misc", workArea), /transfer the drawer threshold/);
+  assert.equal((await workspace.state()).rightSurface, "aux");
+  assert.equal(chrome.getWindow(opened.auxWindowId).state, "normal");
+
+  const recovered = await workspace.switchRightSurface("misc", workArea);
+  assert.equal(recovered.rightSurface, "misc");
+  assert.equal(chrome.getWindow(opened.auxWindowId).state, "minimized");
 });
 
 test("right-surface requests serialize and a queued request is never dropped", async () => {
@@ -779,10 +856,15 @@ test("stale Misc runtime IDs adopt the matching restored session without a dupli
 test("a PlayHouse route swaps Misc for Aux without drawer animation", async () => {
   const chrome = fakeChrome();
   const animations = [];
+  const thresholdTransfers = [];
   const workspace = new CarnivalWorkspaceController(chrome, {
     logger: { warn() {} },
     nativeAnimate: async (animation) => {
       animations.push(animation);
+      return true;
+    },
+    nativeTransferRightSurfaceOwner: async (transfer) => {
+      thresholdTransfers.push({ ...transfer, updateCount: chrome.calls.updateWindow.length });
       return true;
     },
   });
@@ -790,6 +872,7 @@ test("a PlayHouse route swaps Misc for Aux without drawer animation", async () =
   const opened = await workspace.summon(workArea, "display-1");
   const playhouseBefore = { ...chrome.getWindow(opened.phWindowId) };
   const misc = await workspace.switchRightSurface("misc", workArea);
+  thresholdTransfers.length = 0;
   const animationCount = animations.length;
   chrome.calls.updateWindow.length = 0;
 
@@ -810,6 +893,8 @@ test("a PlayHouse route swaps Misc for Aux without drawer animation", async () =
     id === misc.miscWindowId && options.state === "minimized"
   ));
   assert.ok(auxActivateIndex >= 0 && auxActivateIndex < miscHideIndex);
+  assert.equal(thresholdTransfers[0].surface, "aux");
+  assert.ok(thresholdTransfers[0].updateCount <= miscHideIndex);
   assert.equal(chrome.calls.updateWindow.some(({ id }) => id === opened.phWindowId), false);
 });
 

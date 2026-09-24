@@ -15,7 +15,7 @@ import {
 } from "./gmail-tab-metadata.js";
 
 const NATIVE_HOST = "com.carnival.workspace";
-const NATIVE_HOST_VERSION = "DRAWER-HOST-20";
+const NATIVE_HOST_VERSION = "DRAWER-HOST-21";
 const RECONNECT_ALARM = "carnival-native-host-reconnect";
 const GEOMETRY_SAVE_DELAY_MS = 350;
 const GET_GMAIL_THREAD_PARTICIPANTS = "getGmailThreadParticipants";
@@ -31,8 +31,11 @@ const GET_LOCAL_BRANCHES = "getLocalBranches";
 let nativePort = null;
 let nativeAnimationAvailable = false;
 let nativeAnimationRequestId = 0;
+let nativeRightSurfaceOwnerTransferAvailable = false;
+let nativeRightSurfaceOwnerRequestId = 0;
 let immediateNativeReconnectUsed = false;
 const nativeAnimationRequests = new Map();
+const nativeRightSurfaceOwnerRequests = new Map();
 const nativeBranchRequests = new Map();
 let nativeBranchRequestId = 0;
 let branchHierarchyCache = null;
@@ -222,10 +225,40 @@ async function activateWindowsNatively({ context, playhouse }) {
   }
 }
 
+async function transferRightSurfaceOwnerNatively({ bounds, surface }) {
+  if (!nativePort) return true;
+  if (!nativeRightSurfaceOwnerTransferAvailable) return false;
+  const requestId = ++nativeRightSurfaceOwnerRequestId;
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      nativeRightSurfaceOwnerRequests.delete(requestId);
+      console.warn("Carnival: native right-surface threshold transfer timed out", { surface });
+      resolve(false);
+    }, 2000);
+    nativeRightSurfaceOwnerRequests.set(requestId, (ok) => {
+      clearTimeout(timeout);
+      resolve(ok);
+    });
+    try {
+      nativePort.postMessage({
+        ...flattenBounds("context", bounds),
+        requestId,
+        type: "transferRightSurfaceOwner",
+      });
+    } catch (error) {
+      clearTimeout(timeout);
+      nativeRightSurfaceOwnerRequests.delete(requestId);
+      console.warn("Carnival: native right-surface threshold transfer failed", error);
+      resolve(false);
+    }
+  });
+}
+
 const controller = new CarnivalWorkspaceController(chrome, {
   logger: diagnosticLogger,
   nativeActivate: activateWindowsNatively,
   nativeAnimate: animateWindowsNatively,
+  nativeTransferRightSurfaceOwner: transferRightSurfaceOwnerNatively,
   phSessionDiagnostics,
   windowTrace,
 });
@@ -286,6 +319,8 @@ function connectNativeHost() {
       if (message?.type === "hostReady") {
         immediateNativeReconnectUsed = false;
         nativeAnimationAvailable = message.version === NATIVE_HOST_VERSION && message.nativeWindowAnimation === true;
+        nativeRightSurfaceOwnerTransferAvailable = nativeAnimationAvailable &&
+          message.rightSurfaceOwnerTransfer === true;
         if (nativeAnimationAvailable) {
           console.info(`Carnival native host: ${NATIVE_HOST_VERSION}`);
         } else {
@@ -296,6 +331,12 @@ function connectNativeHost() {
       if (message?.type === "animationComplete") {
         const complete = nativeAnimationRequests.get(message.requestId);
         nativeAnimationRequests.delete(message.requestId);
+        complete?.(message.ok === true);
+        return;
+      }
+      if (message?.type === "rightSurfaceOwnerTransferred") {
+        const complete = nativeRightSurfaceOwnerRequests.get(message.requestId);
+        nativeRightSurfaceOwnerRequests.delete(message.requestId);
         complete?.(message.ok === true);
         return;
       }
@@ -322,8 +363,11 @@ function connectNativeHost() {
       const reconnectImmediately = !immediateNativeReconnectUsed;
       immediateNativeReconnectUsed = true;
       nativeAnimationAvailable = false;
+      nativeRightSurfaceOwnerTransferAvailable = false;
       for (const complete of nativeAnimationRequests.values()) complete(false);
       nativeAnimationRequests.clear();
+      for (const complete of nativeRightSurfaceOwnerRequests.values()) complete(false);
+      nativeRightSurfaceOwnerRequests.clear();
       for (const request of nativeBranchRequests.values()) request.complete({ ok: false, branches: [] });
       nativeBranchRequests.clear();
       nativePort = null;

@@ -103,3 +103,24 @@ test("native rollout prepares the existing pair before its first movement withou
   assert.doesNotMatch(animation, /HwndTopMost|TopMost|TOPMOST/);
   assert.match(animation, /opening complete but foreground activation failed/);
 });
+
+test("right-surface threshold ownership uses an acknowledged native handoff", () => {
+  const controller = readFileSync(new URL("./workspace-controller.js", import.meta.url), "utf8");
+  const background = readFileSync(new URL("./background.js", import.meta.url), "utf8");
+  const nativeHost = readFileSync(
+    new URL("../../desktop/workspace/windows/CarnivalWorkspaceHost.cs", import.meta.url),
+    "utf8",
+  );
+
+  const transfer = controller.slice(
+    controller.indexOf("const swapsPhysicalOwner"),
+    controller.indexOf("if (target.restore)"),
+  );
+  assert.ok(transfer.indexOf("nativeTransferRightSurfaceOwner") < transfer.indexOf("this.save(nextState)"));
+  assert.ok(transfer.indexOf("this.save(nextState)") < transfer.indexOf("state: \"minimized\""));
+  assert.match(background, /type: "transferRightSurfaceOwner"/);
+  assert.match(background, /message\?\.type === "rightSurfaceOwnerTransferred"/);
+  assert.match(nativeHost, /contextHandle = incoming;/);
+  assert.match(nativeHost, /contextOwnerVersion \+= 1;/);
+  assert.match(nativeHost, /currentContextOwnerVersion != contextOwnerVersion/);
+});
