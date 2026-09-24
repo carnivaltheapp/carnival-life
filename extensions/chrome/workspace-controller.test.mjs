@@ -723,6 +723,34 @@ test("toolbar-style right-surface switching skips inactive threshold transfer wh
   assert.deepEqual(chrome.getWindow(retracted.phWindowId), playhouseBefore);
 });
 
+test("repeated right-surface switching rediscovers an existing Aux window instead of duplicating it", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  const misc = await workspace.switchRightSurface("misc", workArea);
+  const createdCount = chrome.calls.createWindow.length;
+
+  await workspace.save({
+    ...misc,
+    auxActiveTabId: null,
+    auxRoleTabIds: {},
+    auxWindowId: null,
+    contextActiveTabId: null,
+    contextRoleTabIds: {},
+    contextWindowId: null,
+  });
+
+  const aux = await workspace.switchRightSurface("aux", workArea);
+  await workspace.switchRightSurface("misc", workArea);
+  const final = await workspace.switchRightSurface("aux", workArea);
+
+  assert.equal(aux.auxWindowId, opened.auxWindowId);
+  assert.equal(final.auxWindowId, opened.auxWindowId);
+  assert.equal(final.miscWindowId, misc.miscWindowId);
+  assert.equal(chrome.calls.createWindow.length, createdCount);
+});
+
 test("right-surface requests serialize and a queued request is never dropped", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);

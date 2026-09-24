@@ -332,3 +332,9 @@ drawer is retracted. Native evidence showed the host correctly rejecting thresho
 because no retract threshold is active in that state; the controller had incorrectly made that
 expected condition fatal. Retracted switches now skip only the inactive transfer. Open-drawer
 switches retain the acknowledged incoming-owner handoff, geometry, serialization, and safety rules.
+
+Marker `P3-RIGHT-SURFACE-REUSE-157` prevents repeated Aux/Misc switching from accumulating Chrome
+windows when a stored Aux runtime window ID is stale or temporarily missing. Before creating Aux,
+the controller now rediscovers an existing window whose ordered tabs match the saved Aux session,
+mirroring the established Misc recovery path. Closing Aux still clears its identity, and a new
+window is created normally when no valid existing session match remains.

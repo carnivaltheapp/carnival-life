@@ -994,7 +994,15 @@ export class CarnivalWorkspaceController {
     });
     try {
       await this.windowTrace?.discovery("AUX", prior.auxWindowId);
-      const window = await existingWindow(this.chrome, prior.auxWindowId);
+      let window = await existingWindow(this.chrome, prior.auxWindowId);
+      if (!window && prior.auxSession?.tabs) {
+        const windows = await this.chrome.windows.getAll({ populate: true });
+        window = windows.find((candidate) => (
+          candidate.id !== prior.phWindowId &&
+          candidate.id !== prior.miscWindowId &&
+          orderedUrlsMatch(candidate.tabs ?? [], prior.auxSession.tabs)
+        )) ?? null;
+      }
     let tab = await existingTab(this.chrome, prior.auxActiveTabId);
     if (!window || tab?.windowId !== window.id) tab = null;
     if (!window) {
