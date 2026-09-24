@@ -23,8 +23,9 @@ describe("Shift-created Gmail Play contact follow-up", () => {
     expect(create).toMatch(
       /resolution\.status === "matched"[\s\S]*?playerContactId = resolution\.contact\.id/,
     );
+    expect(create).toContain("playerDisplayName = resolution.contact.displayName");
     expect(create).toMatch(
-      /repository\.createGmail\([\s\S]*?input: \{ \.\.\.input, playerContactId \}/,
+      /repository\.createGmail\([\s\S]*?input: \{ \.\.\.input, playerContactId \}[\s\S]*?playerDisplayName/,
     );
   });
 
@@ -53,6 +54,7 @@ describe("Shift-created Gmail Play contact follow-up", () => {
       /createGmailAssigneeForParticipants\([\s\S]*?repository\.assignPlayer\(/,
     );
     expect(add).toContain("playerContactId: resolution.contact.id");
+    expect(add).toContain("playerDisplayName: resolution.contact.displayName");
     expect(add).toContain("playerResourceName: resolution.contact.providerResourceName");
     expect(add).toContain('(source === "supabase" && !isUuid(request.playId))');
     expect(shell).toMatch(

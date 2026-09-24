@@ -72,6 +72,7 @@ export type CreateGmailPlayRequest = {
   allowDuplicateThread?: boolean;
   attachment: GmailAttachment;
   input: PlayInput;
+  playerDisplayName?: string | null;
   playerResourceName: string | null;
 };
 
@@ -91,6 +92,7 @@ export type UnlinkGmailRequest = {
 export type AssignPlayerRequest = {
   playId: string;
   playerContactId: string;
+  playerDisplayName?: string | null;
   playerResourceName: string;
 };
 

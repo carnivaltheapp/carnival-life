@@ -304,13 +304,13 @@ describe("Mongo Play mapping", () => {
     });
   });
 
-  it("uses the canonical Google full display name without changing contact identity", () => {
+  it("preserves the canonical assignment snapshot while refreshing contact identity", () => {
     const task = {
       _id: new ObjectId(),
       action_type: "Gmail follow-up",
       carnival_players: [{
         contact_reference_id: "stale-reference-id",
-        display_name: "Sophi",
+        display_name: "Sophi Nabavi",
         kind: "contact",
         resource_name: "people/sophi",
       }],
@@ -367,7 +367,7 @@ describe("Mongo Play mapping", () => {
       _id: new ObjectId(),
       action_type: "Single-name Player",
       carnival_players: [{
-        display_name: "Old",
+        display_name: "Prince",
         kind: "contact",
         resource_name: "people/prince",
       }],

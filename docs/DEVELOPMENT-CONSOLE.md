@@ -364,3 +364,7 @@ Marker `P3-PLAYER-FULL-NAME-162` makes the canonical Google Contact reference au
 Player's displayed name. Mongo Play snapshots may retain an older shortened label, but rendering
 now uses Google's full cached display name while preserving the same stable contact ID and People
 resource name; single-name contacts continue to render normally.
+
+Marker `P3-PLAYER-FULL-NAME-163` carries the Gmail-resolved canonical Google Contact display name
+through the Player assignment boundary and persists it with the unchanged contact/reference IDs.
+New and existing Gmail-resolved Players therefore retain first-and-last names end to end.

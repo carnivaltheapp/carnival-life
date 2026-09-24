@@ -228,6 +228,7 @@ export class MongoPlayRepository implements PlayRepository {
     allowDuplicateThread,
     attachment,
     input,
+    playerDisplayName,
     playerResourceName,
   }: CreateGmailPlayRequest): Promise<CreateGmailPlayResult | null> {
     if (attachment.apiThreadId && !allowDuplicateThread) {
@@ -261,6 +262,14 @@ export class MongoPlayRepository implements PlayRepository {
       playerResourceName,
       priorityIndex: nextLegacyPriorityIndex(latest?.priority_index),
     });
+    if (input.playerContactId && playerResourceName && playerDisplayName?.trim()) {
+      document.carnival_players = [{
+        contact_reference_id: input.playerContactId,
+        display_name: playerDisplayName.trim(),
+        kind: "contact",
+        resource_name: playerResourceName,
+      }];
+    }
     document.carnival_google = {
       ...(attachment.apiThreadId ? { gmail_api_thread_id: attachment.apiThreadId } : {}),
       gmail_attachment: {
@@ -297,14 +306,28 @@ export class MongoPlayRepository implements PlayRepository {
     }
   }
 
-  async assignPlayer({ playId, playerResourceName }: AssignPlayerRequest) {
+  async assignPlayer({
+    playId,
+    playerContactId,
+    playerDisplayName,
+    playerResourceName,
+  }: AssignPlayerRequest) {
     try {
+      const canonicalPlayer = playerDisplayName?.trim()
+        ? [{
+            contact_reference_id: playerContactId,
+            display_name: playerDisplayName.trim(),
+            kind: "contact" as const,
+            resource_name: playerResourceName,
+          }]
+        : undefined;
       const result = await this.dependencies.collection.updateOne({
         ...mongoActiveFilter(),
         ...mongoMutationFilter(playId),
         task_type: { $ne: "A" },
       }, {
         $set: {
+          ...(canonicalPlayer ? { carnival_players: canonicalPlayer } : {}),
           contact_id: playerResourceName,
           updated_date: new Date(),
         },

@@ -271,6 +271,7 @@ describe("MongoPlayRepository mutations", () => {
         playerContactId: "contact-kayla",
         title: "Quarterly planning",
       }),
+      playerDisplayName: "Kayla Example",
       playerResourceName: "people/kayla",
     })).resolves.toEqual({ decision: "created", playId: id.toHexString() });
     expect(insertOne).toHaveBeenCalledOnce();
@@ -285,6 +286,12 @@ describe("MongoPlayRepository mutations", () => {
           thread_ref: "FMnew",
         },
       },
+      carnival_players: [{
+        contact_reference_id: "contact-kayla",
+        display_name: "Kayla Example",
+        kind: "contact",
+        resource_name: "people/kayla",
+      }],
       contact_id: "people/kayla",
       regarding: "email",
       task_type: "H",
@@ -364,6 +371,7 @@ describe("MongoPlayRepository mutations", () => {
     await expect(repository({ updateOne: updateOne as never }).assignPlayer({
       playId: id.toHexString(),
       playerContactId: "contact-kayla",
+      playerDisplayName: "Kayla Example",
       playerResourceName: "people/kayla",
     })).resolves.toBe(true);
     expect(updateOne.mock.calls[0][0]).toEqual({
@@ -375,6 +383,12 @@ describe("MongoPlayRepository mutations", () => {
       user_id: 43,
     });
     expect(updateOne.mock.calls[0][1].$set).toEqual({
+      carnival_players: [{
+        contact_reference_id: "contact-kayla",
+        display_name: "Kayla Example",
+        kind: "contact",
+        resource_name: "people/kayla",
+      }],
       contact_id: "people/kayla",
       updated_date: expect.any(Date),
     });

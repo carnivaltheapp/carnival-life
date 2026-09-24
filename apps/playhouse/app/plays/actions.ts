@@ -767,6 +767,7 @@ export async function attachGmailToPlay(request: {
       const assigned = await repository.assignPlayer({
         playId: request.playId,
         playerContactId: resolution.contact.id,
+        playerDisplayName: resolution.contact.displayName,
         playerResourceName: resolution.contact.providerResourceName,
       });
       if (!assigned) {
@@ -1088,6 +1089,7 @@ export async function createGmailPlayFromRow(
     };
     console.info("GMAIL_ROW_CREATE_METADATA_RESOLVED", resolvedDiagnostic);
     let playerContactId: string | null = null;
+    let playerDisplayName: string | null = null;
     let playerResourceName: string | null = null;
     let contactPrompt: { email: string; name: string | null } | undefined;
     if (parsed.gmailParticipants) {
@@ -1101,6 +1103,7 @@ export async function createGmailPlayFromRow(
         });
         if (resolution.status === "matched") {
           playerContactId = resolution.contact.id;
+          playerDisplayName = resolution.contact.displayName;
           playerResourceName = resolution.contact.providerResourceName;
         } else if (resolution.status === "contact_not_found") {
           contactPrompt = resolution.counterparty;
@@ -1114,6 +1117,7 @@ export async function createGmailPlayFromRow(
       allowDuplicateThread: parsed.intent === "create_new",
       attachment: parsed.attachment,
       input: { ...input, playerContactId },
+      playerDisplayName,
       playerResourceName,
     });
     if (!creation) {
@@ -1245,6 +1249,7 @@ export async function addGmailCounterpartyContact(request: {
     const assigned = await repository.assignPlayer({
       playId: request.playId,
       playerContactId: resolution.contact.id,
+      playerDisplayName: resolution.contact.displayName,
       playerResourceName: resolution.contact.providerResourceName,
     });
     if (!assigned) {

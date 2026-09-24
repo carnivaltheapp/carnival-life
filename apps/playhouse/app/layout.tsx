@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-PLAYER-FULL-NAME-162
+          P3-PLAYER-FULL-NAME-163
         </small>
       </body>
     </html>
