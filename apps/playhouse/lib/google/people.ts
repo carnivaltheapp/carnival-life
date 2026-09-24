@@ -23,9 +23,28 @@ type BatchGetPeopleResponse = {
   responses?: Array<{ person?: GooglePerson }>;
 };
 
+type GoogleContactGroup = {
+  groupType?: string;
+  memberCount?: number;
+  memberResourceNames?: string[];
+  name?: string;
+  resourceName?: string;
+};
+
+type ContactGroupsResponse = {
+  contactGroups?: GoogleContactGroup[];
+  nextPageToken?: string;
+};
+
 export type GoogleContactSummary = {
   displayName: string;
   email: string | null;
+  resourceName: string;
+};
+
+export type GoogleContactGroupSummary = {
+  displayName: string;
+  memberCount: number;
   resourceName: string;
 };
 
@@ -35,6 +54,10 @@ export type GoogleContactSlack = {
 };
 
 export class GoogleContactsPermissionError extends Error {}
+
+export function isGoogleContactGroupResourceName(value: unknown): value is string {
+  return typeof value === "string" && /^contactGroups\/[A-Za-z0-9_-]+$/.test(value);
+}
 
 export function slackFromUserDefined(
   values: GooglePerson["userDefined"],
@@ -112,6 +135,100 @@ export async function searchGoogleContacts(
     const contact = person ? mapGooglePerson(person) : null;
     return contact ? [contact] : [];
   });
+}
+
+function mapGoogleContactGroup(group: GoogleContactGroup): GoogleContactGroupSummary | null {
+  const resourceName = group.resourceName?.trim();
+  const displayName = group.name?.trim();
+  if (
+    group.groupType !== "USER_CONTACT_GROUP" ||
+    !isGoogleContactGroupResourceName(resourceName) ||
+    !displayName
+  ) return null;
+  return {
+    displayName,
+    memberCount: Number.isSafeInteger(group.memberCount) && (group.memberCount ?? -1) >= 0
+      ? group.memberCount as number
+      : 0,
+    resourceName,
+  };
+}
+
+export async function listGoogleContactGroups(
+  accessToken: string,
+  request: typeof fetch = fetch,
+): Promise<GoogleContactGroupSummary[]> {
+  const groups: GoogleContactGroupSummary[] = [];
+  let pageToken = "";
+  do {
+    const url = new URL("/v1/contactGroups", PEOPLE_API_ORIGIN);
+    url.searchParams.set("groupFields", "name,groupType,memberCount");
+    url.searchParams.set("pageSize", "1000");
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const response = await googlePeopleRequest(url, accessToken, request);
+    const page = (await response.json()) as ContactGroupsResponse;
+    groups.push(...(page.contactGroups ?? []).flatMap((group) => {
+      const mapped = mapGoogleContactGroup(group);
+      return mapped ? [mapped] : [];
+    }));
+    pageToken = page.nextPageToken?.trim() ?? "";
+  } while (pageToken);
+  return groups;
+}
+
+export async function getGoogleContactGroup(
+  accessToken: string,
+  resourceName: string,
+  request: typeof fetch = fetch,
+): Promise<GoogleContactGroupSummary> {
+  if (!isGoogleContactGroupResourceName(resourceName)) {
+    throw new Error("Google contact group identifier is invalid.");
+  }
+  const url = new URL(`/v1/${resourceName}`, PEOPLE_API_ORIGIN);
+  url.searchParams.set("groupFields", "name,groupType,memberCount");
+  url.searchParams.set("maxMembers", "0");
+  const response = await googlePeopleRequest(url, accessToken, request);
+  const group = mapGoogleContactGroup((await response.json()) as GoogleContactGroup);
+  if (!group || group.resourceName !== resourceName) {
+    throw new Error("Google contact group could not be verified.");
+  }
+  return group;
+}
+
+export async function getGoogleContactGroupMembers(
+  accessToken: string,
+  resourceName: string,
+  request: typeof fetch = fetch,
+): Promise<GoogleContactSummary[]> {
+  if (!isGoogleContactGroupResourceName(resourceName)) {
+    throw new Error("Google contact group identifier is invalid.");
+  }
+  const groupUrl = new URL(`/v1/${resourceName}`, PEOPLE_API_ORIGIN);
+  groupUrl.searchParams.set("groupFields", "name,groupType,memberCount");
+  groupUrl.searchParams.set("maxMembers", "1000");
+  const groupResponse = await googlePeopleRequest(groupUrl, accessToken, request);
+  const group = (await groupResponse.json()) as GoogleContactGroup;
+  if (group.groupType !== "USER_CONTACT_GROUP" || group.resourceName !== resourceName) {
+    throw new Error("Google contact group could not be verified.");
+  }
+  const memberResourceNames = [...new Set(
+    (group.memberResourceNames ?? []).filter((value) => /^people\/[A-Za-z0-9_-]+$/.test(value)),
+  )];
+  const members: GoogleContactSummary[] = [];
+  for (let index = 0; index < memberResourceNames.length; index += 100) {
+    const url = new URL("/v1/people:batchGet", PEOPLE_API_ORIGIN);
+    for (const member of memberResourceNames.slice(index, index + 100)) {
+      url.searchParams.append("resourceNames", member);
+    }
+    url.searchParams.set("personFields", "names,emailAddresses");
+    const response = await googlePeopleRequest(url, accessToken, request);
+    const page = (await response.json()) as BatchGetPeopleResponse;
+    members.push(...(page.responses ?? []).flatMap(({ person }) => {
+      const contact = person ? mapGooglePerson(person) : null;
+      return contact ? [contact] : [];
+    }));
+  }
+  return members;
 }
 
 export async function warmGoogleContactSearch(

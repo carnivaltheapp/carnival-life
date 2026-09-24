@@ -22,6 +22,13 @@ export type RepositoryPlayList = {
 export type SavePlayRequest = {
   input: PlayInput;
   playId: string | null;
+  playerReferences?: Array<{
+    contactId?: string;
+    displayName: string;
+    kind: "contact" | "group";
+    memberCount?: number;
+    resourceName: string;
+  }>;
   playerResourceName: string | null;
 };
 

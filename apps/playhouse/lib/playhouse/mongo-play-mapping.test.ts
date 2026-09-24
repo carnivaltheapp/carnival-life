@@ -257,6 +257,53 @@ describe("Mongo Play mapping", () => {
     });
   });
 
+  it("maps canonical multi-Player references while preserving group identity", () => {
+    const task = {
+      _id: new ObjectId(),
+      action_type: "Group planning",
+      carnival_players: [
+        {
+          contact_reference_id: "33333333-3333-4333-8333-333333333333",
+          display_name: "David Example",
+          kind: "contact",
+          resource_name: "people/david",
+        },
+        {
+          display_name: "Family",
+          kind: "group",
+          member_count: 2,
+          resource_name: "contactGroups/family",
+        },
+      ],
+      contact_id: "people/david",
+      is_active: true,
+      is_deleted: false,
+      task_date: new Date("2026-09-17T00:00:00.000Z"),
+      task_type: "H",
+      user_id: 43,
+    };
+    expect(mapMongoPlay(task, baskets, {
+      displayName: "David Example",
+      id: "33333333-3333-4333-8333-333333333333",
+    })).toMatchObject({
+      playerDisplayName: "David Example, Family",
+      playerEntries: [
+        {
+          contactId: "33333333-3333-4333-8333-333333333333",
+          displayName: "David Example",
+          kind: "contact",
+          resourceName: "people/david",
+        },
+        {
+          displayName: "Family",
+          kind: "group",
+          memberCount: 2,
+          resourceName: "contactGroups/family",
+        },
+      ],
+    });
+  });
+
   it("uses targeted editable fields and preserves unrelated legacy fields", () => {
     const values = mongoEditableSet({
       baskets,

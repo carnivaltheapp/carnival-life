@@ -16,7 +16,7 @@ describe("Play detail Cancel", () => {
     expect(playForm).toContain("event.stopPropagation()");
     expect(playForm).toContain("setPlacementKind(initialPlacement.kind)");
     expect(playForm).toContain('setReminderDate("")');
-    expect(playForm).toContain("setSelectedPlayerId(play?.playerContactId ?? null)");
+    expect(playForm).toContain("setSelectedPlayers(selectionsFromPlay(play))");
     expect(playForm).toContain("setFormResetVersion((version) => version + 1)");
     expect(playForm).toContain('detailsRef.current?.removeAttribute("open")');
     expect(playForm).toMatch(/key=\{formResetVersion\}[\s\S]*?noValidate/);

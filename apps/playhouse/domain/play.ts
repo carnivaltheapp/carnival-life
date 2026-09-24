@@ -59,6 +59,13 @@ export interface PlayListItem {
   place: string | null;
   playerContactId: string | null;
   playerDisplayName: string | null;
+  playerEntries?: Array<{
+    contactId?: string;
+    displayName: string;
+    kind: "contact" | "group";
+    memberCount?: number;
+    resourceName: string;
+  }>;
   playType: PlayType;
   pushRule: PushRule;
   scheduledDate: string | null;

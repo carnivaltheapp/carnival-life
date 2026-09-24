@@ -2469,7 +2469,101 @@ h1 {
 }
 
 .playerField input[role="combobox"] {
-  padding-right: 38px;
+  padding-right: 10px;
+}
+
+.playerSelectionList {
+  display: grid;
+  margin-bottom: 5px;
+  gap: 4px;
+}
+
+.playerSelection {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 26px;
+  align-items: center;
+  border: 1px solid rgba(109, 63, 242, 0.18);
+  border-radius: 9px;
+  background: rgba(109, 63, 242, 0.06);
+}
+
+.playerSelectionName {
+  display: flex;
+  min-width: 0;
+  padding: 5px 7px;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink);
+  font-size: 0.72rem;
+}
+
+.playerSelectionName small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.62rem;
+  white-space: nowrap;
+}
+
+.playerGroupName {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.playerGroupIcon {
+  line-height: 1;
+}
+
+.removePlayerButton {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--muted);
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.removePlayerButton:hover,
+.playerGroupName:hover {
+  background: rgba(109, 63, 242, 0.08);
+}
+
+.playerGroupMembers {
+  display: grid;
+  grid-column: 1 / -1;
+  max-height: 180px;
+  padding: 5px 7px 7px;
+  gap: 3px;
+  overflow-y: auto;
+  border-top: 1px solid rgba(109, 63, 242, 0.12);
+  background: white;
+}
+
+.playerGroupMembers label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.68rem;
+}
+
+.playerGroupMembers input {
+  width: 14px;
+  min-height: 14px;
+  margin: 0;
+}
+
+.playerGroupMembers small,
+.playerGroupMembers p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.62rem;
 }
 
 .clearPlayerButton {

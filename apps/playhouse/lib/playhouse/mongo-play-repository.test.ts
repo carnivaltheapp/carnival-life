@@ -609,6 +609,42 @@ describe("MongoPlayRepository mutations", () => {
     expect(updateOne.mock.calls[0][1].$set.contact_id).toBe("");
   });
 
+  it("persists multiple contact and group references without copying group members", async () => {
+    const id = new ObjectId();
+    const findOne = vi.fn().mockResolvedValue({ _id: id, task_type: "H", user_id: 43 });
+    const updateOne = vi.fn().mockResolvedValue({ matchedCount: 1 });
+    await repository({ findOne: findOne as never, updateOne: updateOne as never }).save({
+      input: playInput({ playerContactId: "33333333-3333-4333-8333-333333333333" }),
+      playId: id.toHexString(),
+      playerReferences: [
+        {
+          contactId: "33333333-3333-4333-8333-333333333333",
+          displayName: "David Example",
+          kind: "contact",
+          resourceName: "people/david",
+        },
+        {
+          displayName: "Family",
+          kind: "group",
+          memberCount: 2,
+          resourceName: "contactGroups/family",
+        },
+      ],
+      playerResourceName: "people/david",
+    });
+
+    expect(updateOne.mock.calls[0][1].$set.carnival_players).toEqual([
+      {
+        contact_reference_id: "33333333-3333-4333-8333-333333333333",
+        display_name: "David Example",
+        kind: "contact",
+        resource_name: "people/david",
+      },
+      { display_name: "Family", kind: "group", member_count: 2, resource_name: "contactGroups/family" },
+    ]);
+    expect(updateOne.mock.calls[0][1].$set.carnival_players[1]).not.toHaveProperty("members");
+  });
+
   it("moves a Headline to a future Reminder with destination priority and no field replacement", async () => {
     const id = new ObjectId();
     const findOne = vi.fn()

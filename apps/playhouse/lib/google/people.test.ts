@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   canSearchGooglePeople,
+  getGoogleContactGroupMembers,
   getGoogleContact,
   getGoogleContactSlack,
   getGoogleContactsSlack,
   GoogleContactsPermissionError,
   normalizePlayerSearchQuery,
+  listGoogleContactGroups,
   searchGoogleContacts,
   warmGoogleContactSearch,
   updateGoogleContactSlack,
@@ -69,6 +71,39 @@ describe("Google People search", () => {
     const url = new URL(String(request.mock.calls[0]?.[0]));
     expect(url.searchParams.get("query")).toBe("");
     expect(url.pathname).toBe("/v1/people:searchContacts");
+  });
+
+  it("lists only user contact labels with stable identifiers and member counts", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      contactGroups: [
+        { groupType: "USER_CONTACT_GROUP", memberCount: 2, name: "Family", resourceName: "contactGroups/family" },
+        { groupType: "SYSTEM_CONTACT_GROUP", memberCount: 10, name: "Contacts", resourceName: "contactGroups/all" },
+      ],
+    }), { status: 200 }));
+
+    await expect(listGoogleContactGroups("token", request)).resolves.toEqual([{
+      displayName: "Family",
+      memberCount: 2,
+      resourceName: "contactGroups/family",
+    }]);
+  });
+
+  it("expands current group membership live without returning a persisted member copy", async () => {
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        groupType: "USER_CONTACT_GROUP",
+        memberResourceNames: ["people/one", "people/two"],
+        resourceName: "contactGroups/family",
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ responses: [
+        { person: { emailAddresses: [{ value: "one@example.com" }], names: [{ displayName: "One" }], resourceName: "people/one" } },
+        { person: { names: [{ displayName: "Two" }], resourceName: "people/two" } },
+      ] }), { status: 200 }));
+
+    await expect(getGoogleContactGroupMembers("token", "contactGroups/family", request)).resolves.toEqual([
+      { displayName: "One", email: "one@example.com", resourceName: "people/one" },
+      { displayName: "Two", email: null, resourceName: "people/two" },
+    ]);
   });
 
   it("verifies a selected resource through people.get", async () => {

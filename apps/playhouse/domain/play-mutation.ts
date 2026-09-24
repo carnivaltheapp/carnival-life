@@ -10,6 +10,7 @@ const PLAY_FORM_VALUE_FIELDS = [
   "playType",
   "playerContactId",
   "playerDisplayName",
+  "playerEntries",
   "pushRule",
   "scheduledDate",
   "slack",

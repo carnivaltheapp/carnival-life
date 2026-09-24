@@ -2,9 +2,12 @@ import "server-only";
 
 import {
   getGoogleContact,
+  getGoogleContactGroup,
+  getGoogleContactGroupMembers,
   getGoogleContactSlack,
   getGoogleContactsSlack,
   searchGoogleContacts,
+  listGoogleContactGroups,
   type GoogleContactSummary,
   warmGoogleContactSearch,
   updateGoogleContactSlack,
@@ -23,6 +26,11 @@ const TEST_CONTACTS: GoogleContactSummary[] = [
     resourceName: "people/e2e-blair",
   },
 ];
+const TEST_GROUPS = [{
+  displayName: "Carnival Friends",
+  memberCount: 2,
+  resourceName: "contactGroups/e2e-friends",
+}];
 const WARMUP_TTL_MS = 5 * 60 * 1000;
 const warmedAccounts = new Map<string, number>();
 
@@ -44,11 +52,15 @@ export async function searchPeopleForAccount({
 }) {
   if (isDeterministicTestAdapterEnabled()) {
     const normalized = query.trim().toLocaleLowerCase();
-    return TEST_CONTACTS.filter((contact) =>
-      `${contact.displayName} ${contact.email ?? ""}`
-        .toLocaleLowerCase()
-        .includes(normalized),
-    );
+    return [
+      ...TEST_CONTACTS.filter((contact) =>
+        `${contact.displayName} ${contact.email ?? ""}`
+          .toLocaleLowerCase()
+          .includes(normalized),
+      ).map((contact) => ({ ...contact, kind: "contact" as const })),
+      ...TEST_GROUPS.filter((group) => group.displayName.toLocaleLowerCase().includes(normalized))
+        .map((group) => ({ ...group, kind: "group" as const })),
+    ];
   }
 
   const accessToken = await getGoogleAccessToken({
@@ -60,7 +72,17 @@ export async function searchPeopleForAccount({
     await warmGoogleContactSearch(accessToken);
     warmedAccounts.set(googleAccountId, Date.now());
   }
-  return searchGoogleContacts(accessToken, query);
+  const normalized = query.trim().toLocaleLowerCase();
+  const [contacts, groups] = await Promise.all([
+    searchGoogleContacts(accessToken, query),
+    listGoogleContactGroups(accessToken),
+  ]);
+  return [
+    ...contacts.map((contact) => ({ ...contact, kind: "contact" as const })),
+    ...groups
+      .filter((group) => group.displayName.toLocaleLowerCase().includes(normalized))
+      .map((group) => ({ ...group, kind: "group" as const })),
+  ];
 }
 
 export async function resolvePersonForAccount({
@@ -87,6 +109,38 @@ export async function resolvePersonForAccount({
     ownerUserId,
   });
   return getGoogleContact(accessToken, resourceName);
+}
+
+export async function resolveContactGroupForAccount({
+  googleAccountId,
+  ownerUserId,
+  resourceName,
+}: {
+  googleAccountId: string;
+  ownerUserId: string;
+  resourceName: string;
+}) {
+  if (isDeterministicTestAdapterEnabled()) {
+    const group = TEST_GROUPS.find((candidate) => candidate.resourceName === resourceName);
+    if (!group) throw new Error("Test contact group was not found.");
+    return group;
+  }
+  const accessToken = await getGoogleAccessToken({ googleAccountId, ownerUserId });
+  return getGoogleContactGroup(accessToken, resourceName);
+}
+
+export async function readContactGroupMembersForAccount({
+  googleAccountId,
+  ownerUserId,
+  resourceName,
+}: {
+  googleAccountId: string;
+  ownerUserId: string;
+  resourceName: string;
+}) {
+  if (isDeterministicTestAdapterEnabled()) return TEST_CONTACTS;
+  const accessToken = await getGoogleAccessToken({ googleAccountId, ownerUserId });
+  return getGoogleContactGroupMembers(accessToken, resourceName);
 }
 
 export async function readSlackForAccount({

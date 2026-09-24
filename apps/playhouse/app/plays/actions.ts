@@ -28,8 +28,13 @@ import {
   type GmailRowCreateRequest,
 } from "../../domain/gmail-row-create";
 import { reminderContextDate } from "../../domain/reminder";
+import {
+  parseSubmittedPlayerReferences,
+  type SubmittedPlayerReference,
+} from "../../domain/player-references";
 import { resolveGmailAssigneeForParticipants } from "../../lib/google/gmail-assignee.server";
 import { changedPlayerSlackFromFormData } from "../../lib/google/contact-slack";
+import { isGooglePeopleResourceName } from "../../lib/google/contact-reference";
 import {
   restoreGmailThreadForManualLink,
   resolveGmailLifecycleContext,
@@ -40,6 +45,7 @@ import {
   applyPlayLifecycle,
   type GmailLifecycleCleanupResult,
 } from "../../lib/google/gmail-lifecycle";
+import { resolveContactGroupForAccount } from "../../lib/google/people.server";
 import { recordGmailDiagnostic } from "../../lib/incoming-events/gmail-diagnostics";
 import { resolvePlayhouseDataSource } from "../../lib/playhouse/data-source";
 import { dateInTimeZone } from "../../lib/playhouse/data";
@@ -218,6 +224,66 @@ async function persistPlayLifecycle({
   return { persisted: true, warning: gmailLifecycleWarning(status, cleanup) };
 }
 
+async function canonicalPlayerReferences({
+  auth,
+  formData,
+}: {
+  auth: NonNullable<Awaited<ReturnType<typeof authenticatedClient>>>;
+  formData: FormData;
+}) {
+  const submitted = parseSubmittedPlayerReferences(formData.get("playerEntries"));
+  if (submitted === undefined) return undefined;
+  if (submitted === null) return null;
+  const contactIds = submitted.flatMap((entry) => entry.kind === "contact" && entry.contactId
+    ? [entry.contactId]
+    : []);
+  const { data: contacts, error: contactsError } = contactIds.length
+    ? await auth.supabase
+      .from("contact_references")
+      .select("id, display_name, provider_resource_name")
+      .eq("owner_user_id", auth.userId)
+      .in("id", contactIds)
+    : { data: [], error: null };
+  if (contactsError || contacts?.length !== contactIds.length) return null;
+  const contactsById = new Map((contacts ?? []).map((contact) => [contact.id, contact]));
+  const groups = submitted.filter((entry) => entry.kind === "group");
+  let googleAccountId: string | null = null;
+  if (groups.length) {
+    const { data: account, error } = await auth.supabase
+      .from("google_accounts")
+      .select("id")
+      .eq("owner_user_id", auth.userId)
+      .eq("connection_status", "connected")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !account) return null;
+    googleAccountId = account.id;
+  }
+  const result: SubmittedPlayerReference[] = [];
+  for (const entry of submitted) {
+    if (entry.kind === "contact") {
+      const contact = entry.contactId ? contactsById.get(entry.contactId) : null;
+      if (!contact || !isGooglePeopleResourceName(contact.provider_resource_name) ||
+        (entry.resourceName && contact.provider_resource_name !== entry.resourceName)) return null;
+      result.push({
+        contactId: contact.id,
+        displayName: contact.display_name,
+        kind: "contact",
+        resourceName: contact.provider_resource_name,
+      });
+    } else {
+      const group = await resolveContactGroupForAccount({
+        googleAccountId: googleAccountId as string,
+        ownerUserId: auth.userId,
+        resourceName: entry.resourceName,
+      });
+      result.push({ ...group, kind: "group" });
+    }
+  }
+  return result;
+}
+
 async function restoreGmailAfterExplicitRevival({
   ownerUserId,
   plays,
@@ -345,8 +411,20 @@ async function savePlayInternal(
     });
   }
 
-  let playerResourceName: string | null = null;
-  if (parsed.data.playerContactId) {
+  const playerReferences = await canonicalPlayerReferences({ auth, formData });
+  if (playerReferences === null) {
+    return errorState("One or more Players are no longer available.", {
+      playerContactId: "Choose current Google contacts or labels.",
+    });
+  }
+  const firstContactReference = playerReferences?.find((entry) => entry.kind === "contact") ?? null;
+  let playerResourceName: string | null = firstContactReference?.resourceName ?? null;
+  if (playerReferences !== undefined && parsed.data.playerContactId !== (firstContactReference?.contactId ?? null)) {
+    return errorState("That Player selection is invalid.", {
+      playerContactId: "Choose current Google contacts or labels.",
+    });
+  }
+  if (playerReferences === undefined && parsed.data.playerContactId) {
     const { data: contact, error: contactError } = await auth.supabase
       .from("contact_references")
       .select("id, provider_resource_name")
@@ -379,6 +457,7 @@ async function savePlayInternal(
   const saved = await repository.save({
     input: parsed.data,
     playId: playId || null,
+    playerReferences,
     playerResourceName,
   });
   if (!saved) {

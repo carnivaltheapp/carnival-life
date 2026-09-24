@@ -70,11 +70,12 @@ export async function resolveGmailAssigneeForParticipants({
       if (!accountById.get(account.id)?.granted_scopes.includes(GOOGLE_CONTACTS_READONLY_SCOPE)) {
         return [];
       }
-      return searchPeopleForAccount({
+      const results = await searchPeopleForAccount({
         googleAccountId: account.id,
         ownerUserId,
         query: email,
       });
+      return results.filter((result) => result.kind === "contact");
     },
     persistGoogleContact: async (account, contact) => upsertSelectedContactReference({
       contact,

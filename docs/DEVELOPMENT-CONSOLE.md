@@ -319,3 +319,10 @@ scopes; they may narrow scopes but cannot add one. Roadmap tools and data are un
 Do not claim live ChatGPT access until step 4 has succeeded. Official ChatGPT MCP connections
 cannot use arbitrary custom bearer secrets, so `CARNIVAL_ROADMAP_READ_TOKEN` remains an
 optional server-to-server/testing capability rather than an interactive ChatGPT credential.
+
+Marker `P3-CONTACT-GROUPS-155` implements CF-011 Contact Groups as Labels. A Play can now retain
+multiple canonical Google Player references, including individual People resources and stable
+Google Contact Group resources. Player search includes user-created labels with member counts;
+groups expand against the live People API into a temporary, initially checked member list. Only
+contact/group references are stored on the Play—expanded membership and checkbox state are never
+persisted or written back to Google Contacts. Existing single-Player Plays remain compatible.

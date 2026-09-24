@@ -13,6 +13,7 @@ import type {
   PlayType,
 } from "../domain/play";
 import type { PlayInputField } from "../domain/play-input";
+import type { PlayerSelection } from "../domain/player-search";
 import { INITIAL_PLAY_MUTATION_STATE } from "../domain/play-mutation";
 import { reminderDateError } from "../domain/reminder";
 import { playVisualForPlay } from "../domain/play-visual";
@@ -37,6 +38,38 @@ import { PlayerSlackField } from "./player-slack-field";
 import { PlayInfo, PlayWorkflowActions } from "./play-status-actions";
 
 const PLACE_OPTIONS = ["office", "outside", "any"] as const;
+
+function selectionsFromPlay(play: PlayListItem | null | undefined): PlayerSelection[] {
+  if (!play) return [];
+  if (play.playerEntries?.length) {
+    return play.playerEntries.map((entry): PlayerSelection => entry.kind === "group"
+      ? { ...entry, kind: "group", memberCount: entry.memberCount ?? 0 }
+      : {
+          displayName: entry.displayName,
+          id: entry.contactId ?? "",
+          kind: "contact",
+          resourceName: entry.resourceName,
+        }).filter((entry) => entry.kind === "group" || Boolean(entry.id));
+  }
+  return play.playerContactId
+    ? [{
+        displayName: play.playerDisplayName ?? "Selected Player",
+        id: play.playerContactId,
+        kind: "contact",
+        resourceName: "",
+      }]
+    : [];
+}
+
+function submittedPlayerSelections(raw: string | undefined): PlayerSelection[] | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as PlayerSelection[];
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 function FieldError({ field, errors }: {
   field: PlayInputField;
@@ -149,19 +182,9 @@ export function PlayForm({
     play?.place && !PLACE_OPTIONS.some((place) => place === play.place),
   );
   const submittedValues = formResetVersion === 0 ? state.values : undefined;
-  const submittedPlayerId = submittedValues?.playerContactId ?? null;
-  const submittedPlayerName = submittedValues?.playerDisplayName ?? null;
-  const initialPlayer = submittedValues
-    ? submittedPlayerId && submittedPlayerName
-      ? { displayName: submittedPlayerName, id: submittedPlayerId }
-      : null
-    : play?.playerContactId
-      ? {
-          displayName: play.playerDisplayName ?? "Selected Player",
-          id: play.playerContactId,
-        }
-      : null;
-  const [selectedPlayerId, setSelectedPlayerId] = useState(initialPlayer?.id ?? null);
+  const initialPlayers = submittedPlayerSelections(submittedValues?.playerEntries) ?? selectionsFromPlay(play);
+  const [selectedPlayers, setSelectedPlayers] = useState<PlayerSelection[]>(initialPlayers);
+  const selectedPlayerId = selectedPlayers.find((entry) => entry.kind === "contact")?.id ?? null;
   const initialBranch = submittedValues?.branch ?? play?.branch ?? "";
   const [branchValue, setBranchValue] = useState(initialBranch);
   const [branchTreeVersion, setBranchTreeVersion] = useState(0);
@@ -270,7 +293,7 @@ export function PlayForm({
     setReminderDateMessage(null);
     setShowReminderDate(false);
     setSaveFollowupError(null);
-    setSelectedPlayerId(play?.playerContactId ?? null);
+    setSelectedPlayers(selectionsFromPlay(play));
     setBranchValue(play?.branch ?? "");
     setShowAllFolders(false);
     setFormResetVersion((version) => version + 1);
@@ -550,9 +573,9 @@ export function PlayForm({
               <div className="playerInfoRow">
                 <PlayerCombobox
                   error={state.fieldErrors?.playerContactId}
-                  initialSelection={initialPlayer}
-                  key={`${submittedPlayerId ?? play?.playerContactId ?? "none"}:${submittedPlayerName ?? play?.playerDisplayName ?? ""}`}
-                  onSelectionChange={(selection) => setSelectedPlayerId(selection?.id ?? null)}
+                  initialSelections={initialPlayers}
+                  key={`${submittedValues?.playerEntries ?? play?.playerEntries?.map((entry) => `${entry.kind}:${entry.resourceName}`).join("|") ?? play?.playerContactId ?? "none"}:${formResetVersion}`}
+                  onSelectionChange={setSelectedPlayers}
                 />
                 <PlayerContactInfo playerContactId={selectedPlayerId} />
               </div>

@@ -25,6 +25,7 @@ export type LegacyTaskDocument = Record<string, unknown> & {
   created_date?: unknown;
   duration?: unknown;
   carnival_google?: unknown;
+  carnival_players?: unknown;
   email?: unknown;
   first?: unknown;
   is_active?: unknown;
@@ -331,6 +332,26 @@ export function mongoContactFallback(task: LegacyTaskDocument) {
     "Selected Player";
 }
 
+export function mongoPlayerReferences(
+  task: LegacyTaskDocument,
+): NonNullable<PlayListItem["playerEntries"]> {
+  if (!Array.isArray(task.carnival_players)) return [];
+  return task.carnival_players.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const record = value as Record<string, unknown>;
+    const kind = record.kind === "contact" || record.kind === "group" ? record.kind : null;
+    const resourceName = text(record.resource_name);
+    const displayName = text(record.display_name);
+    const contactId = text(record.contact_reference_id);
+    const memberCount = typeof record.member_count === "number" &&
+      Number.isSafeInteger(record.member_count) && record.member_count >= 0
+      ? record.member_count
+      : undefined;
+    if (!kind || !resourceName || !displayName) return [];
+    return [{ contactId: contactId ?? undefined, displayName, kind, memberCount, resourceName }];
+  });
+}
+
 export function mapMongoPlay(
   task: WithId<LegacyTaskDocument>,
   baskets: BasketSummary[],
@@ -345,6 +366,19 @@ export function mapMongoPlay(
     : undefined;
   const sourceType: PlaySourceType = task.regarding === "email" ? "gmail" : "user";
   const resourceName = mongoContactResourceName(task);
+  const persistedPlayers = mongoPlayerReferences(task);
+  const playerEntries = persistedPlayers.length
+    ? persistedPlayers.map((entry) => entry.kind === "contact" && contact?.id && entry.resourceName === resourceName
+      ? { ...entry, contactId: contact.id }
+      : entry)
+    : resourceName
+      ? [{
+          contactId: contact?.id,
+          displayName: contact?.displayName ?? mongoContactFallback(task),
+          kind: "contact" as const,
+          resourceName,
+        }]
+      : [];
   const contextType = mongoPlaceBlockedDates(task).length ? "place" as const : null;
   const gmailAttachment = task.carnival_google &&
       typeof task.carnival_google === "object" &&
@@ -405,9 +439,10 @@ export function mapMongoPlay(
     nextPlayId: null,
     place: text(task.place),
     playerContactId: contact?.id ?? null,
-    playerDisplayName: resourceName
-      ? (contact?.displayName ?? mongoContactFallback(task))
+    playerDisplayName: playerEntries.length
+      ? playerEntries.map(({ displayName }) => displayName).join(", ")
       : null,
+    playerEntries,
     playType: mongoPlayType(task.task_type),
     pushRule: mongoPushRule(task.push_type),
     scheduledDate: basket ? null : taskDay,

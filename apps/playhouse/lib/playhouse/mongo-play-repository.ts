@@ -588,7 +588,21 @@ export class MongoPlayRepository implements PlayRepository {
     }) === 0;
   }
 
-  async save({ input, playId, playerResourceName }: SavePlayRequest) {
+  async save({ input, playId, playerReferences, playerResourceName }: SavePlayRequest) {
+    const carnivalPlayers = (playerReferences ?? (playerResourceName ? [{
+      contactId: input.playerContactId ?? undefined,
+      displayName: "Selected Player",
+      kind: "contact" as const,
+      resourceName: playerResourceName,
+    }] : [])).map((player) => ({
+      ...(player.contactId ? { contact_reference_id: player.contactId } : {}),
+      display_name: player.displayName,
+      kind: player.kind,
+      ...(player.kind === "group" && typeof player.memberCount === "number"
+        ? { member_count: player.memberCount }
+        : {}),
+      resource_name: player.resourceName,
+    }));
     if (playId) {
       let identityFilter: Filter<LegacyTaskDocument>;
       try {
@@ -612,6 +626,7 @@ export class MongoPlayRepository implements PlayRepository {
         input,
         playerResourceName,
       });
+      values.carnival_players = carnivalPlayers;
       if (existing.task_type !== "S" && input.playType === "reminder") {
         const latestReminder = await this.dependencies.collection.findOne(
           {
@@ -638,14 +653,14 @@ export class MongoPlayRepository implements PlayRepository {
       },
       { projection: { priority_index: 1 }, sort: { priority_index: -1 } },
     );
-    const result = await this.dependencies.collection.insertOne(
-      mongoCreateDocument({
+    const document = mongoCreateDocument({
         baskets: this.dependencies.baskets,
         input,
         playerResourceName,
         priorityIndex: nextLegacyPriorityIndex(latest?.priority_index),
-      }),
-    );
+      });
+    document.carnival_players = carnivalPlayers;
+    const result = await this.dependencies.collection.insertOne(document);
     return result.acknowledged;
   }
 

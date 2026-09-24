@@ -2,6 +2,7 @@
 
 import type {
   PlayerSearchResponse,
+  PlayerGroupMembersResponse,
   PlayerSelectionResponse,
 } from "../../domain/player-search";
 import { isUuid } from "../../domain/play-input";
@@ -10,6 +11,7 @@ import {
   upsertSelectedContactReference,
 } from "../../lib/google/contact-reference";
 import {
+  isGoogleContactGroupResourceName,
   canSearchGooglePeople,
   GoogleContactsPermissionError,
   normalizePlayerSearchQuery,
@@ -17,6 +19,8 @@ import {
 import { usableSlackUrl } from "../../lib/google/contact-slack";
 import {
   readSlackForAccount,
+  readContactGroupMembersForAccount,
+  resolveContactGroupForAccount,
   readSlackValuesForAccount,
   resolvePersonForAccount,
   searchPeopleForAccount,
@@ -133,7 +137,62 @@ export async function selectPlayerContact(
     });
 
     return {
-      contact: { displayName: saved.display_name, id: saved.id },
+      contact: {
+        displayName: saved.display_name,
+        id: saved.id,
+        kind: "contact",
+        resourceName,
+      },
+      status: "success",
+    };
+  } catch (error) {
+    return { message: playerSearchErrorMessage(error), status: "error" };
+  }
+}
+
+export async function selectPlayerGroup(
+  resourceName: string,
+): Promise<PlayerSelectionResponse> {
+  if (!isGoogleContactGroupResourceName(resourceName)) {
+    return { message: "That Player group selection is invalid.", status: "error" };
+  }
+  const auth = await authenticatedClient();
+  if (!auth) return { message: "Your session expired. Refresh and sign in again.", status: "error" };
+  const account = await currentGoogleAccount(auth);
+  if (!account || account.connection_status === "error") {
+    return { message: PLAYER_RECONNECT_MESSAGE, status: "error" };
+  }
+  try {
+    const group = await resolveContactGroupForAccount({
+      googleAccountId: account.id,
+      ownerUserId: auth.userId,
+      resourceName,
+    });
+    return { contact: { ...group, kind: "group" }, status: "success" };
+  } catch (error) {
+    return { message: playerSearchErrorMessage(error), status: "error" };
+  }
+}
+
+export async function loadPlayerGroupMembers(
+  resourceName: string,
+): Promise<PlayerGroupMembersResponse> {
+  if (!isGoogleContactGroupResourceName(resourceName)) {
+    return { message: "That Player group is invalid.", status: "error" };
+  }
+  const auth = await authenticatedClient();
+  if (!auth) return { message: "Your session expired. Refresh and sign in again.", status: "error" };
+  const account = await currentGoogleAccount(auth);
+  if (!account || account.connection_status === "error") {
+    return { message: PLAYER_RECONNECT_MESSAGE, status: "error" };
+  }
+  try {
+    return {
+      members: await readContactGroupMembersForAccount({
+        googleAccountId: account.id,
+        ownerUserId: auth.userId,
+        resourceName,
+      }),
       status: "success",
     };
   } catch (error) {

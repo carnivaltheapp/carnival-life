@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-ROADMAP-OAUTH-REFRESH-154
+          P3-CONTACT-GROUPS-155
         </small>
       </body>
     </html>
