@@ -425,6 +425,9 @@ describe("MongoPlayRepository mutations", () => {
       user_id: 43,
     });
     expect(updateOne.mock.calls[0][1].$set).toMatchObject(expectedSet);
+    expect(updateOne.mock.calls[0][1]).not.toHaveProperty("$unset");
+    expect(updateOne.mock.calls[0][1].$set).not.toHaveProperty("carnival_google");
+    expect(updateOne.mock.calls[0][1].$set).not.toHaveProperty("thread_id");
     if (status === "done") {
       expect(updateOne.mock.calls[0][1].$set).not.toHaveProperty("is_deleted");
     }

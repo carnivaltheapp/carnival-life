@@ -6,7 +6,6 @@ import type { Database } from "../supabase/database.types";
 import {
   GmailApiError,
   starGmailThread,
-  trashGmailThread,
   unstarGmailThread,
   untrashGmailThread,
 } from "./gmail";
@@ -17,6 +16,7 @@ import type {
   GmailLifecycleAction,
   GmailLifecycleCleanupResult,
   GmailManualRestoreResult,
+  GmailPlayRevivalResult,
   GmailLifecycleReason,
   GmailLifecycleStepResult,
 } from "./gmail-lifecycle";
@@ -97,6 +97,60 @@ export async function restoreGmailThreadForManualLink({
   return { accountResolved: context.accountResolved, star, untrash };
 }
 
+export async function starGmailThreadForPlayRevival({
+  apiThreadId,
+  context,
+  ownerUserId,
+}: {
+  apiThreadId: string | null | undefined;
+  context: GmailLifecycleContext;
+  ownerUserId: string;
+}): Promise<GmailPlayRevivalResult> {
+  const threadId = apiThreadId?.trim();
+  if (!threadId) {
+    return {
+      accountResolved: context.accountResolved,
+      star: unavailableStep("api_thread_missing"),
+    };
+  }
+  if (!context.googleAccountId || context.reason) {
+    return {
+      accountResolved: context.accountResolved,
+      star: unavailableStep(context.reason ?? "account_missing"),
+    };
+  }
+  let accessToken: string;
+  try {
+    accessToken = await getGoogleAccessToken({
+      googleAccountId: context.googleAccountId,
+      ownerUserId,
+    });
+  } catch (error) {
+    return {
+      accountResolved: context.accountResolved,
+      star: unavailableStep(error instanceof GoogleAccountReconnectRequiredError
+        ? "account_disconnected"
+        : "token_unavailable"),
+    };
+  }
+  try {
+    await starGmailThread({ accessToken, threadId });
+    return {
+      accountResolved: context.accountResolved,
+      star: { attempted: true, reason: "completed", success: true },
+    };
+  } catch (error) {
+    return {
+      accountResolved: context.accountResolved,
+      star: failedStep(
+        error instanceof GmailApiError && (error.status === 401 || error.status === 403)
+          ? "gmail_permission_denied"
+          : "gmail_star_failed",
+      ),
+    };
+  }
+}
+
 function failedStep(reason: GmailLifecycleReason): GmailLifecycleStepResult {
   return { attempted: true, reason, success: false };
 }
@@ -147,11 +201,16 @@ export async function syncGmailPlayLifecycle({
   context: GmailLifecycleContext;
   ownerUserId: string;
 }): Promise<GmailLifecycleCleanupResult> {
+  if (action !== "done" && action !== "trash") {
+    return {
+      accountResolved: context.accountResolved,
+      unstar: unavailableStep("token_unavailable"),
+    };
+  }
   const threadId = apiThreadId?.trim();
   if (!threadId) {
     return {
       accountResolved: context.accountResolved,
-      trash: action === "trash" ? unavailableStep("api_thread_missing") : null,
       unstar: unavailableStep("api_thread_missing"),
     };
   }
@@ -159,7 +218,6 @@ export async function syncGmailPlayLifecycle({
     const reason = context.reason ?? "account_missing";
     return {
       accountResolved: context.accountResolved,
-      trash: action === "trash" ? unavailableStep(reason) : null,
       unstar: unavailableStep(reason),
     };
   }
@@ -176,7 +234,6 @@ export async function syncGmailPlayLifecycle({
       : "token_unavailable";
     return {
       accountResolved: context.accountResolved,
-      trash: action === "trash" ? unavailableStep(reason) : null,
       unstar: unavailableStep(reason),
     };
   }
@@ -193,19 +250,5 @@ export async function syncGmailPlayLifecycle({
     );
   }
 
-  let trash: GmailLifecycleStepResult | null = null;
-  if (action === "trash") {
-    try {
-      await trashGmailThread({ accessToken, threadId });
-      trash = { attempted: true, reason: "completed", success: true };
-    } catch (error) {
-      trash = failedStep(
-        error instanceof GmailApiError && (error.status === 401 || error.status === 403)
-          ? "gmail_permission_denied"
-          : "gmail_trash_failed",
-      );
-    }
-  }
-
-  return { accountResolved: context.accountResolved, trash, unstar };
+  return { accountResolved: context.accountResolved, unstar };
 }

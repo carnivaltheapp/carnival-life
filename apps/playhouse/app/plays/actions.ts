@@ -41,6 +41,7 @@ import { isGooglePeopleResourceName } from "../../lib/google/contact-reference";
 import {
   restoreGmailThreadForManualLink,
   resolveGmailLifecycleContext,
+  starGmailThreadForPlayRevival,
   syncGmailPlayLifecycle,
   type GmailLifecycleContext,
 } from "../../lib/google/gmail-lifecycle.server";
@@ -100,21 +101,10 @@ function gmailLifecycleWarning(
   action: "done" | "trash",
   cleanup: GmailLifecycleCleanupResult,
 ) {
-  if (action === "done") {
-    return cleanup.unstar.success
-      ? undefined
-      : "Play completed, but Gmail could not be unstarred.";
-  }
-  const unstarred = cleanup.unstar.success;
-  const trashed = cleanup.trash?.success === true;
-  if (unstarred && trashed) return undefined;
-  if (unstarred) {
-    return "Play trashed and Gmail unstarred, but Gmail could not be moved to Trash.";
-  }
-  if (trashed) {
-    return "Play moved to Gmail Trash, but Gmail could not be unstarred.";
-  }
-  return "Play trashed, but Gmail could not be unstarred or moved to Trash.";
+  if (cleanup.unstar.success) return undefined;
+  return action === "done"
+    ? "Play completed, but Gmail could not be unstarred."
+    : "Play trashed, but Gmail could not be unstarred.";
 }
 
 async function persistPlayLifecycle({
@@ -191,9 +181,6 @@ async function persistPlayLifecycle({
       } catch {
         return {
           accountResolved: context.accountResolved,
-          trash: status === "trash"
-            ? { attempted: false, reason: "token_unavailable" as const, success: false }
-            : null,
           unstar: { attempted: false, reason: "token_unavailable" as const, success: false },
         };
       }
@@ -212,18 +199,6 @@ async function persistPlayLifecycle({
     success: cleanup.unstar.success,
     threadId: play.gmailApiThreadId,
   });
-  if (status === "trash" && cleanup.trash) {
-    await recordGmailDiagnostic({
-      action: status,
-      attempted: cleanup.trash.attempted,
-      ownerUserId,
-      playId: play.id,
-      reason: cleanup.trash.reason,
-      stage: "GMAIL_LIFECYCLE_TRASH_RESULT",
-      success: cleanup.trash.success,
-      threadId: play.gmailApiThreadId,
-    });
-  }
   return { persisted: true, warning: gmailLifecycleWarning(status, cleanup) };
 }
 
@@ -319,9 +294,9 @@ async function restoreGmailAfterExplicitRevival({
       success: true,
       threadId: play.gmailApiThreadId,
     });
-    let restored: Awaited<ReturnType<typeof restoreGmailThreadForManualLink>>;
+    let restored: Awaited<ReturnType<typeof starGmailThreadForPlayRevival>>;
     try {
-      restored = await restoreGmailThreadForManualLink({
+      restored = await starGmailThreadForPlayRevival({
         apiThreadId: play.gmailApiThreadId,
         context,
         ownerUserId,
@@ -338,23 +313,17 @@ async function restoreGmailAfterExplicitRevival({
       });
       return false;
     }
-    const success = restored.star.success && restored.untrash.success;
+    const success = restored.star.success;
     await recordGmailDiagnostic({
       accountResolved: restored.accountResolved,
       ownerUserId,
       playId: play.id,
-      reason: !restored.untrash.success
-        ? restored.untrash.reason
-        : !restored.star.success
-          ? restored.star.reason
-          : "completed",
+      reason: restored.star.success ? "completed" : restored.star.reason,
       stage: "GMAIL_MANUAL_RESTORE_RESULT",
       starAttempted: restored.star.attempted,
       starSuccess: restored.star.success,
       success,
       threadId: play.gmailApiThreadId,
-      untrashAttempted: restored.untrash.attempted,
-      untrashSuccess: restored.untrash.success,
     });
     return success;
   }));
@@ -674,7 +643,7 @@ export async function repositionPlays(request: {
       message: playIds.length === 1 ? "Play moved." : `${playIds.length} Plays moved.`,
       status: "success",
       ...(gmailFailures
-        ? { warning: "Play restored, but Gmail could not be fully restored and starred." }
+        ? { warning: "Play restored, but Gmail could not be starred." }
         : {}),
     };
   } catch {
@@ -1383,7 +1352,7 @@ export async function bulkUpdatePlays(request: {
       message: `${playIds.length} ${playIds.length === 1 ? "Play" : "Plays"} changed.`,
       status: "success",
       ...(gmailFailures
-        ? { warning: "Play restored, but Gmail could not be fully restored and starred." }
+        ? { warning: "Play restored, but Gmail could not be starred." }
         : {}),
     };
   } catch {

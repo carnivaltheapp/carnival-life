@@ -17,10 +17,15 @@ describe("Done and Trash drag restoration", () => {
   });
 
   it("persists the final destination before best-effort server-side Gmail restoration", () => {
+    const revivalAction = actions.slice(
+      actions.indexOf("async function restoreGmailAfterExplicitRevival"),
+      actions.indexOf("async function savePlayInternal"),
+    );
     expect(actions).toMatch(
       /const moved = await repository\.reposition[\s\S]*?await restoreGmailAfterExplicitRevival\(\{/,
     );
-    expect(actions).toContain("restoreGmailThreadForManualLink({");
-    expect(actions).toContain("Play restored, but Gmail could not be fully restored and starred.");
+    expect(revivalAction).toContain("starGmailThreadForPlayRevival({");
+    expect(actions).toContain("Play restored, but Gmail could not be starred.");
+    expect(revivalAction).not.toContain("restoreGmailThreadForManualLink(");
   });
 });

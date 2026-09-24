@@ -6,7 +6,6 @@ export type GmailLifecycleReason =
   | "completed"
   | "gmail_permission_denied"
   | "gmail_permission_missing"
-  | "gmail_trash_failed"
   | "gmail_unstar_failed"
   | "gmail_star_failed"
   | "gmail_untrash_failed"
@@ -18,6 +17,11 @@ export type GmailManualRestoreResult = {
   untrash: GmailLifecycleStepResult;
 };
 
+export type GmailPlayRevivalResult = {
+  accountResolved: boolean;
+  star: GmailLifecycleStepResult;
+};
+
 export type GmailLifecycleStepResult = {
   attempted: boolean;
   reason: GmailLifecycleReason;
@@ -26,7 +30,6 @@ export type GmailLifecycleStepResult = {
 
 export type GmailLifecycleCleanupResult = {
   accountResolved: boolean;
-  trash: GmailLifecycleStepResult | null;
   unstar: GmailLifecycleStepResult;
 };
 

@@ -349,3 +349,8 @@ Shift-created Play. Exact existing Google Contacts remain assigned during creati
 counterpart now offers Add Contact or Not Now only after the Play has committed. Add Contact uses
 the established People/contact-reference path and assigns the canonical Player, while dismissal or
 contact failure leaves the newly created, Gmail-linked Play intact.
+
+Marker `P3-GMAIL-LIFECYCLE-160` makes Carnival lifecycle changes non-destructive to Gmail. Done
+and Trash both remove only Gmail's STARRED label after the authoritative Play mutation; Carnival
+Trash no longer moves the Gmail thread to Gmail Trash. Gmail linkage remains on inactive Plays,
+and explicit Carnival revival restores the Gmail star without an unnecessary Gmail-untrash call.

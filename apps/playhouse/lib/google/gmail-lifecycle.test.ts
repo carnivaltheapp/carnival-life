@@ -4,7 +4,6 @@ import { applyPlayLifecycle, type GmailLifecycleCleanupResult } from "./gmail-li
 
 const completed: GmailLifecycleCleanupResult = {
   accountResolved: true,
-  trash: null,
   unstar: { attempted: true, reason: "completed", success: true },
 };
 
@@ -30,7 +29,6 @@ describe("authoritative Play lifecycle", () => {
   it("keeps Mongo persisted when Gmail cleanup fails", async () => {
     const failure: GmailLifecycleCleanupResult = {
       accountResolved: true,
-      trash: { attempted: true, reason: "gmail_trash_failed", success: false },
       unstar: { attempted: true, reason: "gmail_unstar_failed", success: false },
     };
     const persist = vi.fn().mockResolvedValue(true);
