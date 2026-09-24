@@ -64,11 +64,25 @@ test("Development Console persists editable navigation components", async ({ aut
   await dialog.getByRole("button", { name: "Save", exact: true }).last().click();
   await dialog.getByRole("button", { name: "Hide", exact: true }).last().click();
   await expect(auth.page.getByRole("button", { name: "E2E Component Renamed", exact: true })).toHaveCount(0);
+
+  const hiddenRow = dialog.getByLabel("Name for E2E Component Renamed").locator("xpath=ancestor::article");
+  const firstRow = dialog.locator("article").first();
+  await hiddenRow.getByRole("button", { name: "Reorder E2E Component Renamed" }).dragTo(firstRow);
   await dialog.getByRole("button", { name: "Unhide", exact: true }).last().click();
-  await dialog.getByLabel("Move E2E Component Renamed up").click();
-  await dialog.getByLabel("Delete E2E Component Renamed").click();
-  await dialog.getByRole("button", { name: "Confirm Delete" }).click();
-  await expect(dialog.getByLabel("Name for E2E Component Renamed")).toHaveCount(0);
+  const navigation = auth.page.getByRole("navigation", { name: "Development components" });
+  await expect(navigation.getByRole("button").nth(1)).toHaveText("E2E Component Renamed");
+  await expect(auth.page.getByRole("button", { name: "Reorder All Features" })).toHaveCount(0);
+
+  await auth.page.reload();
+  await expect(auth.page.getByRole("navigation", { name: "Development components" })
+    .getByRole("button").nth(1)).toHaveText("E2E Component Renamed");
+  await auth.page.getByRole("button", { name: "Edit Components" }).click();
+  const refreshedDialog = auth.page.getByRole("dialog", { name: "Edit Components" });
+  await refreshedDialog.getByLabel("Move E2E Component Renamed down").click();
+  await refreshedDialog.getByLabel("Move E2E Component Renamed up").click();
+  await refreshedDialog.getByLabel("Delete E2E Component Renamed").click();
+  await refreshedDialog.getByRole("button", { name: "Confirm Delete" }).click();
+  await expect(refreshedDialog.getByLabel("Name for E2E Component Renamed")).toHaveCount(0);
 });
 
 test("Development Console reorders features globally and moves them between components", async ({ auth }) => {

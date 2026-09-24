@@ -106,6 +106,19 @@ describe("Carnival Development Console contract", () => {
     expect(componentReorderRoute).toContain("reorderComponents(ownerUserId, componentIds)");
   });
 
+  it("supports optimistic drag ordering for visible and hidden components", () => {
+    expect(consoleSource).toContain("moveDevelopmentComponent");
+    expect(consoleSource).toContain('aria-label={`Reorder ${item.name}`}');
+    expect(consoleSource).toContain("draggable={!componentSavingId}");
+    expect(consoleSource).toContain("components.map((item, index)");
+    expect(consoleSource).toContain('fetch("/api/development/components/reorder"');
+    expect(consoleSource).toContain("setComponents(previous)");
+    expect(consoleSource).toContain("componentRowDropTarget");
+    expect(css).toContain('.componentEditorRow[data-drop-edge="before"]');
+    expect(css).toContain('.componentEditorRow[data-drop-edge="after"]');
+    expect(consoleSource).not.toContain("Reorder All Features");
+  });
+
   it("exposes owner-scoped global feature reorder and component reassignment endpoints", () => {
     expect(featureReorderRoute).toContain("authenticatedDevelopmentOwner()");
     expect(featureReorderRoute).toContain("reorderFeatures(ownerUserId, featureIds)");

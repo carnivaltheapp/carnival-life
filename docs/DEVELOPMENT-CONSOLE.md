@@ -24,6 +24,10 @@ The left navigation is persisted and owner-scoped. `All Features` is a fixed sys
 it is not a component record and cannot be renamed, reordered, hidden, or deleted. The
 subtle **Edit Components** control opens the component manager, where an owner can add,
 rename, reorder, choose a supported icon, hide/unhide, and safely delete components.
+Each component row has a drag handle for optimistic vertical ordering, with an insertion
+marker and immediate owner-scoped MongoDB persistence. Failed saves restore the prior
+order and show an error. Hidden components remain draggable in the manager; `All Features`
+is outside the persisted component list and stays fixed at the top.
 
 Hidden components remain in MongoDB and retain their assigned features, but do not appear
 in normal navigation or as choices for new features. When editing a feature already assigned

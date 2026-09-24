@@ -38,3 +38,19 @@ export function parseDevelopmentComponentOrder(value: unknown) {
   ) || new Set(componentIds).size !== componentIds.length) return null;
   return componentIds as string[];
 }
+
+export function moveDevelopmentComponent(
+  componentIds: string[],
+  draggedId: string,
+  targetId: string,
+  edge: "after" | "before",
+) {
+  const sourceIndex = componentIds.indexOf(draggedId);
+  const targetIndex = componentIds.indexOf(targetId);
+  if (sourceIndex < 0 || targetIndex < 0 || draggedId === targetId) return componentIds;
+
+  const next = componentIds.filter((id) => id !== draggedId);
+  const adjustedTargetIndex = next.indexOf(targetId);
+  next.splice(adjustedTargetIndex + (edge === "after" ? 1 : 0), 0, draggedId);
+  return next;
+}

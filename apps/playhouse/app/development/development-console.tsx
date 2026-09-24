@@ -16,6 +16,9 @@ import {
   type DevelopmentStatus,
 } from "../../domain/development-feature";
 import {
+  moveDevelopmentComponent,
+} from "../../domain/development-component";
+import {
   moveDevelopmentFeature,
   reorderVisibleDevelopmentFeatures,
 } from "../../domain/development-feature-order";
@@ -133,6 +136,11 @@ export function DevelopmentConsole({
   } | null>(null);
   const [componentDropTarget, setComponentDropTarget] = useState<string | null>(null);
   const [dragSaving, setDragSaving] = useState(false);
+  const [draggedComponentId, setDraggedComponentId] = useState<string | null>(null);
+  const [componentRowDropTarget, setComponentRowDropTarget] = useState<{
+    edge: "after" | "before";
+    id: string;
+  } | null>(null);
 
   const visibleComponents = components.filter((item) => !item.hidden);
   const selectedComponent = components.find((item) => item.id === componentId);
@@ -338,14 +346,15 @@ export function DevelopmentConsole({
     }
   }
 
-  async function moveComponent(componentIdToMove: string, direction: -1 | 1) {
-    const index = components.findIndex((item) => item.id === componentIdToMove);
-    const targetIndex = index + direction;
-    if (index < 0 || targetIndex < 0 || targetIndex >= components.length) return;
+  function clearComponentDrag() {
+    setDraggedComponentId(null);
+    setComponentRowDropTarget(null);
+  }
+
+  async function persistComponentOrder(componentIds: string[], componentIdToMove: string) {
     const previous = components;
-    const next = [...components];
-    [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
-    const ordered = next.map((item, sortOrder) => ({ ...item, sortOrder }));
+    const byId = new Map(components.map((item) => [item.id, item]));
+    const ordered = componentIds.map((id, sortOrder) => ({ ...byId.get(id)!, sortOrder }));
     setComponents(ordered);
     setComponentSavingId(componentIdToMove);
     setComponentMessage("");
@@ -364,7 +373,31 @@ export function DevelopmentConsole({
       setComponentMessage("Component order could not be saved. Check your connection and try again.");
     } finally {
       setComponentSavingId(null);
+      clearComponentDrag();
     }
+  }
+
+  async function moveComponent(componentIdToMove: string, direction: -1 | 1) {
+    const index = components.findIndex((item) => item.id === componentIdToMove);
+    const targetIndex = index + direction;
+    if (index < 0 || targetIndex < 0 || targetIndex >= components.length) return;
+    const next = components.map((item) => item.id);
+    [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+    await persistComponentOrder(next, componentIdToMove);
+  }
+
+  async function dropComponent(targetId: string, edge: "after" | "before") {
+    if (!draggedComponentId || draggedComponentId === targetId || componentSavingId) {
+      clearComponentDrag();
+      return;
+    }
+    const orderedIds = moveDevelopmentComponent(
+      components.map((item) => item.id),
+      draggedComponentId,
+      targetId,
+      edge,
+    );
+    await persistComponentOrder(orderedIds, draggedComponentId);
   }
 
   async function deleteComponent() {
@@ -808,7 +841,47 @@ export function DevelopmentConsole({
                   const edit = componentEdits[item.id] ?? { icon: item.icon, name: item.name };
                   const dirty = edit.icon !== item.icon || edit.name.trim() !== item.name;
                   return (
-                    <article className={styles.componentEditorRow} data-hidden={item.hidden || undefined} key={item.id}>
+                    <article
+                      className={styles.componentEditorRow}
+                      data-dragging={draggedComponentId === item.id || undefined}
+                      data-drop-edge={componentRowDropTarget?.id === item.id ? componentRowDropTarget.edge : undefined}
+                      data-hidden={item.hidden || undefined}
+                      key={item.id}
+                      onDragOver={(event) => {
+                        if (!draggedComponentId || draggedComponentId === item.id) return;
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setComponentRowDropTarget({
+                          edge: event.clientY < rect.top + rect.height / 2 ? "before" : "after",
+                          id: item.id,
+                        });
+                      }}
+                      onDrop={(event) => {
+                        if (!draggedComponentId) return;
+                        event.preventDefault();
+                        const edge = componentRowDropTarget?.id === item.id
+                          ? componentRowDropTarget.edge
+                          : "before";
+                        void dropComponent(item.id, edge);
+                      }}
+                    >
+                      <button
+                        aria-label={`Reorder ${item.name}`}
+                        className={styles.componentDragHandle}
+                        disabled={Boolean(componentSavingId)}
+                        draggable={!componentSavingId}
+                        onDragEnd={clearComponentDrag}
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData("text/plain", item.id);
+                          setDraggedComponentId(item.id);
+                          setComponentRowDropTarget(null);
+                          setComponentMessage("");
+                        }}
+                        title={`Drag to reorder ${item.name}`}
+                        type="button"
+                      ><span aria-hidden="true">⠿</span></button>
                       <span className={styles.componentIconPreview}><Icon icon={edit.icon} /></span>
                       <label><span className="srOnly">Icon for {item.name}</span>
                         <select aria-label={`Icon for ${item.name}`} onChange={(event) => setComponentEdits((current) => ({ ...current, [item.id]: { ...edit, icon: event.target.value as DevelopmentIconId } }))} value={edit.icon}>

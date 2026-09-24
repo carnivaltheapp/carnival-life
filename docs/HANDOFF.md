@@ -2,6 +2,15 @@
 
 Architecture-only exploration handoff • September 2026
 
+## September 24, 2026 — Development Component Drag Ordering
+
+- Marker `P3-DEVELOPMENT-COMPONENT-DRAG-137` adds drag handles and clear insertion markers
+  to every persisted row in Edit Components, including hidden components.
+- Drops optimistically update the left navigation and immediately reuse the existing
+  owner-scoped exact-set MongoDB reorder endpoint; failures restore the prior order.
+- `All Features` remains a fixed, non-draggable system view and feature sequence data is
+  not modified by component ordering.
+
 ## September 24, 2026 — Development Roadmap Drag Organization
 
 - Marker `P3-DEVELOPMENT-DRAG-136` adds feature-row drag handles to `/development`.

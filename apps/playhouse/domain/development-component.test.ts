@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  moveDevelopmentComponent,
   parseDevelopmentComponentInput,
   parseDevelopmentComponentOrder,
 } from "./development-component";
@@ -24,5 +25,18 @@ describe("development component input", () => {
   it("accepts a unique stable-ID order and rejects duplicates", () => {
     expect(parseDevelopmentComponentOrder({ componentIds: [one, two] })).toEqual([one, two]);
     expect(parseDevelopmentComponentOrder({ componentIds: [one, one] })).toBeNull();
+  });
+
+  it("moves components upward and downward without changing their IDs", () => {
+    const three = "25f99b47-e68d-43fe-b6e2-0ded706d8f6e";
+    expect(moveDevelopmentComponent([one, two, three], three, one, "before"))
+      .toEqual([three, one, two]);
+    expect(moveDevelopmentComponent([one, two, three], one, three, "after"))
+      .toEqual([two, three, one]);
+  });
+
+  it("leaves component order unchanged for invalid or self drops", () => {
+    expect(moveDevelopmentComponent([one, two], one, one, "before")).toEqual([one, two]);
+    expect(moveDevelopmentComponent([one, two], "missing", two, "after")).toEqual([one, two]);
   });
 });
