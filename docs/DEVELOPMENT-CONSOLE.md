@@ -297,6 +297,14 @@ exercise the same PKCE flow without relaxing exact redirect matching at authoriz
 exchange. Marker 151 supersedes marker 148's over-broad combined descriptors and the initial
 149/150 deployments of this callback correction.
 
+Marker `P3-ROADMAP-OAUTH-REFRESH-153` makes normal OAuth expiration recoverable. Production
+reconnect traces showed the expired MCP request receive `401`, complete discovery, and then stop at
+dynamic registration while the authorization server still advertised and issued only the
+authorization-code grant. Carnival now advertises and registers `refresh_token`, issues a hashed
+30-day refresh credential with each 15-minute access credential, and rotates the refresh credential
+on every use. Refreshes remain bound to the original client, owner, issuer, resource, and consented
+scopes; they may narrow scopes but cannot add one. Roadmap tools and data are unchanged.
+
 ### One-time ChatGPT connection procedure
 
 1. In ChatGPT Settings → Security and login, enable Developer mode.

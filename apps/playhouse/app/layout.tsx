@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-GMAIL-LINK-SAFETY-152
+          P3-ROADMAP-OAUTH-REFRESH-153
         </small>
       </body>
     </html>

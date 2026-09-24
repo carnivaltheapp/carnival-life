@@ -6,6 +6,7 @@ import {
   MongoRoadmapOAuthRepository,
   type RoadmapOAuthClient,
   type RoadmapOAuthCode,
+  type RoadmapOAuthRefreshToken,
   type RoadmapOAuthToken,
 } from "./roadmap-oauth-repository.server";
 
@@ -15,6 +16,7 @@ export const ROADMAP_SCOPES = [ROADMAP_SCOPE, ROADMAP_WRITE_SCOPE] as const;
 export const ROADMAP_AUTHORIZATION_REDIRECT_STATUS = 303;
 const AUTHORIZATION_CODE_TTL_MS = 5 * 60 * 1_000;
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
+const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const CHATGPT_STABLE_REDIRECT = "https://chatgpt.com/connector_platform_oauth_redirect";
 const CHATGPT_CALLBACK_PATH = /^\/connector\/oauth\/[A-Za-z0-9_-]+$/;
 const PKCE_CHALLENGE = /^[A-Za-z0-9_-]{43}$/;
@@ -33,9 +35,12 @@ export type RoadmapOAuthRepository = {
   consumeCode(codeHash: string): Promise<boolean>;
   findClient(issuer: string, clientId: string): Promise<RoadmapOAuthClient | null>;
   findCode(codeHash: string): Promise<RoadmapOAuthCode | null>;
+  findRefreshToken(tokenHash: string, now: Date): Promise<RoadmapOAuthRefreshToken | null>;
   findToken(tokenHash: string, now: Date): Promise<RoadmapOAuthToken | null>;
+  consumeRefreshToken(tokenHash: string, now: Date): Promise<RoadmapOAuthRefreshToken | null>;
   insertClient(client: RoadmapOAuthClient): Promise<void>;
   insertCode(code: RoadmapOAuthCode): Promise<void>;
+  insertRefreshToken(token: RoadmapOAuthRefreshToken): Promise<void>;
   insertToken(token: RoadmapOAuthToken): Promise<void>;
 };
 
@@ -126,7 +131,7 @@ export function roadmapAuthorizationServerMetadata(issuer: string) {
     authorization_endpoint: `${issuer}/oauth/authorize`,
     authorization_response_iss_parameter_supported: true,
     code_challenge_methods_supported: ["S256"],
-    grant_types_supported: ["authorization_code"],
+    grant_types_supported: ["authorization_code", "refresh_token"],
     issuer,
     registration_endpoint: `${issuer}/api/oauth/register`,
     response_types_supported: ["code"],
@@ -148,7 +153,7 @@ export class CarnivalRoadmapOAuthService {
       : {};
     const redirectUris = stringArray(record.redirect_uris);
     const grantTypes = record.grant_types === undefined
-      ? ["authorization_code"]
+      ? ["authorization_code", "refresh_token"]
       : stringArray(record.grant_types);
     const responseTypes = record.response_types === undefined
       ? ["code"]
@@ -158,6 +163,7 @@ export class CarnivalRoadmapOAuthService {
       redirectUris.length > 4 ||
       !redirectUris.every(validOAuthRedirect) ||
       !grantTypes?.includes("authorization_code") ||
+      grantTypes.some((grantType) => !["authorization_code", "refresh_token"].includes(grantType)) ||
       !responseTypes?.includes("code") ||
       (record.token_endpoint_auth_method !== undefined && record.token_endpoint_auth_method !== "none")
     ) {
@@ -173,7 +179,7 @@ export class CarnivalRoadmapOAuthService {
       client_id: clientId,
       client_id_issued_at: Math.floor(createdAt.getTime() / 1_000),
       client_name: clientName,
-      grant_types: ["authorization_code"],
+      grant_types: ["authorization_code", "refresh_token"],
       redirect_uris: redirectUris,
       response_types: ["code"],
       scope: ROADMAP_SCOPES.join(" "),
@@ -231,10 +237,21 @@ export class CarnivalRoadmapOAuthService {
     return code;
   }
 
-  async exchangeAuthorizationCode(issuer: string, parameters: URLSearchParams) {
-    if (parameters.get("grant_type") !== "authorization_code") {
-      throw new RoadmapOAuthError("unsupported_grant_type", "Authorization code flow is required.");
+  async exchangeToken(issuer: string, parameters: URLSearchParams) {
+    const grantType = parameters.get("grant_type");
+    if (grantType === "authorization_code") {
+      return this.exchangeAuthorizationCode(issuer, parameters);
     }
+    if (grantType === "refresh_token") {
+      return this.exchangeRefreshToken(issuer, parameters);
+    }
+    throw new RoadmapOAuthError(
+      "unsupported_grant_type",
+      "Authorization code or refresh token grant is required.",
+    );
+  }
+
+  async exchangeAuthorizationCode(issuer: string, parameters: URLSearchParams) {
     const code = parameters.get("code") ?? "";
     const stored = code ? await this.repository.findCode(hashSecret(code)) : null;
     const now = this.now();
@@ -260,22 +277,92 @@ export class CarnivalRoadmapOAuthService {
     if (!await this.repository.consumeCode(stored.codeHash)) {
       throw new RoadmapOAuthError("invalid_grant", "Authorization code was already used.");
     }
-    const accessToken = randomSecret();
-    const expiresAt = new Date(now.getTime() + ACCESS_TOKEN_TTL_SECONDS * 1_000);
-    await this.repository.insertToken({
+    return this.issueTokenPair({
       audience: stored.resource,
       clientId: stored.clientId,
-      createdAt: now,
-      expiresAt,
       issuer,
+      now,
       ownerUserId: stored.ownerUserId,
       scope: stored.scope,
+    });
+  }
+
+  private async exchangeRefreshToken(issuer: string, parameters: URLSearchParams) {
+    const refreshToken = parameters.get("refresh_token") ?? "";
+    const refreshTokenHash = refreshToken ? hashSecret(refreshToken) : "";
+    const now = this.now();
+    const stored = refreshTokenHash
+      ? await this.repository.findRefreshToken(refreshTokenHash, now)
+      : null;
+    if (!stored || stored.issuer !== issuer) {
+      throw new RoadmapOAuthError("invalid_grant", "Refresh token is invalid or expired.");
+    }
+    const clientId = parameters.get("client_id")?.trim() ?? "";
+    const client = clientId ? await this.repository.findClient(issuer, clientId) : null;
+    const requestedResource = parameters.get("resource")?.trim() ?? "";
+    if (
+      !client ||
+      clientId !== stored.clientId ||
+      (requestedResource && requestedResource !== stored.audience)
+    ) {
+      throw new RoadmapOAuthError("invalid_grant", "Refresh token validation failed.");
+    }
+    const requestedScope = parameters.get("scope");
+    const scope = requestedScope === null
+      ? stored.scope
+      : requestedScopes(requestedScope);
+    if (scope.some((item) => !stored.scope.includes(item))) {
+      throw new RoadmapOAuthError("invalid_scope", "A refresh cannot increase the granted scope.");
+    }
+    if (!await this.repository.consumeRefreshToken(refreshTokenHash, now)) {
+      throw new RoadmapOAuthError("invalid_grant", "Refresh token was already used.");
+    }
+    return this.issueTokenPair({
+      audience: stored.audience,
+      clientId: stored.clientId,
+      issuer,
+      now,
+      ownerUserId: stored.ownerUserId,
+      scope,
+    });
+  }
+
+  private async issueTokenPair(input: {
+    audience: string;
+    clientId: string;
+    issuer: string;
+    now: Date;
+    ownerUserId: string;
+    scope: string[];
+  }) {
+    const accessToken = randomSecret();
+    const refreshToken = randomSecret();
+    const expiresAt = new Date(input.now.getTime() + ACCESS_TOKEN_TTL_SECONDS * 1_000);
+    await this.repository.insertToken({
+      audience: input.audience,
+      clientId: input.clientId,
+      createdAt: input.now,
+      expiresAt,
+      issuer: input.issuer,
+      ownerUserId: input.ownerUserId,
+      scope: input.scope,
       tokenHash: hashSecret(accessToken),
+    });
+    await this.repository.insertRefreshToken({
+      audience: input.audience,
+      clientId: input.clientId,
+      createdAt: input.now,
+      expiresAt: new Date(input.now.getTime() + REFRESH_TOKEN_TTL_SECONDS * 1_000),
+      issuer: input.issuer,
+      ownerUserId: input.ownerUserId,
+      scope: input.scope,
+      tokenHash: hashSecret(refreshToken),
     });
     return {
       access_token: accessToken,
       expires_in: ACCESS_TOKEN_TTL_SECONDS,
-      scope: stored.scope.join(" "),
+      refresh_token: refreshToken,
+      scope: input.scope.join(" "),
       token_type: "Bearer",
     };
   }

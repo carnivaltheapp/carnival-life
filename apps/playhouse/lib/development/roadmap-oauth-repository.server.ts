@@ -6,6 +6,7 @@ import { getCarnivalMongoDatabase } from "../playhouse/mongo-client";
 
 const CLIENT_COLLECTION = "carnival_roadmap_oauth_clients";
 const CODE_COLLECTION = "carnival_roadmap_oauth_codes";
+const REFRESH_TOKEN_COLLECTION = "carnival_roadmap_oauth_refresh_tokens";
 const TOKEN_COLLECTION = "carnival_roadmap_oauth_tokens";
 
 export type RoadmapOAuthClient = {
@@ -40,9 +41,12 @@ export type RoadmapOAuthToken = {
   tokenHash: string;
 };
 
+export type RoadmapOAuthRefreshToken = RoadmapOAuthToken;
+
 type OAuthCollections = {
   clients: Collection<RoadmapOAuthClient>;
   codes: Collection<RoadmapOAuthCode>;
+  refreshTokens: Collection<RoadmapOAuthRefreshToken>;
   tokens: Collection<RoadmapOAuthToken>;
 };
 
@@ -53,6 +57,7 @@ async function mongoCollections(): Promise<OAuthCollections> {
   return {
     clients: database.collection<RoadmapOAuthClient>(CLIENT_COLLECTION),
     codes: database.collection<RoadmapOAuthCode>(CODE_COLLECTION),
+    refreshTokens: database.collection<RoadmapOAuthRefreshToken>(REFRESH_TOKEN_COLLECTION),
     tokens: database.collection<RoadmapOAuthToken>(TOKEN_COLLECTION),
   };
 }
@@ -66,6 +71,8 @@ export class MongoRoadmapOAuthRepository {
       collections.clients.createIndex({ issuer: 1, clientId: 1 }, { unique: true }),
       collections.codes.createIndex({ codeHash: 1 }, { unique: true }),
       collections.codes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
+      collections.refreshTokens.createIndex({ tokenHash: 1 }, { unique: true }),
+      collections.refreshTokens.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
       collections.tokens.createIndex({ tokenHash: 1 }, { unique: true }),
       collections.tokens.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     ]);
@@ -106,10 +113,26 @@ export class MongoRoadmapOAuthRepository {
     const { tokens } = await this.collectionsFactory();
     return tokens.findOne({ expiresAt: { $gt: now }, tokenHash });
   }
+
+  async insertRefreshToken(token: RoadmapOAuthRefreshToken) {
+    const { refreshTokens } = await this.ensureIndexes();
+    await refreshTokens.insertOne(token);
+  }
+
+  async findRefreshToken(tokenHash: string, now: Date) {
+    const { refreshTokens } = await this.collectionsFactory();
+    return refreshTokens.findOne({ expiresAt: { $gt: now }, tokenHash });
+  }
+
+  async consumeRefreshToken(tokenHash: string, now: Date) {
+    const { refreshTokens } = await this.collectionsFactory();
+    return refreshTokens.findOneAndDelete({ expiresAt: { $gt: now }, tokenHash });
+  }
 }
 
 export const ROADMAP_OAUTH_COLLECTIONS = {
   clients: CLIENT_COLLECTION,
   codes: CODE_COLLECTION,
+  refreshTokens: REFRESH_TOKEN_COLLECTION,
   tokens: TOKEN_COLLECTION,
 } as const;

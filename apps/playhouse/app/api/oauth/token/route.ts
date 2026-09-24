@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     if (request.headers.has("authorization")) {
       throw new RoadmapOAuthError("invalid_client", "Public-client token exchange is required.", 401);
     }
-    const token = await new CarnivalRoadmapOAuthService().exchangeAuthorizationCode(
+    const token = await new CarnivalRoadmapOAuthService().exchangeToken(
       roadmapOAuthIssuer(request),
       new URLSearchParams(await request.text()),
     );

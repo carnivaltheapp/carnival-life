@@ -20,6 +20,7 @@ import {
 import type {
   RoadmapOAuthClient,
   RoadmapOAuthCode,
+  RoadmapOAuthRefreshToken,
   RoadmapOAuthToken,
 } from "./roadmap-oauth-repository.server";
 
@@ -31,6 +32,7 @@ const challenge = createHash("sha256").update(verifier).digest("base64url");
 class MemoryRepository implements RoadmapOAuthRepository {
   clients: RoadmapOAuthClient[] = [];
   codes: RoadmapOAuthCode[] = [];
+  refreshTokens: RoadmapOAuthRefreshToken[] = [];
   tokens: RoadmapOAuthToken[] = [];
 
   async insertClient(client: RoadmapOAuthClient) { this.clients.push(client); }
@@ -53,6 +55,19 @@ class MemoryRepository implements RoadmapOAuthRepository {
       item.tokenHash === tokenHash && item.expiresAt.getTime() > now.getTime(),
     ) ?? null;
   }
+  async insertRefreshToken(token: RoadmapOAuthRefreshToken) { this.refreshTokens.push(token); }
+  async findRefreshToken(tokenHash: string, now: Date) {
+    return this.refreshTokens.find((item) =>
+      item.tokenHash === tokenHash && item.expiresAt.getTime() > now.getTime(),
+    ) ?? null;
+  }
+  async consumeRefreshToken(tokenHash: string, now: Date) {
+    const index = this.refreshTokens.findIndex((item) =>
+      item.tokenHash === tokenHash && item.expiresAt.getTime() > now.getTime(),
+    );
+    if (index < 0) return null;
+    return this.refreshTokens.splice(index, 1)[0] ?? null;
+  }
 }
 
 function authorizationParameters(clientId: string, overrides: Record<string, string> = {}) {
@@ -74,7 +89,7 @@ async function registeredService(now = new Date("2026-09-24T12:00:00.000Z")) {
   const service = new CarnivalRoadmapOAuthService(repository, () => now);
   const client = await service.registerClient(issuer, {
     client_name: "ChatGPT",
-    grant_types: ["authorization_code"],
+    grant_types: ["authorization_code", "refresh_token"],
     redirect_uris: [redirectUri],
     response_types: ["code"],
     token_endpoint_auth_method: "none",
@@ -88,6 +103,7 @@ describe("Carnival roadmap OAuth 2.1", () => {
       authorization_endpoint: `${issuer}/oauth/authorize`,
       authorization_response_iss_parameter_supported: true,
       code_challenge_methods_supported: ["S256"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
       issuer,
       registration_endpoint: `${issuer}/api/oauth/register`,
       scopes_supported: [ROADMAP_SCOPE, ROADMAP_WRITE_SCOPE],
@@ -101,6 +117,7 @@ describe("Carnival roadmap OAuth 2.1", () => {
     expect(client).toEqual(expect.objectContaining({
       client_id: expect.stringMatching(/^carnival_/),
       redirect_uris: [redirectUri],
+      grant_types: ["authorization_code", "refresh_token"],
       token_endpoint_auth_method: "none",
     }));
     await expect(service.registerClient(issuer, {
@@ -147,6 +164,7 @@ describe("Carnival roadmap OAuth 2.1", () => {
     }));
     expect(token).toEqual(expect.objectContaining({
       expires_in: 900,
+      refresh_token: expect.any(String),
       scope: ROADMAP_SCOPE,
       token_type: "Bearer",
     }));
@@ -162,6 +180,7 @@ describe("Carnival roadmap OAuth 2.1", () => {
       scope: [ROADMAP_SCOPE],
     }));
     expect(JSON.stringify(repository.tokens)).not.toContain(token.access_token);
+    expect(JSON.stringify(repository.refreshTokens)).not.toContain(token.refresh_token);
     await expect(service.exchangeAuthorizationCode(issuer, new URLSearchParams({
       client_id: client.client_id,
       code,
@@ -170,6 +189,79 @@ describe("Carnival roadmap OAuth 2.1", () => {
       redirect_uri: redirectUri,
       resource: roadmapMcpResource(issuer),
     }))).rejects.toMatchObject({ code: "invalid_grant" });
+  });
+
+  it("rotates refresh tokens and preserves owner, resource, and least-privilege scope", async () => {
+    const { client, repository, service } = await registeredService();
+    const request = await service.validateAuthorizationRequest(
+      issuer,
+      authorizationParameters(client.client_id, { scope: `${ROADMAP_SCOPE} ${ROADMAP_WRITE_SCOPE}` }),
+    );
+    const code = await service.issueAuthorizationCode(issuer, "owner-a", request);
+    const initial = await service.exchangeToken(issuer, new URLSearchParams({
+      client_id: client.client_id,
+      code,
+      code_verifier: verifier,
+      grant_type: "authorization_code",
+      redirect_uri: redirectUri,
+      resource: roadmapMcpResource(issuer),
+    }));
+    const refreshed = await service.exchangeToken(issuer, new URLSearchParams({
+      client_id: client.client_id,
+      grant_type: "refresh_token",
+      refresh_token: initial.refresh_token,
+      resource: roadmapMcpResource(issuer),
+    }));
+
+    expect(refreshed).toEqual(expect.objectContaining({
+      access_token: expect.any(String),
+      expires_in: 900,
+      refresh_token: expect.any(String),
+      scope: `${ROADMAP_SCOPE} ${ROADMAP_WRITE_SCOPE}`,
+      token_type: "Bearer",
+    }));
+    expect(refreshed.access_token).not.toBe(initial.access_token);
+    expect(refreshed.refresh_token).not.toBe(initial.refresh_token);
+    expect(await service.authenticateAccessToken(issuer, refreshed.access_token)).toEqual({
+      ownerUserId: "owner-a",
+      scopes: [ROADMAP_SCOPE, ROADMAP_WRITE_SCOPE],
+    });
+    expect(repository.refreshTokens).toHaveLength(1);
+    await expect(service.exchangeToken(issuer, new URLSearchParams({
+      client_id: client.client_id,
+      grant_type: "refresh_token",
+      refresh_token: initial.refresh_token,
+    }))).rejects.toMatchObject({ code: "invalid_grant" });
+    await expect(service.exchangeToken(issuer, new URLSearchParams({
+      client_id: client.client_id,
+      grant_type: "refresh_token",
+      refresh_token: refreshed.refresh_token,
+      scope: "roadmap:admin",
+    }))).rejects.toMatchObject({ code: "invalid_scope" });
+  });
+
+  it("lets a refresh narrow but never expand the original grant", async () => {
+    const { client, service } = await registeredService();
+    const request = await service.validateAuthorizationRequest(
+      issuer,
+      authorizationParameters(client.client_id, { scope: `${ROADMAP_SCOPE} ${ROADMAP_WRITE_SCOPE}` }),
+    );
+    const code = await service.issueAuthorizationCode(issuer, "owner-a", request);
+    const initial = await service.exchangeToken(issuer, new URLSearchParams({
+      client_id: client.client_id,
+      code,
+      code_verifier: verifier,
+      grant_type: "authorization_code",
+      redirect_uri: redirectUri,
+      resource: roadmapMcpResource(issuer),
+    }));
+    const narrowed = await service.exchangeToken(issuer, new URLSearchParams({
+      client_id: client.client_id,
+      grant_type: "refresh_token",
+      refresh_token: initial.refresh_token,
+      scope: ROADMAP_SCOPE,
+    }));
+    expect(narrowed.scope).toBe(ROADMAP_SCOPE);
   });
 
   it("rejects wrong PKCE, resource, scope, invalid tokens, and expired tokens", async () => {
