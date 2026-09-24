@@ -2,6 +2,18 @@
 
 Architecture-only exploration handoff • September 2026
 
+## September 24, 2026 — Development Console V1
+
+- Marker `P3-DEVELOPMENT-CONSOLE-134` adds the Carnival Development Console at the stable
+  in-app route `/development` in the existing PlayHouse Vercel deployment.
+- The console is an authenticated, owner-scoped Mongo roadmap with table/search/filter
+  UI, create/edit/confirmed-delete, manual sequence, notes, and simple dependencies.
+- Machine-readable CRUD is exposed under `/api/development/features`; ownership always
+  comes from the authenticated session.
+- One-time, clearly labeled demo features are tracked independently from approved product
+  requirements and can be removed without reseeding.
+- See `docs/DEVELOPMENT-CONSOLE.md` for the reconstructable UI, data, and API contract.
+
 Purpose: Consolidate the authoritative GitHub specifications, the two long PlayHouse development conversations, and the latest product decisions so a new conversation can explore major architectural improvements without implementing them.
 
 NEW-CONVERSATION RULE: ARCHITECTURE EXPLORATION ONLY. Do not modify GitHub, databases, Vercel, Google Cloud, Chrome extension, production data, or generate Codex implementation prompts unless the user explicitly asks to move from exploration to implementation.
