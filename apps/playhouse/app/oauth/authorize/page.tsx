@@ -5,6 +5,7 @@ import { PlayHouseIcon } from "../../../components/playhouse-icon";
 import { authenticatedDevelopmentOwner } from "../../../lib/development/auth";
 import {
   CarnivalRoadmapOAuthService,
+  ROADMAP_WRITE_SCOPE,
   RoadmapOAuthError,
 } from "../../../lib/development/roadmap-oauth.server";
 
@@ -42,6 +43,7 @@ export default async function RoadmapAuthorizationPage({
       : "This authorization request is unavailable.";
   }
   const ownerUserId = authorization ? await authenticatedDevelopmentOwner() : null;
+  const requestsWrite = authorization?.scope.includes(ROADMAP_WRITE_SCOPE) ?? false;
   const next = `/oauth/authorize?${parameters.toString()}`;
 
   return (
@@ -66,10 +68,13 @@ export default async function RoadmapAuthorizationPage({
         ) : (
           <>
             <p className="authIntro">
-              ChatGPT is requesting read-only access to your Carnival Development Roadmap.
-              It cannot create, edit, delete, move, or reorder roadmap data.
+              {requestsWrite
+                ? "ChatGPT is requesting permission to read and make your explicitly requested Development Roadmap changes. It cannot delete features or components."
+                : "ChatGPT is requesting read-only access to your Carnival Development Roadmap. It cannot create, edit, delete, move, or reorder roadmap data."}
             </p>
-            <p className="oauthScopes">Requested permission: roadmap:read</p>
+            <p className="oauthScopes">
+              Requested permission{authorization && authorization.scope.length > 1 ? "s" : ""}: {authorization?.scope.join(", ")}
+            </p>
             <form action="/api/oauth/authorize" className="oauthActions" method="post">
               {[...parameters.entries()].map(([name, value]) => (
                 <input key={name} name={name} type="hidden" value={value} />

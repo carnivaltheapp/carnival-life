@@ -20,7 +20,7 @@ describe("Development roadmap MCP authentication", () => {
     }));
   }
 
-  it("exposes the MCP handshake and read-only tool descriptors before OAuth", async () => {
+  it("exposes the MCP handshake and separately scoped read/write tool descriptors before OAuth", async () => {
     const initialized = await request({
       id: 1,
       jsonrpc: "2.0",
@@ -43,6 +43,11 @@ describe("Development roadmap MCP authentication", () => {
       "list_features",
       "list_components",
       "get_roadmap",
+      "update_feature",
+      "reorder_feature",
+      "add_dependency",
+      "remove_dependency",
+      "append_notes",
     ]);
     expect(tools.every((tool: { _meta?: { securitySchemes?: unknown[] } }) =>
       tool._meta?.securitySchemes?.some((scheme) =>
@@ -52,6 +57,10 @@ describe("Development roadmap MCP authentication", () => {
       tool.securitySchemes?.some((scheme) =>
         typeof scheme === "object" && scheme !== null &&
         "type" in scheme && scheme.type === "oauth2"))).toBe(true);
+    expect(tools.slice(0, 5).every((tool: { securitySchemes?: Array<{ scopes?: string[] }> }) =>
+      tool.securitySchemes?.some((scheme) => scheme.scopes?.includes("roadmap:read")))).toBe(true);
+    expect(tools.slice(5).every((tool: { securitySchemes?: Array<{ scopes?: string[] }> }) =>
+      tool.securitySchemes?.some((scheme) => scheme.scopes?.includes("roadmap:write")))).toBe(true);
   });
 
   it("returns a tool-level OAuth challenge without loading private roadmap data", async () => {
@@ -68,6 +77,22 @@ describe("Development roadmap MCP authentication", () => {
     expect(result._meta["mcp/www_authenticate"][0]).toContain(
       "https://carnival.example/.well-known/oauth-protected-resource/api/development/mcp",
     );
+  });
+
+  it("returns the separate roadmap:write challenge for mutation tools", async () => {
+    const response = await request({
+      id: 4,
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: {
+        arguments: { changes: { priority: "High" }, featureId: "CF-012" },
+        name: "update_feature",
+      },
+    });
+    expect(response.status).toBe(200);
+    const result = (await response.json()).result;
+    expect(result.isError).toBe(true);
+    expect(result._meta["mcp/www_authenticate"][0]).toContain('scope="roadmap:write"');
   });
 
   it("rejects an invalid supplied bearer token with OAuth discovery", async () => {

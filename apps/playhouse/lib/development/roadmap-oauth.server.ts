@@ -10,6 +10,8 @@ import {
 } from "./roadmap-oauth-repository.server";
 
 export const ROADMAP_SCOPE = "roadmap:read";
+export const ROADMAP_WRITE_SCOPE = "roadmap:write";
+export const ROADMAP_SCOPES = [ROADMAP_SCOPE, ROADMAP_WRITE_SCOPE] as const;
 const AUTHORIZATION_CODE_TTL_MS = 5 * 60 * 1_000;
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const CHATGPT_STABLE_REDIRECT = "https://chatgpt.com/connector_platform_oauth_redirect";
@@ -63,10 +65,10 @@ function valuesEqual(left: string, right: string) {
 
 function requestedScopes(value: string | null) {
   const scopes = [...new Set((value ?? "").split(/\s+/).filter(Boolean))];
-  if (scopes.length !== 1 || scopes[0] !== ROADMAP_SCOPE) {
-    throw new RoadmapOAuthError("invalid_scope", `Only ${ROADMAP_SCOPE} is supported.`);
+  if (!scopes.length || scopes.some((scope) => !ROADMAP_SCOPES.includes(scope as typeof ROADMAP_SCOPES[number]))) {
+    throw new RoadmapOAuthError("invalid_scope", `Supported scopes are ${ROADMAP_SCOPES.join(" and ")}.`);
   }
-  return scopes;
+  return ROADMAP_SCOPES.filter((scope) => scopes.includes(scope));
 }
 
 function validChatGptRedirect(value: string) {
@@ -106,7 +108,7 @@ export function roadmapAuthorizationServerMetadata(issuer: string) {
     issuer,
     registration_endpoint: `${issuer}/api/oauth/register`,
     response_types_supported: ["code"],
-    scopes_supported: [ROADMAP_SCOPE],
+    scopes_supported: [...ROADMAP_SCOPES],
     token_endpoint: `${issuer}/api/oauth/token`,
     token_endpoint_auth_methods_supported: ["none"],
   };
@@ -152,7 +154,7 @@ export class CarnivalRoadmapOAuthService {
       grant_types: ["authorization_code"],
       redirect_uris: redirectUris,
       response_types: ["code"],
-      scope: ROADMAP_SCOPE,
+      scope: ROADMAP_SCOPES.join(" "),
       token_endpoint_auth_method: "none",
     };
   }
@@ -261,7 +263,7 @@ export class CarnivalRoadmapOAuthService {
     return token &&
       token.issuer === issuer &&
       token.audience === roadmapMcpResource(issuer) &&
-      token.scope.includes(ROADMAP_SCOPE)
+      token.scope.some((scope) => ROADMAP_SCOPES.includes(scope as typeof ROADMAP_SCOPES[number]))
       ? { ownerUserId: token.ownerUserId, scopes: token.scope }
       : null;
   }

@@ -5,6 +5,8 @@ import { roadmapReadTokenIsValid } from "./roadmap";
 import {
   CarnivalRoadmapOAuthService,
   ROADMAP_SCOPE,
+  ROADMAP_SCOPES,
+  ROADMAP_WRITE_SCOPE,
   roadmapMcpResource,
   roadmapOAuthIssuer,
 } from "./roadmap-oauth.server";
@@ -46,7 +48,7 @@ export function roadmapMcpResourceMetadata(request: Request) {
     authorization_servers: [issuer],
     resource: roadmapMcpResource(issuer),
     resource_documentation: `${issuer}/development`,
-    scopes_supported: [ROADMAP_SCOPE],
+    scopes_supported: [...ROADMAP_SCOPES],
   };
 }
 
@@ -56,6 +58,11 @@ export function roadmapMcpAuthenticationChallenge(request: Request) {
   return `Bearer resource_metadata="${metadataUrl}", scope="${ROADMAP_SCOPE}"`;
 }
 
-export function roadmapMcpToolAuthenticationChallenge(request: Request) {
-  return `${roadmapMcpAuthenticationChallenge(request)}, error="insufficient_scope", error_description="Carnival roadmap authorization is required."`;
+export function roadmapMcpToolAuthenticationChallenge(
+  request: Request,
+  scope: typeof ROADMAP_SCOPE | typeof ROADMAP_WRITE_SCOPE = ROADMAP_SCOPE,
+) {
+  const origin = new URL(request.url).origin;
+  const metadataUrl = `${origin}/.well-known/oauth-protected-resource/api/development/mcp`;
+  return `Bearer resource_metadata="${metadataUrl}", scope="${scope}", error="insufficient_scope", error_description="Carnival roadmap authorization is required."`;
 }

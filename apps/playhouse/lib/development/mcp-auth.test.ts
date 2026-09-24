@@ -29,7 +29,7 @@ describe("Carnival roadmap MCP bearer authentication", () => {
       authorization_servers: ["https://carnival.example"],
       resource: "https://carnival.example/api/development/mcp",
       resource_documentation: "https://carnival.example/development",
-      scopes_supported: ["roadmap:read"],
+      scopes_supported: ["roadmap:read", "roadmap:write"],
     });
   });
 

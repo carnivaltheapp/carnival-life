@@ -201,7 +201,7 @@ https://carnival-playhouse.vercel.app/api/development/mcp
 ```
 
 It reads the current owner-scoped MongoDB collections on every tool call; it does not export,
-cache, or copy the roadmap into ChatGPT. Its only tools are read-only:
+cache, or copy the roadmap into ChatGPT. Read tools remain:
 
 - `get_feature(featureId)` — direct, case-insensitive `CF-###` lookup with dependencies and
   previous/next canonical-sequence context.
@@ -210,10 +210,21 @@ cache, or copy the roadmap into ChatGPT. Its only tools are read-only:
 - `list_components()` — stable component ID, name, sort order, and hidden state.
 - `get_roadmap()` — complete ordered roadmap, dependency graph, and components.
 
-Every tool advertises read-only, non-destructive, closed-world annotations. No create, edit,
-delete, move, rename, or reorder tool exists. The legacy GET API remains protected by
+Read tools advertise read-only, non-destructive, closed-world annotations. The MCP also exposes
+these narrowly scoped mutation tools:
+
+- `update_feature(featureId, changes)` — updates only title, description, component, status,
+  priority, or Notes.
+- `reorder_feature(featureId, sequence)` — uses the canonical global exact-set reorder path.
+- `add_dependency(featureId, dependencyFeatureId)` and
+  `remove_dependency(featureId, dependencyFeatureId)` — validate both permanent CF references.
+- `append_notes(featureId, text)` — appends a new paragraph without replacing existing Notes.
+
+Write tools require owner-bound OAuth with `roadmap:write`, return the updated feature, and are
+described for use only after an explicit user mutation request. There is no create, feature delete,
+component delete, or arbitrary database tool. The legacy GET API remains protected by
 `CARNIVAL_ROADMAP_READ_TOKEN`; that server-only token is also accepted for MCP Inspector and
-automated contract testing, but ChatGPT does not receive or store it.
+automated contract testing, remains `roadmap:read` only, and cannot invoke write tools.
 
 ### Carnival-owned OAuth 2.1
 
@@ -231,14 +242,15 @@ The Carnival issuer provides:
 - `POST /api/oauth/register` — restricted dynamic registration for current ChatGPT callback
   URLs; clients are public and use no client secret.
 - `GET /oauth/authorize` and `POST /api/oauth/authorize` — existing Carnival login plus the
-  explicit read-only Allow/Cancel consent screen.
+  explicit scope-aware Allow/Cancel consent screen.
 - `POST /api/oauth/token` — authorization-code exchange with mandatory PKCE S256.
 
 Authorization codes expire after five minutes and are single-use. Access tokens expire after
 15 minutes. Codes and tokens are cryptographically random; only SHA-256 hashes are stored in
 dedicated MongoDB OAuth collections. Every exchange and MCP request validates the exact issuer,
-registered redirect URI, client, `resource`/audience, expiration, and the sole
-`roadmap:read` scope. No OAuth scope or MCP tool authorizes roadmap mutation.
+registered redirect URI, client, `resource`/audience, expiration, and requested supported scopes.
+`roadmap:read` authorizes only read tools; the separate `roadmap:write` scope is mandatory for
+every mutation tool. Existing read-only grants and `CARNIVAL_ROADMAP_READ_TOKEN` never permit writes.
 
 The OAuth implementation is a replaceable identity boundary. It returns the immutable current
 Carnival owner ID to unchanged MCP tools; a future datastore/authentication migration therefore
@@ -269,13 +281,20 @@ equivalent. Authentication continues to select the unchanged interactive Console
 requests receive the server-rendered read-only roadmap. The public loader reads but never seeds,
 backfills, or mutates Development Console data.
 
+Marker `P3-ROADMAP-WRITE-147` adds owner-scoped, explicit-request-only MCP mutation tools and the
+separate `roadmap:write` OAuth scope. Mutations reuse Development Console validation and Mongo
+repository paths; canonical reorder remains exact-set/contiguous, dependencies reject missing,
+self, and duplicate references, and Notes append with paragraph preservation. Public roadmap and
+CF/component sharing routes remain read-only.
+
 ### One-time ChatGPT connection procedure
 
 1. In ChatGPT Settings → Security and login, enable Developer mode.
 2. In ChatGPT Plugins, add the production MCP URL above. ChatGPT discovers Carnival OAuth and
    dynamically registers its callback automatically.
 3. When redirected to `/oauth/authorize`, sign into Carnival if necessary, then choose Allow
-   for `roadmap:read`.
+   for both `roadmap:read` and `roadmap:write` if you want write tools. An existing read-only
+   connection must be refreshed or reconnected to grant the new scope.
 4. Install the resulting personal plugin, open a new Work conversation, and ask
    `Can you see CF-010?`. Confirm ChatGPT calls `get_feature` and returns the live record.
 

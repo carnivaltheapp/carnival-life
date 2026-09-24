@@ -68,13 +68,26 @@ const roadmap: RoadmapResponse = {
   globalSequence: ["CF-009", "CF-010", "CF-011"],
 };
 
-async function connectedClient() {
-  const server = createRoadmapMcpServer("owner-a", async () => roadmap);
+function writerReturning(value: RoadmapResponse = roadmap) {
+  return {
+    addDependency: vi.fn().mockResolvedValue(value),
+    appendNotes: vi.fn().mockResolvedValue(value),
+    removeDependency: vi.fn().mockResolvedValue(value),
+    reorderFeature: vi.fn().mockResolvedValue(value),
+    updateFeature: vi.fn().mockResolvedValue(value),
+  };
+}
+
+async function connectedClient(
+  access: Parameters<typeof createRoadmapMcpServer>[0] = "owner-a",
+  writer = writerReturning(),
+) {
+  const server = createRoadmapMcpServer(access, async () => roadmap, writer);
   const client = new Client({ name: "roadmap-test", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   await client.connect(clientTransport);
-  return { client, server };
+  return { client, server, writer };
 }
 
 const opened: Array<{ client: Client; server: ReturnType<typeof createRoadmapMcpServer> }> = [];
@@ -123,7 +136,7 @@ describe("Carnival Development roadmap MCP tools", () => {
       .structuredContent).toEqual({ features: [expect.objectContaining({ featureId: "CF-011" })] });
   });
 
-  it("returns the canonical roadmap and components and exposes no mutation tools", async () => {
+  it("returns the canonical roadmap and advertises separately scoped read and write tools", async () => {
     expect((await call("get_roadmap")).structuredContent).toEqual(roadmap);
     expect((await call("list_components")).structuredContent).toEqual({ components: roadmap.components });
     const connection = await connectedClient();
@@ -135,9 +148,15 @@ describe("Carnival Development roadmap MCP tools", () => {
       "list_features",
       "list_components",
       "get_roadmap",
+      "update_feature",
+      "reorder_feature",
+      "add_dependency",
+      "remove_dependency",
+      "append_notes",
     ]);
-    expect(tools.tools.every((tool) => tool.annotations?.readOnlyHint === true)).toBe(true);
-    expect(tools.tools.every((tool) => {
+    expect(tools.tools.slice(0, 5).every((tool) => tool.annotations?.readOnlyHint === true)).toBe(true);
+    expect(tools.tools.slice(5).every((tool) => tool.annotations?.readOnlyHint === false)).toBe(true);
+    expect(tools.tools.slice(0, 5).every((tool) => {
       const schemes = tool._meta?.securitySchemes;
       return Array.isArray(schemes) && schemes.some((scheme) =>
         typeof scheme === "object" && scheme !== null &&
@@ -145,7 +164,75 @@ describe("Carnival Development roadmap MCP tools", () => {
         "scopes" in scheme && Array.isArray(scheme.scopes) &&
         scheme.scopes.includes("roadmap:read"));
     })).toBe(true);
-    expect(tools.tools.map((tool) => tool.name).join(" ")).not.toMatch(/create|update|delete|move|reorder/);
+    expect(tools.tools.slice(5).every((tool) => {
+      const schemes = tool._meta?.securitySchemes;
+      return Array.isArray(schemes) && schemes.some((scheme) =>
+        typeof scheme === "object" && scheme !== null &&
+        "scopes" in scheme && Array.isArray(scheme.scopes) &&
+        scheme.scopes.includes("roadmap:write"));
+    })).toBe(true);
+    expect(tools.tools.map((tool) => tool.name).join(" ")).not.toMatch(/delete_feature|delete_component|mongo/);
+  });
+
+  it("executes each explicitly requested write through the owner-scoped mutation service", async () => {
+    const connection = await connectedClient();
+    opened.push(connection);
+    await connection.client.callTool({
+      arguments: { changes: { priority: "High" }, featureId: "CF-010" },
+      name: "update_feature",
+    });
+    await connection.client.callTool({
+      arguments: { featureId: "CF-011", sequence: 1 },
+      name: "reorder_feature",
+    });
+    await connection.client.callTool({
+      arguments: { dependencyFeatureId: "CF-009", featureId: "CF-011" },
+      name: "add_dependency",
+    });
+    await connection.client.callTool({
+      arguments: { dependencyFeatureId: "CF-009", featureId: "CF-010" },
+      name: "remove_dependency",
+    });
+    await connection.client.callTool({
+      arguments: { featureId: "CF-010", text: "Explicitly requested note." },
+      name: "append_notes",
+    });
+    expect(connection.writer.updateFeature).toHaveBeenCalledWith(
+      "owner-a", "CF-010", { priority: "High" },
+    );
+    expect(connection.writer.reorderFeature).toHaveBeenCalledWith("owner-a", "CF-011", 1);
+    expect(connection.writer.addDependency).toHaveBeenCalledWith("owner-a", "CF-011", "CF-009");
+    expect(connection.writer.removeDependency).toHaveBeenCalledWith("owner-a", "CF-010", "CF-009");
+    expect(connection.writer.appendNotes).toHaveBeenCalledWith(
+      "owner-a", "CF-010", "Explicitly requested note.",
+    );
+  });
+
+  it("never permits a read-only OAuth identity to invoke write tools", async () => {
+    const writer = writerReturning();
+    const connection = await connectedClient({
+      ownerUserId: "owner-a",
+      scopes: ["roadmap:read"],
+      writeAuthenticationChallenge: 'Bearer scope="roadmap:write", error="insufficient_scope"',
+    }, writer);
+    opened.push(connection);
+    expect((await connection.client.callTool({
+      arguments: { changes: { priority: "High" }, featureId: "CF-010" },
+      name: "update_feature",
+    })).isError).toBe(true);
+    expect(writer.updateFeature).not.toHaveBeenCalled();
+  });
+
+  it("rejects fields outside the update_feature allowlist before mutation", async () => {
+    const writer = writerReturning();
+    const connection = await connectedClient("owner-a", writer);
+    opened.push(connection);
+    const response = await connection.client.callTool({
+      arguments: { changes: { sequence: 1 }, featureId: "CF-010" },
+      name: "update_feature",
+    });
+    expect(response.isError).toBe(true);
+    expect(writer.updateFeature).not.toHaveBeenCalled();
   });
 
   it("passes the authorized owner identity to every Mongo-backed tool load", async () => {
@@ -166,8 +253,10 @@ describe("Carnival Development roadmap MCP tools", () => {
   it("returns the ChatGPT OAuth trigger without reading roadmap data when unauthenticated", async () => {
     const loadRoadmap = vi.fn();
     const server = createRoadmapMcpServer({
-      authenticationChallenge:
+      readAuthenticationChallenge:
         'Bearer resource_metadata="https://carnival.example/.well-known/oauth-protected-resource/api/development/mcp", scope="roadmap:read", error="insufficient_scope", error_description="Carnival roadmap authorization is required."',
+      writeAuthenticationChallenge:
+        'Bearer resource_metadata="https://carnival.example/.well-known/oauth-protected-resource/api/development/mcp", scope="roadmap:write", error="insufficient_scope", error_description="Carnival roadmap authorization is required."',
     }, loadRoadmap);
     const client = new Client({ name: "unauthenticated-test", version: "1.0.0" });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -176,7 +265,7 @@ describe("Carnival Development roadmap MCP tools", () => {
     opened.push({ client, server });
 
     const tools = await client.listTools();
-    expect(tools.tools).toHaveLength(5);
+    expect(tools.tools).toHaveLength(10);
     const response = await client.callTool({ arguments: { featureId: "CF-010" }, name: "get_feature" });
     expect(response).toEqual(expect.objectContaining({
       isError: true,

@@ -9,6 +9,7 @@ vi.mock("server-only", () => ({}));
 import {
   CarnivalRoadmapOAuthService,
   ROADMAP_SCOPE,
+  ROADMAP_WRITE_SCOPE,
   RoadmapOAuthError,
   roadmapAuthorizationServerMetadata,
   roadmapMcpResource,
@@ -87,7 +88,7 @@ describe("Carnival roadmap OAuth 2.1", () => {
       code_challenge_methods_supported: ["S256"],
       issuer,
       registration_endpoint: `${issuer}/api/oauth/register`,
-      scopes_supported: [ROADMAP_SCOPE],
+      scopes_supported: [ROADMAP_SCOPE, ROADMAP_WRITE_SCOPE],
       token_endpoint: `${issuer}/api/oauth/token`,
       token_endpoint_auth_methods_supported: ["none"],
     }));
@@ -156,7 +157,7 @@ describe("Carnival roadmap OAuth 2.1", () => {
     )).rejects.toMatchObject({ code: "invalid_target" });
     await expect(service.validateAuthorizationRequest(
       issuer,
-      authorizationParameters(client.client_id, { scope: "roadmap:write" }),
+      authorizationParameters(client.client_id, { scope: "roadmap:admin" }),
     )).rejects.toMatchObject({ code: "invalid_scope" });
     const request = await service.validateAuthorizationRequest(
       issuer,
@@ -190,7 +191,7 @@ describe("Carnival roadmap OAuth 2.1", () => {
       ["wrong-scope", {
         audience: roadmapMcpResource(issuer),
         issuer,
-        scope: ["roadmap:write"],
+        scope: ["roadmap:admin"],
       }],
       ["wrong-audience", {
         audience: `${issuer}/wrong`,
@@ -223,12 +224,35 @@ describe("Carnival roadmap OAuth 2.1", () => {
     expect(`${auth}\n${oauth}`).not.toMatch(/supabase|\.auth\.getClaims|auth\.oauth/i);
   });
 
-  it("uses the existing Carnival session only at consent and never grants write scope", () => {
+  it("issues a separately consented write scope without weakening read-only grants", async () => {
+    const { client, repository, service } = await registeredService();
+    const request = await service.validateAuthorizationRequest(
+      issuer,
+      authorizationParameters(client.client_id, { scope: `${ROADMAP_SCOPE} ${ROADMAP_WRITE_SCOPE}` }),
+    );
+    const code = await service.issueAuthorizationCode(issuer, "owner-a", request);
+    const token = await service.exchangeAuthorizationCode(issuer, new URLSearchParams({
+      client_id: client.client_id,
+      code,
+      code_verifier: verifier,
+      grant_type: "authorization_code",
+      redirect_uri: redirectUri,
+      resource: roadmapMcpResource(issuer),
+    }));
+    expect(token.scope).toBe(`${ROADMAP_SCOPE} ${ROADMAP_WRITE_SCOPE}`);
+    expect(repository.tokens[0].scope).toEqual([ROADMAP_SCOPE, ROADMAP_WRITE_SCOPE]);
+    expect(await service.authenticateAccessToken(issuer, token.access_token)).toEqual({
+      ownerUserId: "owner-a",
+      scopes: [ROADMAP_SCOPE, ROADMAP_WRITE_SCOPE],
+    });
+  });
+
+  it("uses the existing Carnival session at consent and clearly discloses write access", () => {
     const page = readFileSync(join(process.cwd(), "app", "oauth", "authorize", "page.tsx"), "utf8");
     expect(page).toContain("authenticatedDevelopmentOwner");
     expect(page).toContain("GoogleSignInButton");
-    expect(page).toContain("roadmap:read");
-    expect(page).not.toContain("roadmap:write");
+    expect(page).toContain("ROADMAP_WRITE_SCOPE");
+    expect(page).toContain("explicitly requested Development Roadmap changes");
     expect(RoadmapOAuthError).toBeTypeOf("function");
   });
 });

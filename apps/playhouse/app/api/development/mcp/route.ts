@@ -7,6 +7,7 @@ import {
   roadmapMcpToolAuthenticationChallenge,
 } from "../../../../lib/development/mcp-auth.server";
 import { createRoadmapMcpServer } from "../../../../lib/development/mcp.server";
+import { ROADMAP_SCOPE, ROADMAP_WRITE_SCOPE } from "../../../../lib/development/roadmap-oauth.server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -54,8 +55,16 @@ async function handle(request: Request) {
   const send = transport.send.bind(transport);
   transport.send = (message, options) => send(includeToolSecuritySchemes(message), options);
   const server = createRoadmapMcpServer(identity
-    ? { ownerUserId: identity.ownerUserId }
-    : { authenticationChallenge: roadmapMcpToolAuthenticationChallenge(request) });
+    ? {
+        ownerUserId: identity.ownerUserId,
+        readAuthenticationChallenge: roadmapMcpToolAuthenticationChallenge(request, ROADMAP_SCOPE),
+        scopes: identity.scopes,
+        writeAuthenticationChallenge: roadmapMcpToolAuthenticationChallenge(request, ROADMAP_WRITE_SCOPE),
+      }
+    : {
+        readAuthenticationChallenge: roadmapMcpToolAuthenticationChallenge(request, ROADMAP_SCOPE),
+        writeAuthenticationChallenge: roadmapMcpToolAuthenticationChallenge(request, ROADMAP_WRITE_SCOPE),
+      });
   await server.connect(transport);
   return transport.handleRequest(request, {
     authInfo: {

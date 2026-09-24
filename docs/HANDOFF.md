@@ -4,6 +4,11 @@ Architecture-only exploration handoff • September 2026
 
 ## September 24, 2026 — ChatGPT Roadmap MCP
 
+- Marker `P3-ROADMAP-WRITE-147` adds five narrowly scoped MCP mutations backed by the existing
+  owner-scoped Development Console repository: approved field updates, canonical global reorder,
+  dependency add/remove, and paragraph-preserving Notes append. The new `roadmap:write` OAuth scope
+  is separate from `roadmap:read`; legacy static read tokens and existing read-only OAuth grants
+  cannot mutate data. No create/delete/arbitrary Mongo capability is exposed.
 - Marker `P3-ROADMAP-PUBLIC-146` makes unauthenticated `/development` a server-rendered,
   read-only All Features roadmap with complete planning fields and full Notes. Authenticated
   owners still receive the existing interactive Console at the same URL. The public view is
