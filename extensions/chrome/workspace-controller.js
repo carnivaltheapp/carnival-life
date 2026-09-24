@@ -1208,7 +1208,7 @@ export class CarnivalWorkspaceController {
       await this.updateWindow(target.window.id, { focused: true }, `activate-${requestedSurface}-surface`);
     }
     const swapsPhysicalOwner = Boolean(outgoingWindow && outgoingWindow.id !== target.window.id);
-    if (swapsPhysicalOwner && this.nativeTransferRightSurfaceOwner) {
+    if (swapsPhysicalOwner && prior.drawerState === "open" && this.nativeTransferRightSurfaceOwner) {
       const transferred = await this.nativeTransferRightSurfaceOwner({
         bounds: rightRect,
         fromSurface: prior.rightSurface,

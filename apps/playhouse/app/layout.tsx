@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-CONTACT-GROUPS-155
+          P3-RIGHT-SURFACE-RETRACTED-156
         </small>
       </body>
     </html>

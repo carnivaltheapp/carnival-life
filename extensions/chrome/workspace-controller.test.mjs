@@ -695,6 +695,34 @@ test("failed threshold transfer preserves the outgoing surface and releases the 
   assert.equal(chrome.getWindow(opened.auxWindowId).state, "minimized");
 });
 
+test("toolbar-style right-surface switching skips inactive threshold transfer while retracted", async () => {
+  const chrome = fakeChrome();
+  const thresholdTransfers = [];
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { warn() {} },
+    nativeAnimate: async (animation) => {
+      chrome.resizeWindow(animation.playhouseWindowId, animation.playhouse.to);
+      chrome.resizeWindow(animation.contextWindowId, animation.context.to);
+      return true;
+    },
+    nativeTransferRightSurfaceOwner: async (transfer) => {
+      thresholdTransfers.push(transfer);
+      return false;
+    },
+  });
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  await workspace.summon(workArea, "display-1");
+  const retracted = await workspace.retract();
+  const playhouseBefore = { ...chrome.getWindow(retracted.phWindowId) };
+
+  const switched = await workspace.toggleRightSurface(workArea);
+
+  assert.equal(switched.drawerState, "retracted");
+  assert.equal(switched.rightSurface, "misc");
+  assert.deepEqual(thresholdTransfers, []);
+  assert.deepEqual(chrome.getWindow(retracted.phWindowId), playhouseBefore);
+});
+
 test("right-surface requests serialize and a queued request is never dropped", async () => {
   const chrome = fakeChrome();
   const workspace = controller(chrome);

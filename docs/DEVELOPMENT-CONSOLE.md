@@ -326,3 +326,9 @@ Google Contact Group resources. Player search includes user-created labels with 
 groups expand against the live People API into a temporary, initially checked member list. Only
 contact/group references are stored on the Play—expanded membership and checkbox state are never
 persisted or written back to Google Contacts. Existing single-Player Plays remain compatible.
+
+Marker `P3-RIGHT-SURFACE-RETRACTED-156` fixes the Chrome toolbar Aux/Misc toggle while the native
+drawer is retracted. Native evidence showed the host correctly rejecting threshold-owner transfer
+because no retract threshold is active in that state; the controller had incorrectly made that
+expected condition fatal. Retracted switches now skip only the inactive transfer. Open-drawer
+switches retain the acknowledged incoming-owner handoff, geometry, serialization, and safety rules.
