@@ -70,3 +70,31 @@ test("Development Console persists editable navigation components", async ({ aut
   await dialog.getByRole("button", { name: "Confirm Delete" }).click();
   await expect(dialog.getByLabel("Name for E2E Component Renamed")).toHaveCount(0);
 });
+
+test("Development Console reorders features globally and moves them between components", async ({ auth }) => {
+  await auth.page.goto("/development");
+  const draggedRow = auth.page.getByRole("row", { name: /Drag Email into PlayHouse/ });
+  const targetRow = auth.page.getByRole("row", { name: /Play Templates/ });
+  const originalPriority = await draggedRow.locator("td").nth(3).textContent();
+
+  await draggedRow.getByRole("button", { name: "Reorder Drag Email into PlayHouse" }).dragTo(targetRow);
+  await expect(draggedRow.locator("td").nth(4)).toHaveText("4");
+  await expect(draggedRow.locator("td").nth(3)).toHaveText(originalPriority ?? "High");
+  await auth.page.reload();
+  await expect(auth.page.getByRole("row", { name: /Drag Email into PlayHouse/ }).locator("td").nth(4))
+    .toHaveText("4");
+
+  await auth.page.getByRole("button", { name: "Gmail", exact: true }).click();
+  const gmailRow = auth.page.getByRole("row", { name: /Drag Email into PlayHouse/ });
+  await gmailRow.getByRole("button", { name: "Reorder Drag Email into PlayHouse" }).dragTo(
+    auth.page.getByRole("button", { name: "Calendar", exact: true }),
+  );
+  await expect(gmailRow).toHaveCount(0);
+  await auth.page.getByRole("button", { name: "All Features", exact: true }).click();
+  await expect(auth.page.getByRole("row", { name: /Drag Email into PlayHouse/ }).locator("td").nth(1))
+    .toHaveText("Calendar");
+
+  await auth.page.getByPlaceholder("Search features...").fill("Play");
+  await expect(auth.page.getByText("Clear search, status, and priority filters to reorder development sequence."))
+    .toBeVisible();
+});

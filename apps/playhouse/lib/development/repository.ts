@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import type { Collection } from "mongodb";
+import type { ClientSession, Collection } from "mongodb";
 
 import type { DevelopmentComponentInput } from "../../domain/development-component";
 import type {
@@ -9,7 +9,7 @@ import type {
   DevelopmentFeature,
   DevelopmentFeatureInput,
 } from "../../domain/development-feature";
-import { getCarnivalMongoDatabase } from "../playhouse/mongo-client";
+import { getCarnivalMongoClient, getCarnivalMongoDatabase } from "../playhouse/mongo-client";
 import {
   DEFAULT_DEVELOPMENT_COMPONENTS,
   DEVELOPMENT_COMPONENT_SEED_VERSION,
@@ -62,6 +62,7 @@ type Collections = {
   components: Collection<DevelopmentComponentDocument>;
   features: Collection<DevelopmentFeatureDocument>;
   meta: Collection<DevelopmentConsoleMetaDocument>;
+  runTransaction?: <T>(operation: (session: ClientSession) => Promise<T>) => Promise<T>;
 };
 
 declare global {
@@ -69,7 +70,10 @@ declare global {
 }
 
 async function defaultCollections(): Promise<Collections> {
-  const database = await getCarnivalMongoDatabase();
+  const [client, database] = await Promise.all([
+    getCarnivalMongoClient(),
+    getCarnivalMongoDatabase(),
+  ]);
   const components = database.collection<DevelopmentComponentDocument>(COMPONENT_COLLECTION);
   const features = database.collection<DevelopmentFeatureDocument>(FEATURE_COLLECTION);
   const meta = database.collection<DevelopmentConsoleMetaDocument>(META_COLLECTION);
@@ -104,7 +108,24 @@ async function defaultCollections(): Promise<Collections> {
     ),
   ]);
   await globalThis.carnivalDevelopmentIndexesPromise;
-  return { components, features, meta };
+  return {
+    components,
+    features,
+    meta,
+    runTransaction: async <T>(operation: (session: ClientSession) => Promise<T>) => {
+      const session = client.startSession();
+      let result: T | undefined;
+      try {
+        await session.withTransaction(async () => {
+          result = await operation(session);
+        });
+        if (result === undefined) throw new Error("Development transaction produced no result.");
+        return result;
+      } finally {
+        await session.endSession();
+      }
+    },
+  };
 }
 
 function publicComponent(document: DevelopmentComponentDocument): DevelopmentComponentRecord {
@@ -428,6 +449,50 @@ export class MongoDevelopmentFeatureRepository {
         sequence: input.sequence,
         status: input.status,
         title: input.title,
+        updated_at: new Date(),
+      } },
+      { returnDocument: "after" },
+    );
+    return document ? publicFeature(document) : null;
+  }
+
+  async reorderFeatures(ownerUserId: string, featureIds: string[]) {
+    const collections = await this.collections();
+    const reorder = async (session?: ClientSession) => {
+      const existingIds = (await collections.features.find(
+        { owner_user_id: ownerUserId },
+        { projection: { _id: 0, feature_id: 1 }, session },
+      ).toArray()).map((feature) => feature.feature_id);
+      if (
+        existingIds.length !== featureIds.length ||
+        existingIds.some((id) => !featureIds.includes(id))
+      ) return false;
+      const now = new Date();
+      await collections.features.bulkWrite(featureIds.map((featureId, index) => ({
+        updateOne: {
+          filter: { feature_id: featureId, owner_user_id: ownerUserId },
+          update: { $set: { sequence: index + 1, updated_at: now } },
+        },
+      })), { ordered: true, session });
+      return true;
+    };
+    return collections.runTransaction
+      ? collections.runTransaction((session) => reorder(session))
+      : reorder();
+  }
+
+  async moveFeatureToComponent(ownerUserId: string, featureId: string, componentId: string) {
+    const { components, features } = await this.collections();
+    const component = await components.findOne({
+      component_id: componentId,
+      owner_user_id: ownerUserId,
+    });
+    if (!component) return null;
+    const document = await features.findOneAndUpdate(
+      { feature_id: featureId, owner_user_id: ownerUserId },
+      { $set: {
+        component: component.name,
+        component_id: component.component_id,
         updated_at: new Date(),
       } },
       { returnDocument: "after" },

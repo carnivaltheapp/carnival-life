@@ -35,6 +35,8 @@ features before deleting the source component.
 ## Current behavior
 
 - Component navigation and All Features view.
+- Drag handles reorder roadmap features vertically and persist one canonical global sequence.
+- Dragging a feature onto a visible sidebar component reassigns it without changing priority.
 - Search across title, description, and notes.
 - Status and priority filtering, combined with component/search filters.
 - A table containing feature title/description, component, status, priority, sequence,
@@ -43,6 +45,13 @@ features before deleting the source component.
   dependencies.
 - Lower sequence values render first; unsequenced records render afterward.
 - Responsive layout that preserves the approved desktop table design.
+
+The displayed order is the global development sequence. Reordering in a component view
+reorders that component's features inside the global slots they already occupy, preserving
+the relative order and positions of unrelated components. Search, status, and priority
+filters disable vertical reordering because hidden records would make the result ambiguous;
+the UI explains that those filters must be cleared. Component drops remain available.
+The existing sequence field in the feature editor remains as a keyboard-accessible fallback.
 
 Version 1 intentionally excludes automatic sequencing, graphs, Kanban, AI behavior,
 GitHub synchronization, assignments, sprints, notifications, comments, and attachments.
@@ -84,6 +93,8 @@ Authenticated, owner-scoped JSON endpoints are available for machine access:
 - `GET /api/development/features/{featureId}`
 - `PATCH /api/development/features/{featureId}`
 - `DELETE /api/development/features/{featureId}`
+- `PATCH /api/development/features/reorder`
+- `PATCH /api/development/features/{featureId}/component`
 - `GET /api/development/components`
 - `POST /api/development/components`
 - `GET /api/development/components/{componentId}`
@@ -99,6 +110,11 @@ The endpoints return private, no-store responses. Component deletion returns HTT
 `component_in_use` and an owner-scoped feature count when a move destination is required.
 The reorder endpoint accepts the complete unique component-ID set so another owner's
 component can never be injected into the order.
+
+Feature reorder accepts the complete owner feature-ID set, validates that exact set inside
+a MongoDB transaction, and bulk-writes contiguous sequence values. Component reassignment
+is a targeted owner-scoped update of only the stable component ID/name snapshot. The client
+updates optimistically and restores its prior state if either operation fails.
 
 This structured API is the Version 1 machine-access boundary for future planning tools.
 No AI functionality is part of this implementation.

@@ -52,6 +52,7 @@ describe("Mongo Development Console repository", () => {
     expect(source).toContain('{ name: "owner_component_name_unique", unique: true }');
     expect(source).toContain('{ owner_user_id: 1, sort_order: 1 }');
     expect(source).toContain('{ owner_user_id: 1, component_id: 1, status: 1, priority: 1 }');
+    expect(source).toContain("session.withTransaction");
   });
 
   it("seeds the marker-134 component order and backfills legacy name-only features", async () => {
@@ -112,6 +113,91 @@ describe("Mongo Development Console repository", () => {
     expect(features.findOneAndUpdate).toHaveBeenCalledWith(
       { feature_id: persisted.feature_id, owner_user_id: "owner-a" },
       { $set: expect.objectContaining({ component: "PlayHouse", component_id: componentId }) },
+      { returnDocument: "after" },
+    );
+  });
+
+  it("persists a complete global feature sequence with owner-scoped bulk updates", async () => {
+    const secondId = "205d0598-b93c-49e1-aec3-4dac945e6e0a";
+    const features = {
+      bulkWrite: vi.fn().mockResolvedValue({ modifiedCount: 2 }),
+      find: vi.fn(() => ({ toArray: vi.fn().mockResolvedValue([
+        { feature_id: input.dependencies[0] },
+        { feature_id: secondId },
+      ]) })),
+    };
+    await expect(repositoryWith({ features }).reorderFeatures(
+      "owner-a",
+      [secondId, input.dependencies[0]],
+    )).resolves.toBe(true);
+    expect(features.bulkWrite).toHaveBeenCalledWith([
+      { updateOne: {
+        filter: { feature_id: secondId, owner_user_id: "owner-a" },
+        update: { $set: expect.objectContaining({ sequence: 1 }) },
+      } },
+      { updateOne: {
+        filter: { feature_id: input.dependencies[0], owner_user_id: "owner-a" },
+        update: { $set: expect.objectContaining({ sequence: 2 }) },
+      } },
+    ], { ordered: true, session: undefined });
+  });
+
+  it("rejects a reorder that omits an owner feature", async () => {
+    const features = {
+      bulkWrite: vi.fn(),
+      find: vi.fn(() => ({ toArray: vi.fn().mockResolvedValue([
+        { feature_id: input.dependencies[0] },
+        { feature_id: "205d0598-b93c-49e1-aec3-4dac945e6e0a" },
+      ]) })),
+    };
+    await expect(repositoryWith({ features }).reorderFeatures(
+      "owner-a",
+      [input.dependencies[0]],
+    )).resolves.toBe(false);
+    expect(features.bulkWrite).not.toHaveBeenCalled();
+  });
+
+  it("moves only the targeted owner feature to an existing owner component", async () => {
+    const now = new Date("2026-09-24T12:00:00.000Z");
+    const destination = {
+      ...componentDocument,
+      component_id: DEFAULT_DEVELOPMENT_COMPONENTS[1].id,
+      name: "Roller",
+    };
+    const persisted = {
+      component: "Roller",
+      component_id: destination.component_id,
+      created_at: now,
+      dependencies: [],
+      description: "Description",
+      feature_id: input.dependencies[0],
+      is_demo: false,
+      notes: "",
+      owner_user_id: "owner-a",
+      priority: "High" as const,
+      sequence: 4,
+      status: "Ready" as const,
+      title: "Feature",
+      updated_at: now,
+    };
+    const components = { findOne: vi.fn().mockResolvedValue(destination) };
+    const features = { findOneAndUpdate: vi.fn().mockResolvedValue(persisted) };
+    await expect(repositoryWith({ components, features }).moveFeatureToComponent(
+      "owner-a",
+      persisted.feature_id,
+      destination.component_id,
+    )).resolves.toEqual(expect.objectContaining({
+      component: "Roller",
+      componentId: destination.component_id,
+      priority: "High",
+      sequence: 4,
+    }));
+    expect(features.findOneAndUpdate).toHaveBeenCalledWith(
+      { feature_id: persisted.feature_id, owner_user_id: "owner-a" },
+      { $set: expect.objectContaining({
+        component: "Roller",
+        component_id: destination.component_id,
+      }) },
       { returnDocument: "after" },
     );
   });

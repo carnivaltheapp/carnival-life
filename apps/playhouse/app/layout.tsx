@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-DEVELOPMENT-COMPONENTS-135
+          P3-DEVELOPMENT-DRAG-136
         </small>
       </body>
     </html>

@@ -2,6 +2,17 @@
 
 Architecture-only exploration handoff • September 2026
 
+## September 24, 2026 — Development Roadmap Drag Organization
+
+- Marker `P3-DEVELOPMENT-DRAG-136` adds feature-row drag handles to `/development`.
+- Vertical drops persist one canonical owner-wide development sequence; component-filtered
+  reorders preserve unrelated global slots, while ambiguous search/status/priority-filtered
+  reorder is disabled with a visible explanation.
+- Sidebar component drops perform a targeted stable-ID reassignment and retain priority and
+  all unrelated feature fields.
+- Both paths are optimistic with rollback, and global reorder uses an exact-set MongoDB
+  transaction plus ordered bulk writes.
+
 ## September 24, 2026 — Editable Development Components
 
 - Marker `P3-DEVELOPMENT-COMPONENTS-135` makes `/development` component navigation

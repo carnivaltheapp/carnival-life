@@ -15,6 +15,10 @@ import {
   type DevelopmentPriority,
   type DevelopmentStatus,
 } from "../../domain/development-feature";
+import {
+  moveDevelopmentFeature,
+  reorderVisibleDevelopmentFeatures,
+} from "../../domain/development-feature-order";
 import styles from "./development.module.css";
 
 type Identity = { displayName: string; email: string | null };
@@ -122,9 +126,19 @@ export function DevelopmentConsole({
     featureCount: number | null;
     id: string;
   } | null>(null);
+  const [draggedFeatureId, setDraggedFeatureId] = useState<string | null>(null);
+  const [rowDropTarget, setRowDropTarget] = useState<{
+    edge: "after" | "before";
+    id: string;
+  } | null>(null);
+  const [componentDropTarget, setComponentDropTarget] = useState<string | null>(null);
+  const [dragSaving, setDragSaving] = useState(false);
 
   const visibleComponents = components.filter((item) => !item.hidden);
   const selectedComponent = components.find((item) => item.id === componentId);
+  const sequenceReorderEnabled = !query.trim() &&
+    status === "All Statuses" &&
+    priority === "All Priorities";
 
   const visibleFeatures = useMemo(() => filterDevelopmentFeatures(features, {
     componentId,
@@ -400,6 +414,84 @@ export function DevelopmentConsole({
     }
   }
 
+  function clearFeatureDrag() {
+    setDraggedFeatureId(null);
+    setRowDropTarget(null);
+    setComponentDropTarget(null);
+  }
+
+  async function reorderFeature(targetFeatureId: string, edge: "after" | "before") {
+    if (!draggedFeatureId || !sequenceReorderEnabled || dragSaving) return;
+    const visibleOrder = moveDevelopmentFeature(
+      visibleFeatures,
+      draggedFeatureId,
+      targetFeatureId,
+      edge,
+    );
+    if (!visibleOrder) return;
+    const reordered = reorderVisibleDevelopmentFeatures(features, visibleOrder);
+    if (!reordered) return;
+    const previous = features;
+    setFeatures(reordered);
+    setDragSaving(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/development/features/reorder", {
+        body: JSON.stringify({ featureIds: reordered.map((feature) => feature.id) }),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      });
+      if (!response.ok) {
+        setFeatures(previous);
+        setMessage(await responseMessage(response, "Development sequence could not be saved."));
+      }
+    } catch {
+      setFeatures(previous);
+      setMessage("Development sequence could not be saved. Check your connection and try again.");
+    } finally {
+      setDragSaving(false);
+      clearFeatureDrag();
+    }
+  }
+
+  async function moveFeatureToComponent(targetComponentId: string) {
+    if (!draggedFeatureId || dragSaving) return;
+    const target = components.find((component) => component.id === targetComponentId);
+    const source = features.find((feature) => feature.id === draggedFeatureId);
+    if (!target || !source || source.componentId === target.id) {
+      clearFeatureDrag();
+      return;
+    }
+    const previous = features;
+    setFeatures((current) => current.map((feature) => feature.id === source.id
+      ? { ...feature, component: target.name, componentId: target.id }
+      : feature));
+    setDragSaving(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/development/features/${source.id}/component`, {
+        body: JSON.stringify({ componentId: target.id }),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      });
+      if (!response.ok) {
+        setFeatures(previous);
+        setMessage(await responseMessage(response, "Feature component could not be changed."));
+        return;
+      }
+      const { feature: persisted } = await response.json() as { feature: DevelopmentFeature };
+      setFeatures((current) => current.map((feature) => feature.id === persisted.id
+        ? persisted
+        : feature));
+    } catch {
+      setFeatures(previous);
+      setMessage("Feature component could not be changed. Check your connection and try again.");
+    } finally {
+      setDragSaving(false);
+      clearFeatureDrag();
+    }
+  }
+
   return (
     <main className={styles.console}>
       <aside className={styles.sidebar}>
@@ -418,9 +510,24 @@ export function DevelopmentConsole({
           </button>
           {visibleComponents.map((item) => (
             <button
-              className={componentId === item.id ? styles.navActive : styles.navItem}
+              className={`${componentId === item.id ? styles.navActive : styles.navItem} ${componentDropTarget === item.id ? styles.navDropTarget : ""}`}
               key={item.id}
               onClick={() => setComponentId(item.id)}
+              onDragEnter={(event) => {
+                if (!draggedFeatureId) return;
+                event.preventDefault();
+                setComponentDropTarget(item.id);
+              }}
+              onDragOver={(event) => {
+                if (!draggedFeatureId) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                setComponentDropTarget(item.id);
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                void moveFeatureToComponent(item.id);
+              }}
               type="button"
             >
               <Icon icon={item.icon} />
@@ -478,6 +585,9 @@ export function DevelopmentConsole({
         </div>
 
         {message && !dialogOpen ? <p className={styles.pageMessage} role="alert">{message}</p> : null}
+        {!sequenceReorderEnabled ? (
+          <p className={styles.reorderHint}>Clear search, status, and priority filters to reorder development sequence.</p>
+        ) : null}
 
         <div className={styles.tableCard}>
           <div className={styles.tableSummary}>
@@ -498,10 +608,56 @@ export function DevelopmentConsole({
               </thead>
               <tbody>
                 {visibleFeatures.map((feature) => (
-                  <tr key={feature.id} onClick={() => openFeature(feature)}>
+                  <tr
+                    data-dragging={draggedFeatureId === feature.id || undefined}
+                    data-drop-edge={rowDropTarget?.id === feature.id ? rowDropTarget.edge : undefined}
+                    key={feature.id}
+                    onClick={() => openFeature(feature)}
+                    onDragOver={(event) => {
+                      if (!draggedFeatureId || !sequenceReorderEnabled || draggedFeatureId === feature.id) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      const bounds = event.currentTarget.getBoundingClientRect();
+                      setRowDropTarget({
+                        edge: event.clientY < bounds.top + bounds.height / 2 ? "before" : "after",
+                        id: feature.id,
+                      });
+                      setComponentDropTarget(null);
+                    }}
+                    onDrop={(event) => {
+                      if (!rowDropTarget || rowDropTarget.id !== feature.id) return;
+                      event.preventDefault();
+                      void reorderFeature(feature.id, rowDropTarget.edge);
+                    }}
+                  >
                     <td className={styles.featureCell}>
-                      <strong>{feature.title}</strong>
-                      <p>{feature.description}</p>
+                      <div className={styles.featureCellContent}>
+                        <button
+                          aria-label={`Reorder ${feature.title}`}
+                          className={styles.dragHandle}
+                          disabled={dragSaving}
+                          draggable={!dragSaving}
+                          onClick={(event) => event.stopPropagation()}
+                          onDragEnd={clearFeatureDrag}
+                          onDragStart={(event) => {
+                            event.stopPropagation();
+                            event.dataTransfer.effectAllowed = "move";
+                            event.dataTransfer.setData("text/plain", feature.id);
+                            setDraggedFeatureId(feature.id);
+                            setMessage("");
+                          }}
+                          title={sequenceReorderEnabled
+                            ? "Drag to reorder or move to a component"
+                            : "Clear filters to reorder; component moves remain available"}
+                          type="button"
+                        >
+                          <span aria-hidden="true">⠿</span>
+                        </button>
+                        <span className={styles.featureText}>
+                          <strong>{feature.title}</strong>
+                          <p>{feature.description}</p>
+                        </span>
+                      </div>
                     </td>
                     <td><span className={`${styles.pill} ${componentTone(feature.component)}`}>{feature.component}</span></td>
                     <td><span className={`${styles.pill} ${styles[`status${feature.status}`]}`}>{feature.status}</span></td>

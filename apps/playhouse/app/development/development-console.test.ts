@@ -24,6 +24,14 @@ const componentReorderRoute = await readFile(
   new URL("../api/development/components/reorder/route.ts", import.meta.url),
   "utf8",
 );
+const featureReorderRoute = await readFile(
+  new URL("../api/development/features/reorder/route.ts", import.meta.url),
+  "utf8",
+);
+const featureComponentRoute = await readFile(
+  new URL("../api/development/features/[featureId]/component/route.ts", import.meta.url),
+  "utf8",
+);
 
 describe("Carnival Development Console contract", () => {
   it("is a direct dynamic /development route within the existing PlayHouse deployment", () => {
@@ -56,6 +64,17 @@ describe("Carnival Development Console contract", () => {
     expect(consoleSource).not.toContain("const DEVELOPMENT_COMPONENTS");
   });
 
+  it("supports optimistic feature reorder and component drops with filter-safe rollback", () => {
+    expect(consoleSource).toContain("moveDevelopmentFeature");
+    expect(consoleSource).toContain("reorderVisibleDevelopmentFeatures");
+    expect(consoleSource).toContain("Clear search, status, and priority filters to reorder");
+    expect(consoleSource).toContain('fetch("/api/development/features/reorder"');
+    expect(consoleSource).toContain("setFeatures(previous)");
+    expect(consoleSource).toContain("moveFeatureToComponent(item.id)");
+    expect(css).toContain('[data-drop-edge="before"]');
+    expect(css).toContain(".navDropTarget");
+  });
+
   it("uses a responsive table layout and restrained status/priority pill colors", () => {
     expect(css).toContain("grid-template-columns: 254px minmax(0, 1fr)");
     expect(css).toContain(".tableCard table");
@@ -85,5 +104,12 @@ describe("Carnival Development Console contract", () => {
     expect(componentItemRoute).toContain("export async function DELETE");
     expect(componentItemRoute).toContain('result.reason === "component_in_use"');
     expect(componentReorderRoute).toContain("reorderComponents(ownerUserId, componentIds)");
+  });
+
+  it("exposes owner-scoped global feature reorder and component reassignment endpoints", () => {
+    expect(featureReorderRoute).toContain("authenticatedDevelopmentOwner()");
+    expect(featureReorderRoute).toContain("reorderFeatures(ownerUserId, featureIds)");
+    expect(featureComponentRoute).toContain("authenticatedDevelopmentOwner()");
+    expect(featureComponentRoute).toContain("moveFeatureToComponent(ownerUserId, featureId, componentId)");
   });
 });
