@@ -4,6 +4,12 @@ Architecture-only exploration handoff • September 2026
 
 ## September 24, 2026 — ChatGPT Roadmap MCP
 
+- Marker `P3-FEATURE-SHARE-144` adds public, server-rendered, read-only feature pages at
+  `/development/CF-###`. The Development Console copy icon now copies the current-origin page URL
+  and confirms `Link copied`; the reference itself opens the page in a new tab. Each page reads the
+  current Mongo record, reveals only the requested feature and dependency CF references/titles,
+  returns 404 for unknown IDs, and carries `noindex, nofollow`. Authenticated Console CRUD and the
+  existing protected roadmap/MCP APIs are unchanged.
 - Marker `P3-ROADMAP-MCP-CONNECT-143` fixes the live ChatGPT connection handshake: pre-auth MCP
   initialization and tool-descriptor discovery are now available, while each attempted tool call
   returns the standard OAuth challenge until a valid `roadmap:read` token is supplied. Production

@@ -534,17 +534,18 @@ export function DevelopmentConsole({
     }
   }
 
-  async function copyFeatureId(event: React.MouseEvent<HTMLButtonElement>, featureId: string) {
+  async function copyFeatureLink(event: React.MouseEvent<HTMLButtonElement>, featureId: string) {
     event.preventDefault();
     event.stopPropagation();
     try {
-      await navigator.clipboard.writeText(featureId);
+      const featureUrl = new URL(`/development/${featureId}`, window.location.origin).toString();
+      await navigator.clipboard.writeText(featureUrl);
       setCopiedFeatureId(featureId);
       window.setTimeout(() => {
         setCopiedFeatureId((current) => current === featureId ? null : current);
       }, 1_500);
     } catch {
-      setMessage("Feature ID could not be copied.");
+      setMessage("Feature link could not be copied.");
     }
   }
 
@@ -711,18 +712,28 @@ export function DevelopmentConsole({
                         </button>
                         <span className={styles.featureText}>
                           <span className={styles.featureReference}>
-                            <span>{feature.featureId}</span>
-                            <button
-                              aria-label={`Copy ${feature.featureId}`}
+                            <Link
                               draggable={false}
-                              onClick={(event) => void copyFeatureId(event, feature.featureId)}
+                              href={`/development/${feature.featureId}`}
+                              onClick={(event) => event.stopPropagation()}
+                              onDragStart={(event) => event.preventDefault()}
+                              onMouseDown={(event) => event.stopPropagation()}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              {feature.featureId}
+                            </Link>
+                            <button
+                              aria-label={`Copy link to ${feature.featureId}`}
+                              draggable={false}
+                              onClick={(event) => void copyFeatureLink(event, feature.featureId)}
                               onDragStart={(event) => event.preventDefault()}
                               onMouseDown={(event) => event.stopPropagation()}
                               type="button"
                             >
                               <span aria-hidden="true">{copiedFeatureId === feature.featureId ? "✓" : "⧉"}</span>
                             </button>
-                            {copiedFeatureId === feature.featureId ? <em role="status">Copied</em> : null}
+                            {copiedFeatureId === feature.featureId ? <em role="status">Link copied</em> : null}
                           </span>
                           <strong>{feature.title}</strong>
                           <p>{feature.description}</p>

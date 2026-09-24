@@ -68,13 +68,17 @@ describe("Carnival Development Console contract", () => {
     expect(consoleSource).not.toContain("const DEVELOPMENT_COMPONENTS");
   });
 
-  it("shows searchable human feature references with an isolated copy control", () => {
+  it("shows searchable human feature references with an isolated public-link copy control", () => {
     expect(consoleSource).toContain("feature.featureId");
-    expect(consoleSource).toContain("navigator.clipboard.writeText(featureId)");
-    expect(consoleSource).toContain('aria-label={`Copy ${feature.featureId}`}');
+    expect(consoleSource).toContain("new URL(`/development/${featureId}`, window.location.origin)");
+    expect(consoleSource).toContain("navigator.clipboard.writeText(featureUrl)");
+    expect(consoleSource).toContain('aria-label={`Copy link to ${feature.featureId}`}');
+    expect(consoleSource).toContain('href={`/development/${feature.featureId}`}');
+    expect(consoleSource).toContain('target="_blank"');
     expect(consoleSource).toContain("draggable={false}");
+    expect(consoleSource).toContain("onMouseDown={(event) => event.stopPropagation()}");
     expect(consoleSource).toContain("event.stopPropagation()");
-    expect(consoleSource).toContain('<em role="status">Copied</em>');
+    expect(consoleSource).toContain('<em role="status">Link copied</em>');
     expect(css).toContain(".featureReference");
   });
 

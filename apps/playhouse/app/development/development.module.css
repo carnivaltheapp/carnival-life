@@ -382,6 +382,13 @@
   letter-spacing: .055em;
 }
 
+.featureReference > a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.featureReference > a:hover { color: var(--dev-purple); text-decoration: underline; }
+
 .featureReference button {
   display: grid;
   width: 18px;

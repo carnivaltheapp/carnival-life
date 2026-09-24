@@ -15,6 +15,15 @@ stable path `/development`. The current production URL is therefore
 not change the route. The route is server-rendered and supports direct browser entry and
 refresh.
 
+Each permanent feature reference also has a public, read-only sharing page at
+`/development/CF-###`. The page is server-rendered directly from the current MongoDB record,
+requires no Carnival session, and exposes only that known feature's public roadmap fields.
+It has no list, search, edit, owner, or internal-ID surface; dependencies are reduced to
+their `CF-###` references and titles. Unknown references return 404, and every sharing page
+declares `noindex, nofollow`. The Console's copy control copies the current-origin sharing
+URL (for example `https://carnival-playhouse.vercel.app/development/CF-010`) rather than only
+the feature reference.
+
 The Development Console is modular and does not depend on PlayHouse grid state. Its UI,
 domain model, repository, and API are contained under the Development feature boundary.
 
@@ -227,6 +236,11 @@ tool descriptors. Every descriptor declares `roadmap:read`; an unauthenticated t
 the standard `_meta["mcp/www_authenticate"]` challenge without reading MongoDB. Invalid supplied
 bearer tokens still receive HTTP 401. A validated token remains mandatory before any roadmap data
 is loaded, so this protocol-discovery correction does not make roadmap records public.
+
+Marker `P3-FEATURE-SHARE-144` adds the deliberately separate known-ID sharing surface described
+above. It does not weaken the authenticated Console CRUD APIs, bearer-protected roadmap API, or
+OAuth-protected MCP tools. Public pages perform a direct feature lookup and resolve only that
+feature's dependencies; they never call Console seeding/backfill code or mutate roadmap data.
 
 ### One-time ChatGPT connection procedure
 
