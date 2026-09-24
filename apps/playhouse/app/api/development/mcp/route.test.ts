@@ -22,6 +22,7 @@ describe("Development roadmap MCP authentication", () => {
     expect(response.headers.get("www-authenticate")).toContain(
       "https://carnival.example/.well-known/oauth-protected-resource/api/development/mcp",
     );
+    expect(response.headers.get("www-authenticate")).toContain('scope="roadmap:read"');
     expect(await response.json()).toEqual({ error: "unauthorized" });
   });
 });

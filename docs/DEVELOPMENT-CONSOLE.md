@@ -190,23 +190,45 @@ delete, move, rename, or reorder tool exists. The legacy GET API remains protect
 `CARNIVAL_ROADMAP_READ_TOKEN`; that server-only token is also accepted for MCP Inspector and
 automated contract testing, but ChatGPT does not receive or store it.
 
-Interactive ChatGPT access uses the existing Supabase user as an OAuth 2.1 identity. The MCP
-endpoint validates the signed access token and scopes every Mongo query to its immutable `sub`
-owner ID. It publishes protected-resource metadata at
-`/.well-known/oauth-protected-resource/api/development/mcp` and challenges unauthenticated
-clients without exposing roadmap data. `/oauth/consent` is the Carnival-hosted approval screen.
+### Carnival-owned OAuth 2.1
+
+Marker `P3-ROADMAP-MCP-141` temporarily made interactive MCP authentication depend on the
+Supabase OAuth server. Marker `P3-CARNIVAL-OAUTH-142` corrects that architecture: Carnival is
+now its own narrow OAuth 2.1 authorization server for roadmap access. Supabase does not issue
+or validate MCP access tokens and is not advertised in MCP/OAuth discovery. The existing
+Carnival browser session is reused only to identify the signed-in owner at consent time; this
+does not create another user database or change existing application sign-in.
+
+The Carnival issuer provides:
+
+- `GET /.well-known/oauth-authorization-server` — authorization-server discovery.
+- `GET /.well-known/oauth-protected-resource/api/development/mcp` — MCP resource metadata.
+- `POST /api/oauth/register` — restricted dynamic registration for current ChatGPT callback
+  URLs; clients are public and use no client secret.
+- `GET /oauth/authorize` and `POST /api/oauth/authorize` — existing Carnival login plus the
+  explicit read-only Allow/Cancel consent screen.
+- `POST /api/oauth/token` — authorization-code exchange with mandatory PKCE S256.
+
+Authorization codes expire after five minutes and are single-use. Access tokens expire after
+15 minutes. Codes and tokens are cryptographically random; only SHA-256 hashes are stored in
+dedicated MongoDB OAuth collections. Every exchange and MCP request validates the exact issuer,
+registered redirect URI, client, `resource`/audience, expiration, and the sole
+`roadmap:read` scope. No OAuth scope or MCP tool authorizes roadmap mutation.
+
+The OAuth implementation is a replaceable identity boundary. It returns the immutable current
+Carnival owner ID to unchanged MCP tools; a future datastore/authentication migration therefore
+does not require changing CF IDs, tool schemas, or ChatGPT-facing behavior.
 
 ### One-time ChatGPT connection procedure
 
-1. In Supabase Authentication → OAuth Server, enable OAuth 2.1, set the authorization path to
-   `/oauth/consent`, enable dynamic client registration, and require user approval. The project
-   must retain its asymmetric JWT signing key.
-2. In ChatGPT Settings → Security and login, enable Developer mode.
-3. In ChatGPT Plugins, add the MCP URL above. Complete Carnival sign-in and approve read-only
-   access when redirected to `/oauth/consent`.
+1. In ChatGPT Settings → Security and login, enable Developer mode.
+2. In ChatGPT Plugins, add the production MCP URL above. ChatGPT discovers Carnival OAuth and
+   dynamically registers its callback automatically.
+3. When redirected to `/oauth/authorize`, sign into Carnival if necessary, then choose Allow
+   for `roadmap:read`.
 4. Install the resulting personal plugin, open a new Work conversation, and ask
    `Can you see CF-010?`. Confirm ChatGPT calls `get_feature` and returns the live record.
 
 Do not claim live ChatGPT access until step 4 has succeeded. Official ChatGPT MCP connections
-cannot use arbitrary custom bearer secrets, which is why `CARNIVAL_ROADMAP_READ_TOKEN` remains
-server-to-server only and Supabase OAuth is required for the interactive connection.
+cannot use arbitrary custom bearer secrets, so `CARNIVAL_ROADMAP_READ_TOKEN` remains an
+optional server-to-server/testing capability rather than an interactive ChatGPT credential.

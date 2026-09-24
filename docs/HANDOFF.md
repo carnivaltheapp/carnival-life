@@ -4,10 +4,15 @@ Architecture-only exploration handoff • September 2026
 
 ## September 24, 2026 — ChatGPT Roadmap MCP
 
+- Marker `P3-CARNIVAL-OAUTH-142` replaces the temporary 141 Supabase OAuth dependency with a
+  Carnival-owned OAuth 2.1 authorization-code + PKCE S256 issuer. OAuth artifacts are hashed
+  and held in dedicated Mongo collections; short-lived tokens bind owner, issuer, resource,
+  expiry, and the read-only `roadmap:read` scope. Existing Carnival login is used only to
+  identify the owner at consent, while MCP token issuance and validation are Carnival-owned.
 - Marker `P3-ROADMAP-MCP-141` adds the read-only, OAuth-protected Carnival roadmap MCP
   endpoint and tools for CF lookup, search, filtering, components, and full sequence analysis.
-  The repository side is complete; live ChatGPT access still requires enabling Supabase OAuth
-  2.1 and registering/installing the production MCP endpoint in ChatGPT developer mode.
+  Its Supabase OAuth-server dependency was an architectural mistake retained here as history
+  and corrected immediately by marker 142.
 
 ## September 24, 2026 — Unrestricted Development Notes
 

@@ -137,6 +137,29 @@ describe("Carnival Development roadmap MCP tools", () => {
       "get_roadmap",
     ]);
     expect(tools.tools.every((tool) => tool.annotations?.readOnlyHint === true)).toBe(true);
+    expect(tools.tools.every((tool) => {
+      const schemes = tool._meta?.securitySchemes;
+      return Array.isArray(schemes) && schemes.some((scheme) =>
+        typeof scheme === "object" && scheme !== null &&
+        "type" in scheme && scheme.type === "oauth2" &&
+        "scopes" in scheme && Array.isArray(scheme.scopes) &&
+        scheme.scopes.includes("roadmap:read"));
+    })).toBe(true);
     expect(tools.tools.map((tool) => tool.name).join(" ")).not.toMatch(/create|update|delete|move|reorder/);
+  });
+
+  it("passes the authorized owner identity to every Mongo-backed tool load", async () => {
+    const owners: string[] = [];
+    const server = createRoadmapMcpServer("owner-b", async (ownerUserId) => {
+      owners.push(ownerUserId);
+      return roadmap;
+    });
+    const client = new Client({ name: "owner-isolation-test", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    opened.push({ client, server });
+    await client.callTool({ arguments: { featureId: "CF-010" }, name: "get_feature" });
+    expect(owners).toEqual(["owner-b"]);
   });
 });

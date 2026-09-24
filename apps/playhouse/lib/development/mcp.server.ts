@@ -49,7 +49,7 @@ const readOnlyAnnotations = {
   readOnlyHint: true,
 } as const;
 const oauthMetadata = {
-  securitySchemes: [{ scopes: ["openid", "email", "profile"], type: "oauth2" }],
+  securitySchemes: [{ scopes: ["roadmap:read"], type: "oauth2" }],
 };
 
 type RoadmapLoader = (ownerUserId: string) => Promise<RoadmapResponse>;

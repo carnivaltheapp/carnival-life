@@ -30,7 +30,7 @@ async function handle(request: Request) {
   return transport.handleRequest(request, {
     authInfo: {
       clientId: identity.source,
-      scopes: ["roadmap.read"],
+      scopes: identity.scopes,
       token: "validated",
     },
   });
