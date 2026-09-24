@@ -30,6 +30,9 @@ describe("Gmail pipeline diagnostics", () => {
       "GMAIL_LIFECYCLE_TRASH_RESULT",
       "GMAIL_CREATION_DECISION",
       "MANUAL_GMAIL_LINK_REQUESTED",
+      "MANUAL_GMAIL_REPLACE_CONFIRMATION_REQUIRED",
+      "MANUAL_GMAIL_REPLACE_CANCELLED",
+      "MANUAL_GMAIL_REPLACE_CONFIRMED",
       "MANUAL_GMAIL_LINK_RESULT",
       "MANUAL_GMAIL_REVIVAL",
       "GMAIL_MANUAL_RESTORE_RESULT",
@@ -170,6 +173,28 @@ describe("Gmail pipeline diagnostics", () => {
       thread_fingerprint: gmailThreadFingerprint(rawThreadId),
     });
     expect(JSON.stringify(document)).not.toContain(rawThreadId);
+  });
+
+  it("records replacement decisions with fingerprints and no raw identities", () => {
+    const existing = "private-existing-thread";
+    const proposed = "private-proposed-thread";
+    const document = gmailDiagnosticDocument({
+      existingThreadId: existing,
+      ownerUserId: "owner-1",
+      playId: "play-1",
+      proposedThreadId: proposed,
+      reason: "different_conversation",
+      stage: "MANUAL_GMAIL_REPLACE_CONFIRMATION_REQUIRED",
+    });
+
+    expect(document).toMatchObject({
+      existing_thread_fingerprint: gmailThreadFingerprint(existing),
+      proposed_thread_fingerprint: gmailThreadFingerprint(proposed),
+      reason: "different_conversation",
+      stage: "MANUAL_GMAIL_REPLACE_CONFIRMATION_REQUIRED",
+    });
+    expect(JSON.stringify(document)).not.toContain(existing);
+    expect(JSON.stringify(document)).not.toContain(proposed);
   });
 
   it("records stages and returns the latest trail in chronological order", async () => {

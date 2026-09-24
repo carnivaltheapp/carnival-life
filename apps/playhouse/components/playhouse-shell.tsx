@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   useEffect,
+  useCallback,
   useMemo,
   useRef,
   useState,
@@ -17,12 +18,14 @@ import {
 import {
   bulkSetPlayStatus,
   bulkUpdatePlays,
+  cancelManualGmailReplacement,
   flipPlayRank,
   manualLinkGmailToPlay,
   repositionPlays,
   recordGmailOutgoingSync,
   unlinkGmailFromPlay,
 } from "../app/plays/actions";
+import type { ManualGmailReplacementAuthorization } from "../app/plays/actions";
 import { loadPlayerSlackValues } from "../app/players/actions";
 import type {
   BasketSummary,
@@ -48,6 +51,7 @@ import {
   claimGmailRowCreate,
   isManualGmailRowDropTarget,
   parseGmailRowCreateRequest,
+  type GmailRowCreateRequest,
 } from "../domain/gmail-row-create";
 import {
   lifecycleViewHref,
@@ -313,6 +317,7 @@ function PlayhouseShellView({
     : destinationNavigationModeForView(selectedView.kind);
   const processedGmailRowCreatesRef = useRef(new Set<string>());
   const gmailCorrelationIdRef = useRef<string | null>(null);
+  const gmailReplacementSubmittingRef = useRef(false);
   const gmailStarContextRef = useRef(new Map<string, {
     apiThreadIdPresent: boolean;
     playId: string;
@@ -320,6 +325,10 @@ function PlayhouseShellView({
   }>());
   const gmailDropTargetRef = useRef<string | null>(null);
   const [gmailDropTarget, setGmailDropTarget] = useState<string | null>(null);
+  const [gmailReplacementPrompt, setGmailReplacementPrompt] = useState<{
+    authorization: ManualGmailReplacementAuthorization;
+    request: GmailRowCreateRequest;
+  } | null>(null);
   const [gmailContextMenu, setGmailContextMenu] = useState<{
     hasGmail: boolean;
     playId: string;
@@ -346,6 +355,57 @@ function PlayhouseShellView({
   const [gmailAttachPending, startGmailAttach] = useTransition();
   const [gmailCreatePending, startGmailCreate] = useTransition();
   const localPlays = optimisticPlays?.source === plays ? optimisticPlays.value : plays;
+
+  const cancelGmailReplacement = useCallback(() => {
+    const prompt = gmailReplacementPrompt;
+    if (!prompt || gmailCreatePending || gmailReplacementSubmittingRef.current) return;
+    setGmailReplacementPrompt(null);
+    setMoveError(null);
+    void cancelManualGmailReplacement({
+      correlationId: prompt.request.correlationId,
+      existingIdentity: prompt.authorization.expectedIdentity,
+      playId: prompt.request.targetPlayId,
+      proposedApiThreadId: typeof prompt.request.gmailApiThreadId === "string"
+        ? prompt.request.gmailApiThreadId
+        : "",
+    });
+  }, [gmailReplacementPrompt, gmailCreatePending]);
+
+  function confirmGmailReplacement() {
+    const prompt = gmailReplacementPrompt;
+    if (!prompt || gmailCreatePending || gmailReplacementSubmittingRef.current) return;
+    gmailReplacementSubmittingRef.current = true;
+    startGmailCreate(async () => {
+      try {
+        const result = await manualLinkGmailToPlay(prompt.request, prompt.authorization);
+        if (result.status !== "success") {
+          setGmailReplacementPrompt(null);
+          setMoveError(result.message);
+          return;
+        }
+        setGmailReplacementPrompt(null);
+        setMoveError(result.warning ?? null);
+        router.refresh();
+      } catch {
+        setGmailReplacementPrompt(null);
+        setMoveError("Gmail could not be replaced. Retry the drag.");
+      } finally {
+        gmailReplacementSubmittingRef.current = false;
+      }
+    });
+  }
+
+  useEffect(() => {
+    if (!gmailReplacementPrompt) return;
+    const cancelOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      cancelGmailReplacement();
+    };
+    window.addEventListener("keydown", cancelOnEscape);
+    return () => window.removeEventListener("keydown", cancelOnEscape);
+  }, [gmailReplacementPrompt, cancelGmailReplacement]);
+
   useEffect(() => {
     function showLifecycleWarning(event: Event) {
       if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
@@ -641,6 +701,17 @@ function PlayhouseShellView({
         const result = await manualLinkGmailToPlay(request as Parameters<
           typeof manualLinkGmailToPlay
         >[0]);
+        if (result.replacementConfirmation) {
+          gmailReplacementSubmittingRef.current = false;
+          setGmailReplacementPrompt({
+            authorization: {
+              expectedIdentity: result.replacementConfirmation.expectedIdentity,
+            },
+            request: request as GmailRowCreateRequest,
+          });
+          setMoveError(null);
+          return;
+        }
         if (result.status !== "success") {
           clearDragState();
           setMoveError(result.message);
@@ -1865,6 +1936,44 @@ function PlayhouseShellView({
           >
             Unlink email
           </button>
+        </div>
+      ) : null}
+      {gmailReplacementPrompt ? (
+        <div
+          className="gmailReplacementBackdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) cancelGmailReplacement();
+          }}
+        >
+          <section
+            aria-labelledby="gmail-replacement-title"
+            aria-modal="true"
+            className="gmailReplacementDialog"
+            role="dialog"
+          >
+            <h2 id="gmail-replacement-title">Replace Gmail conversation?</h2>
+            <p>
+              This Play is already linked to another Gmail conversation. Replace it with this one?
+            </p>
+            <div className="gmailReplacementActions">
+              <button
+                autoFocus
+                disabled={gmailCreatePending}
+                onClick={cancelGmailReplacement}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="gmailReplacementConfirm"
+                disabled={gmailCreatePending}
+                onClick={confirmGmailReplacement}
+                type="button"
+              >
+                Replace
+              </button>
+            </div>
+          </section>
         </div>
       ) : null}
     </main>

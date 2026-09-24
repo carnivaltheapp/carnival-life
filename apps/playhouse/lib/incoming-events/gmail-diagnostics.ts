@@ -23,6 +23,9 @@ export const GMAIL_DIAGNOSTIC_STAGES = [
   "GMAIL_LIFECYCLE_TRASH_RESULT",
   "GMAIL_CREATION_DECISION",
   "MANUAL_GMAIL_LINK_REQUESTED",
+  "MANUAL_GMAIL_REPLACE_CONFIRMATION_REQUIRED",
+  "MANUAL_GMAIL_REPLACE_CANCELLED",
+  "MANUAL_GMAIL_REPLACE_CONFIRMED",
   "MANUAL_GMAIL_LINK_RESULT",
   "MANUAL_GMAIL_REVIVAL",
   "GMAIL_MANUAL_RESTORE_RESULT",
@@ -50,6 +53,7 @@ export type GmailDiagnosticInput = {
   correlationId?: string | null;
   decision?: GmailCreationDecision;
   existingLifecycle?: GmailExistingLifecycle;
+  existingThreadId?: string | null;
   existingPlayFound?: boolean;
   extractionStrategy?: GmailExtractionStrategy;
   matchResult?: GmailMatchResult;
@@ -63,6 +67,7 @@ export type GmailDiagnosticInput = {
   ownerUserId: string;
   playId?: string | null;
   priorLifecycle?: "done" | "trashed";
+  proposedThreadId?: string | null;
   reason?: string | null;
   resultDate?: string | null;
   resultPriority?: string | null;
@@ -89,6 +94,7 @@ export type GmailDiagnosticDocument = {
   extraction_strategy?: GmailExtractionStrategy;
   decision?: GmailCreationDecision;
   existing_lifecycle?: GmailExistingLifecycle;
+  existing_thread_fingerprint?: string;
   existing_play_found?: boolean;
   final_is_active?: boolean;
   final_is_deleted?: boolean;
@@ -102,6 +108,7 @@ export type GmailDiagnosticDocument = {
   owner_user_id: string;
   play_id?: string;
   prior_lifecycle?: "done" | "trashed";
+  proposed_thread_fingerprint?: string;
   reason?: string;
   result_date?: string;
   result_priority?: string;
@@ -149,6 +156,8 @@ export function gmailDiagnosticDocument(
   const resultPriority = safeText(input.resultPriority, 100);
   const resultTaskType = safeText(input.resultTaskType, 10);
   const threadFingerprint = gmailThreadFingerprint(input.threadId);
+  const existingThreadFingerprint = gmailThreadFingerprint(input.existingThreadId);
+  const proposedThreadFingerprint = gmailThreadFingerprint(input.proposedThreadId);
   return {
     created_at: now,
     owner_user_id: input.ownerUserId,
@@ -164,6 +173,9 @@ export function gmailDiagnosticDocument(
     ...(correlationId ? { correlation_id: correlationId } : {}),
     ...(input.decision ? { decision: input.decision } : {}),
     ...(input.existingLifecycle ? { existing_lifecycle: input.existingLifecycle } : {}),
+    ...(existingThreadFingerprint
+      ? { existing_thread_fingerprint: existingThreadFingerprint }
+      : {}),
     ...(typeof input.existingPlayFound === "boolean"
       ? { existing_play_found: input.existingPlayFound }
       : {}),
@@ -188,6 +200,9 @@ export function gmailDiagnosticDocument(
     ...(input.operation ? { operation: input.operation } : {}),
     ...(playId ? { play_id: playId } : {}),
     ...(input.priorLifecycle ? { prior_lifecycle: input.priorLifecycle } : {}),
+    ...(proposedThreadFingerprint
+      ? { proposed_thread_fingerprint: proposedThreadFingerprint }
+      : {}),
     ...(reason ? { reason } : {}),
     ...(resultDate ? { result_date: resultDate } : {}),
     ...(resultPriority ? { result_priority: resultPriority } : {}),

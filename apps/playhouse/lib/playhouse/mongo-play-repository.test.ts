@@ -90,12 +90,14 @@ describe("MongoPlayRepository mutations", () => {
     const id = new ObjectId();
     const findOne = vi.fn().mockResolvedValue({ _id: id, task_type: "H" });
     const find = vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) });
-    const bulkWrite = vi.fn().mockResolvedValue({ matchedCount: 1 });
+    const bulkWrite = vi.fn();
+    const updateOne = vi.fn().mockResolvedValue({ matchedCount: 1 });
 
     await expect(repository({
       bulkWrite: bulkWrite as never,
       find: find as never,
       findOne: findOne as never,
+      updateOne: updateOne as never,
     }).manualLinkGmail({
       attachment: {
         accountIndex: 0,
@@ -103,6 +105,7 @@ describe("MongoPlayRepository mutations", () => {
         canonicalUrl: "https://mail.google.com/mail/u/0/#all/FMx",
         threadRef: "FMx",
       },
+      expectedCurrentIdentity: { apiThreadId: null, webThreadRef: null },
       playId: id.toHexString(),
     })).resolves.toEqual({
       decision: "linked",
@@ -110,7 +113,7 @@ describe("MongoPlayRepository mutations", () => {
       targetHadGmailLink: false,
       targetPlayId: id.toHexString(),
     });
-    const set = bulkWrite.mock.calls[0][0][0].updateOne.update.$set;
+    const set = updateOne.mock.calls[0][1].$set;
     expect(set).toMatchObject({
       "carnival_google.gmail_api_thread_id": "api-thread-x",
       regarding: "email",
@@ -119,6 +122,7 @@ describe("MongoPlayRepository mutations", () => {
     expect(set).not.toHaveProperty("task_date");
     expect(set).not.toHaveProperty("task_type");
     expect(set).not.toHaveProperty("priority_index");
+    expect(bulkWrite).not.toHaveBeenCalled();
   });
 
   it("replaces the target link and revives every Done/Trashed Play sharing the API thread", async () => {
@@ -137,12 +141,14 @@ describe("MongoPlayRepository mutations", () => {
         { _id: trashedId, is_active: false, is_deleted: true },
       ]),
     });
-    const bulkWrite = vi.fn().mockResolvedValue({ matchedCount: 3 });
+    const bulkWrite = vi.fn().mockResolvedValue({ matchedCount: 2 });
+    const updateOne = vi.fn().mockResolvedValue({ matchedCount: 1 });
 
     const result = await repository({
       bulkWrite: bulkWrite as never,
       find: find as never,
       findOne: findOne as never,
+      updateOne: updateOne as never,
     }).manualLinkGmail({
       attachment: {
         accountIndex: 1,
@@ -150,6 +156,7 @@ describe("MongoPlayRepository mutations", () => {
         canonicalUrl: "https://mail.google.com/mail/u/1/#all/FMx",
         threadRef: "FMx",
       },
+      expectedCurrentIdentity: { apiThreadId: "api-thread-y", webThreadRef: "FMy" },
       playId: targetId.toHexString(),
     });
 
@@ -163,8 +170,8 @@ describe("MongoPlayRepository mutations", () => {
       targetPlayId: targetId.toHexString(),
     });
     const operations = bulkWrite.mock.calls[0][0];
-    expect(operations).toHaveLength(3);
-    for (const operation of operations.slice(1)) {
+    expect(operations).toHaveLength(2);
+    for (const operation of operations) {
       expect(operation.updateOne.update.$set).toMatchObject({
         is_active: true,
         is_deleted: false,
@@ -173,10 +180,74 @@ describe("MongoPlayRepository mutations", () => {
     }
     expect(operations.map((operation: { updateOne: { filter: { _id: ObjectId } } }) =>
       operation.updateOne.filter._id.toHexString())).toEqual([
-        targetId.toHexString(),
         doneId.toHexString(),
         trashedId.toHexString(),
       ]);
+  });
+
+  it("rejects a stale confirmed replacement before mutating or reviving anything", async () => {
+    const targetId = new ObjectId();
+    const findOne = vi.fn().mockResolvedValue({
+      _id: targetId,
+      carnival_google: { gmail_api_thread_id: "api-thread-z" },
+      task_type: "H",
+      thread_id: "FMz",
+    });
+    const find = vi.fn();
+    const updateOne = vi.fn();
+    const bulkWrite = vi.fn();
+
+    await expect(repository({
+      bulkWrite: bulkWrite as never,
+      find: find as never,
+      findOne: findOne as never,
+      updateOne: updateOne as never,
+    }).manualLinkGmail({
+      attachment: {
+        accountIndex: 0,
+        apiThreadId: "api-thread-y",
+        canonicalUrl: "https://mail.google.com/mail/u/0/#all/FMy",
+        threadRef: "FMy",
+      },
+      expectedCurrentIdentity: { apiThreadId: "api-thread-x", webThreadRef: "FMx" },
+      playId: targetId.toHexString(),
+    })).resolves.toBeNull();
+    expect(updateOne).not.toHaveBeenCalled();
+    expect(find).not.toHaveBeenCalled();
+    expect(bulkWrite).not.toHaveBeenCalled();
+  });
+
+  it("does not revive related Plays when the target changes during the guarded update", async () => {
+    const targetId = new ObjectId();
+    const findOne = vi.fn().mockResolvedValue({
+      _id: targetId,
+      carnival_google: { gmail_api_thread_id: "api-thread-x" },
+      task_type: "H",
+      thread_id: "FMx",
+      updated_date: new Date("2026-09-24T18:00:00.000Z"),
+    });
+    const find = vi.fn();
+    const updateOne = vi.fn().mockResolvedValue({ matchedCount: 0 });
+    const bulkWrite = vi.fn();
+
+    await expect(repository({
+      bulkWrite: bulkWrite as never,
+      find: find as never,
+      findOne: findOne as never,
+      updateOne: updateOne as never,
+    }).manualLinkGmail({
+      attachment: {
+        accountIndex: 0,
+        apiThreadId: "api-thread-y",
+        canonicalUrl: "https://mail.google.com/mail/u/0/#all/FMy",
+        threadRef: "FMy",
+      },
+      expectedCurrentIdentity: { apiThreadId: "api-thread-x", webThreadRef: "FMx" },
+      playId: targetId.toHexString(),
+    })).resolves.toBeNull();
+    expect(updateOne).toHaveBeenCalledTimes(1);
+    expect(find).not.toHaveBeenCalled();
+    expect(bulkWrite).not.toHaveBeenCalled();
   });
 
   it("creates exactly one Gmail Headline with destination, attachment, and Player", async () => {

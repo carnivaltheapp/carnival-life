@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { PlayListItem } from "./play";
 import {
   claimGmailRowCreate,
+  gmailLinkSafetyDecision,
   gmailRowCreateInput,
   isManualGmailRowDropTarget,
   mergeCreatedGmailPlay,
@@ -40,6 +41,25 @@ function target(overrides: Partial<PlayListItem> = {}): PlayListItem {
 }
 
 describe("Gmail row-create input", () => {
+  it("classifies unlinked, same-thread, and different-thread manual drops safely", () => {
+    expect(gmailLinkSafetyDecision(
+      { apiThreadId: null, webThreadRef: null },
+      { apiThreadId: "api-x", webThreadRef: "web-x" },
+    )).toBe("link");
+    expect(gmailLinkSafetyDecision(
+      { apiThreadId: "api-x", webThreadRef: "old-web-x" },
+      { apiThreadId: "api-x", webThreadRef: "new-web-x" },
+    )).toBe("same");
+    expect(gmailLinkSafetyDecision(
+      { apiThreadId: "api-x", webThreadRef: "web-x" },
+      { apiThreadId: "api-y", webThreadRef: "web-y" },
+    )).toBe("confirm_replace");
+    expect(gmailLinkSafetyDecision(
+      { apiThreadId: null, webThreadRef: "web-x" },
+      { apiThreadId: null, webThreadRef: "web-x" },
+    )).toBe("same");
+  });
+
   it("inherits a Headline target's date and rank but always uses Everyday Push", () => {
     const parsed = parseGmailRowCreateRequest(base);
     expect(parsed).not.toBeNull();

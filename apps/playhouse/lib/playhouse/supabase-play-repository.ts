@@ -24,6 +24,7 @@ import type {
   CreateGmailPlayRequest,
   FlipPlayRankRequest,
   AttachGmailRequest,
+  ManualLinkGmailRequest,
   ManualLinkGmailResult,
   PlayRepository,
   RepositoryPlayList,
@@ -85,7 +86,11 @@ export class SupabasePlayRepository implements PlayRepository {
     return !error && data?.id === playId;
   }
 
-  async manualLinkGmail({ attachment, playId }: AttachGmailRequest): Promise<ManualLinkGmailResult | null> {
+  async manualLinkGmail({
+    attachment,
+    expectedCurrentIdentity,
+    playId,
+  }: ManualLinkGmailRequest): Promise<ManualLinkGmailResult | null> {
     if (!attachment.apiThreadId) return null;
     const { data: target, error: targetError } = await this.supabase
       .from("plays")
@@ -99,7 +104,13 @@ export class SupabasePlayRepository implements PlayRepository {
         !Array.isArray(target.source_metadata)
       ? target.source_metadata
       : {};
-    const targetHadGmailLink = Boolean(gmailApiThreadIdFromMetadata(metadata));
+    const currentIdentity = {
+      apiThreadId: gmailApiThreadIdFromMetadata(metadata),
+      webThreadRef: gmailWebThreadRefFromMetadata(metadata),
+    };
+    if (currentIdentity.apiThreadId !== expectedCurrentIdentity.apiThreadId ||
+        currentIdentity.webThreadRef !== expectedCurrentIdentity.webThreadRef) return null;
+    const targetHadGmailLink = Boolean(currentIdentity.apiThreadId || currentIdentity.webThreadRef);
     const { data: inactive, error: inactiveError } = await this.supabase
       .from("plays")
       .select("id, status, source_metadata")
@@ -119,6 +130,7 @@ export class SupabasePlayRepository implements PlayRepository {
       .eq("id", playId)
       .eq("owner_user_id", this.ownerUserId)
       .eq("status", "open")
+      .eq("source_metadata", metadata)
       .select("id")
       .maybeSingle();
     if (updateError || updatedTarget?.id !== playId) return null;

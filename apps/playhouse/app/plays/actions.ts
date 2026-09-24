@@ -21,8 +21,10 @@ import {
   sanitizeGmailParticipants,
 } from "../../domain/gmail-attachment";
 import {
+  gmailLinkSafetyDecision,
   gmailRowCreateInput,
   parseGmailRowCreateRequest,
+  type GmailLinkIdentity,
   type GmailRowCreateRequest,
 } from "../../domain/gmail-row-create";
 import { reminderContextDate } from "../../domain/reminder";
@@ -746,9 +748,56 @@ export async function attachGmailToPlay(request: {
   }
 }
 
+export type ManualGmailReplacementAuthorization = {
+  expectedIdentity: GmailLinkIdentity;
+};
+
+export type ManualLinkGmailState = PlayMutationState & {
+  replacementConfirmation?: {
+    expectedIdentity: GmailLinkIdentity;
+  };
+  revivedCount?: number;
+};
+
+function playGmailIdentity(play: PlayListItem): GmailLinkIdentity {
+  return {
+    apiThreadId: play.gmailApiThreadId?.trim() || null,
+    webThreadRef: play.gmailWebThreadRef?.trim() || play.gmailThreadId?.trim() || null,
+  };
+}
+
+function sameGmailIdentity(left: GmailLinkIdentity, right: GmailLinkIdentity) {
+  return left.apiThreadId === right.apiThreadId && left.webThreadRef === right.webThreadRef;
+}
+
+export async function cancelManualGmailReplacement({
+  correlationId,
+  existingIdentity,
+  playId,
+  proposedApiThreadId,
+}: {
+  correlationId: string;
+  existingIdentity: GmailLinkIdentity;
+  playId: string;
+  proposedApiThreadId: string;
+}) {
+  const auth = await authenticatedClient();
+  if (!auth) return;
+  await recordGmailDiagnostic({
+    correlationId,
+    existingThreadId: existingIdentity.apiThreadId ?? existingIdentity.webThreadRef,
+    ownerUserId: auth.userId,
+    playId,
+    proposedThreadId: proposedApiThreadId,
+    reason: "user_cancelled",
+    stage: "MANUAL_GMAIL_REPLACE_CANCELLED",
+  });
+}
+
 export async function manualLinkGmailToPlay(
   request: GmailRowCreateRequest,
-): Promise<PlayMutationState & { revivedCount?: number }> {
+  authorization?: ManualGmailReplacementAuthorization,
+): Promise<ManualLinkGmailState> {
   const parsed = parseGmailRowCreateRequest(request);
   if (!parsed) return errorState("That Gmail conversation could not be linked.");
   const auth = await authenticatedClient();
@@ -767,6 +816,12 @@ export async function manualLinkGmailToPlay(
   if (!target || target.legacyTaskType === "A" || !["normal", "reminder"].includes(target.playType)) {
     return errorState("Gmail can only be linked to an existing Headline or Reminder.");
   }
+  const existingIdentity = playGmailIdentity(target);
+  const proposedIdentity = {
+    apiThreadId: parsed.attachment.apiThreadId ?? null,
+    webThreadRef: parsed.attachment.threadRef,
+  };
+  const safetyDecision = gmailLinkSafetyDecision(existingIdentity, proposedIdentity);
   await recordGmailDiagnostic({
     apiThreadPresent: Boolean(parsed.attachment.apiThreadId),
     correlationId: parsed.correlationId,
@@ -777,8 +832,52 @@ export async function manualLinkGmailToPlay(
     targetHadGmailLink: Boolean(target.gmailThreadId || target.gmailApiThreadId),
     threadId: parsed.attachment.apiThreadId,
   });
+  if (safetyDecision === "same") {
+    await recordGmailDiagnostic({
+      correlationId: parsed.correlationId,
+      ownerUserId: auth.userId,
+      playId: parsed.targetPlayId,
+      reason: "same_conversation_retained",
+      stage: "MANUAL_GMAIL_LINK_RESULT",
+      success: true,
+      targetHadGmailLink: true,
+      threadId: parsed.attachment.apiThreadId,
+    });
+    return { message: "Gmail already linked.", status: "success" };
+  }
+  if (authorization && !sameGmailIdentity(existingIdentity, authorization.expectedIdentity)) {
+    return errorState("This Play's Gmail link changed. Retry the drag before replacing it.");
+  }
+  if (safetyDecision === "confirm_replace" && !authorization) {
+    await recordGmailDiagnostic({
+      correlationId: parsed.correlationId,
+      existingThreadId: existingIdentity.apiThreadId ?? existingIdentity.webThreadRef,
+      ownerUserId: auth.userId,
+      playId: parsed.targetPlayId,
+      proposedThreadId: parsed.attachment.apiThreadId,
+      reason: "different_conversation",
+      stage: "MANUAL_GMAIL_REPLACE_CONFIRMATION_REQUIRED",
+    });
+    return {
+      message: "This Play is already linked to another Gmail conversation.",
+      replacementConfirmation: { expectedIdentity: existingIdentity },
+      status: "idle",
+    };
+  }
+  if (safetyDecision === "confirm_replace") {
+    await recordGmailDiagnostic({
+      correlationId: parsed.correlationId,
+      existingThreadId: existingIdentity.apiThreadId ?? existingIdentity.webThreadRef,
+      ownerUserId: auth.userId,
+      playId: parsed.targetPlayId,
+      proposedThreadId: parsed.attachment.apiThreadId,
+      reason: "user_confirmed",
+      stage: "MANUAL_GMAIL_REPLACE_CONFIRMED",
+    });
+  }
   const linked = await repository.manualLinkGmail({
     attachment: parsed.attachment,
+    expectedCurrentIdentity: existingIdentity,
     playId: parsed.targetPlayId,
   });
   if (!linked) {
@@ -786,12 +885,12 @@ export async function manualLinkGmailToPlay(
       correlationId: parsed.correlationId,
       ownerUserId: auth.userId,
       playId: parsed.targetPlayId,
-      reason: "link_failed",
+      reason: "link_or_identity_guard_failed",
       stage: "MANUAL_GMAIL_LINK_RESULT",
       success: false,
       threadId: parsed.attachment.apiThreadId,
     });
-    return errorState("Gmail could not be linked to this Play.");
+    return errorState("This Play changed before Gmail could be linked. Retry the drag.");
   }
   await recordGmailDiagnostic({
     correlationId: parsed.correlationId,

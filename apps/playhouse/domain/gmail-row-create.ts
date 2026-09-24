@@ -31,6 +31,27 @@ export type GmailRowCreateRequest = {
   url: string;
 };
 
+export type GmailLinkIdentity = {
+  apiThreadId: string | null;
+  webThreadRef: string | null;
+};
+
+export type GmailLinkSafetyDecision = "confirm_replace" | "link" | "same";
+
+export function gmailLinkSafetyDecision(
+  existing: GmailLinkIdentity,
+  proposed: GmailLinkIdentity,
+): GmailLinkSafetyDecision {
+  const hasExisting = Boolean(existing.apiThreadId || existing.webThreadRef);
+  if (!hasExisting) return "link";
+  if (existing.apiThreadId && proposed.apiThreadId) {
+    return existing.apiThreadId === proposed.apiThreadId ? "same" : "confirm_replace";
+  }
+  if (existing.webThreadRef && proposed.webThreadRef &&
+      existing.webThreadRef === proposed.webThreadRef) return "same";
+  return "confirm_replace";
+}
+
 export type ParsedGmailRowCreate = {
   attachment: GmailAttachment;
   correlationId: string;
