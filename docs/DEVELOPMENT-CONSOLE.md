@@ -338,3 +338,8 @@ windows when a stored Aux runtime window ID is stale or temporarily missing. Bef
 the controller now rediscovers an existing window whose ordered tabs match the saved Aux session,
 mirroring the established Misc recovery path. Closing Aux still clears its identity, and a new
 window is created normally when no valid existing session match remains.
+
+Marker `P3-GMAIL-SHIFT-CREATE-158` adds an explicit Gmail row-drop intent. A normal Gmail drag
+continues linking or confirming replacement on the existing Headline/Reminder. Holding Shift at
+drop uses the established Gmail Play creation and row-positioning path instead, leaving the target
+Play unchanged and allowing the deliberate conversation link to coexist on multiple Plays.

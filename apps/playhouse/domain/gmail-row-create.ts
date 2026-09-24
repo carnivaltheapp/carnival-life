@@ -26,10 +26,13 @@ export type GmailRowCreateRequest = {
   gmailApiThreadId?: unknown;
   gmailApiThreadStrategy?: unknown;
   gmailParticipants?: unknown;
+  intent?: unknown;
   subject: string;
   targetPlayId: string;
   url: string;
 };
+
+export type GmailRowDropIntent = "create_new" | "link_existing";
 
 export type GmailLinkIdentity = {
   apiThreadId: string | null;
@@ -57,6 +60,7 @@ export type ParsedGmailRowCreate = {
   correlationId: string;
   gmailApiThreadStrategy: "ancestor" | "conversation_header" | "direct" | "missing";
   gmailParticipants: GmailParticipants | null;
+  intent: GmailRowDropIntent;
   subject: string;
   targetPlayId: string;
 };
@@ -65,6 +69,10 @@ export function claimGmailRowCreate(processed: Set<string>, correlationId: strin
   if (processed.has(correlationId)) return false;
   processed.add(correlationId);
   return true;
+}
+
+export function gmailRowDropOperation(intent: GmailRowDropIntent) {
+  return intent === "create_new" ? "create" : "link";
 }
 
 export function isManualGmailRowDropTarget(play: PlayListItem | null | undefined) {
@@ -145,6 +153,7 @@ export function parseGmailRowCreateRequest(value: unknown): ParsedGmailRowCreate
     correlationId,
     gmailApiThreadStrategy,
     gmailParticipants: sanitizeGmailParticipants(request.gmailParticipants),
+    intent: request.intent === "create_new" ? "create_new" : "link_existing",
     subject,
     targetPlayId,
   };

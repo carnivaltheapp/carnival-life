@@ -163,10 +163,11 @@ export class SupabasePlayRepository implements PlayRepository {
   }
 
   async createGmail({
+    allowDuplicateThread,
     attachment,
     input,
   }: CreateGmailPlayRequest): Promise<CreateGmailPlayResult | null> {
-    if (attachment.apiThreadId) {
+    if (attachment.apiThreadId && !allowDuplicateThread) {
       const { data: candidates, error: candidatesError } = await this.supabase
         .from("plays")
         .select("id, status, source_metadata")

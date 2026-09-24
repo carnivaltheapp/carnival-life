@@ -42,9 +42,10 @@ function playhouseContext(sendMessage) {
     },
   });
   return {
-    drop: (transfer) => drop({
+    drop: (transfer, { shiftKey = false } = {}) => drop({
       dataTransfer: transfer,
       preventDefault() {},
+      shiftKey,
       stopImmediatePropagation() {},
       target: new TestElement(),
     }),
@@ -408,6 +409,7 @@ test("omnibox Gmail URL drop requests exact-tab metadata for row-create", async 
     gmailApiThreadId: "api-thread-123",
     gmailApiThreadStrategy: "conversation_header",
     gmailParticipants,
+    intent: "link_existing",
     subject: "Quarterly planning",
     targetPlayId: "play-1",
     url: "https://mail.google.com/mail/u/2/#all/FMexact",
@@ -448,6 +450,34 @@ test("row-create waits for asynchronous exact-tab metadata and retains its targe
       from: { email: "kayla@example.com", name: "Kayla" },
       to: [{ email: "me@example.com", name: "Me" }],
     },
+    intent: "link_existing",
+    subject: "Quarterly planning",
+    targetPlayId: "play-1",
+    url: "https://mail.google.com/mail/u/2/#all/FMexact",
+  });
+});
+
+test("Shift Gmail drop requests a new Play while preserving the row as its target", async () => {
+  const context = playhouseContext(async () => ({
+    gmailApiThreadId: "api-thread-123",
+    gmailApiThreadStrategy: "conversation_header",
+    participants: null,
+    subject: "Quarterly planning",
+    threadRef: "FMexact",
+  }));
+
+  context.drop(dataTransfer({
+    "text/uri-list": "https://mail.google.com/mail/u/2/#inbox/FMexact",
+  }), { shiftKey: true });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(context.dispatched().type, "carnival:gmail-row-create");
+  assert.deepEqual(JSON.parse(context.dispatched().detail), {
+    correlationId: "correlation-1",
+    gmailApiThreadId: "api-thread-123",
+    gmailApiThreadStrategy: "conversation_header",
+    intent: "create_new",
     subject: "Quarterly planning",
     targetPlayId: "play-1",
     url: "https://mail.google.com/mail/u/2/#all/FMexact",

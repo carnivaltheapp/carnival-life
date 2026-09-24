@@ -132,6 +132,39 @@ describe("Supabase Gmail attachment", () => {
     }));
   });
 
+  it("allows an explicit Shift-create to intentionally reuse a Gmail thread", async () => {
+    const insert = query({ data: { id: "gmail-play-2" }, error: null });
+    const from = vi.fn().mockReturnValue(insert);
+
+    await expect(new SupabasePlayRepository(
+      { from } as never,
+      "owner-user",
+    ).createGmail({
+      allowDuplicateThread: true,
+      attachment: {
+        accountIndex: 0,
+        apiThreadId: "api-thread-123",
+        canonicalUrl: "https://mail.google.com/mail/u/0/#all/FMnew",
+        threadRef: "FMnew",
+      },
+      input: {
+        branch: null,
+        durationMinutes: 30,
+        note: null,
+        place: "Office",
+        placement: { kind: "calendar", scheduledDate: "2026-09-14" },
+        playType: "normal",
+        playerContactId: null,
+        pushRule: "everyday",
+        title: "Quarterly planning",
+        url: null,
+      },
+      playerResourceName: null,
+    })).resolves.toEqual({ decision: "created", playId: "gmail-play-2" });
+    expect(from).toHaveBeenCalledOnce();
+    expect(insert.insert).toHaveBeenCalledOnce();
+  });
+
   it("returns the persisted sort order needed for immediate Gmail row insertion", async () => {
     const play = query({
       data: {

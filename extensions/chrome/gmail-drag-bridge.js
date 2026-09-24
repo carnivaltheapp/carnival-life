@@ -213,6 +213,7 @@ if (window.location.hostname === "mail.google.com") {
     event.preventDefault();
     event.stopImmediatePropagation();
     const correlationId = crypto.randomUUID();
+    const intent = event.shiftKey ? "create_new" : "link_existing";
     const dispatchAttachment = (response, messagingFailure = null) => {
       const returnedThreadRef = response?.threadRef ?? response?.returnedThreadRef ?? null;
       const subject = response?.subject ?? response?.gmailSubject ?? null;
@@ -254,6 +255,7 @@ if (window.location.hostname === "mail.google.com") {
           gmailApiThreadId: gmailApiThreadId ?? undefined,
           gmailApiThreadStrategy,
           gmailParticipants: participants ?? undefined,
+          intent,
           subject,
           targetPlayId: playId,
           url: transferredAttachment.canonicalUrl,

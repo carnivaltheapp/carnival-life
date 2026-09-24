@@ -225,11 +225,12 @@ export class MongoPlayRepository implements PlayRepository {
   }
 
   async createGmail({
+    allowDuplicateThread,
     attachment,
     input,
     playerResourceName,
   }: CreateGmailPlayRequest): Promise<CreateGmailPlayResult | null> {
-    if (attachment.apiThreadId) {
+    if (attachment.apiThreadId && !allowDuplicateThread) {
       const existing = await this.dependencies.collection.findOne({
         user_id: MONGO_LEGACY_USER_ID,
         $or: [

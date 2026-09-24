@@ -69,6 +69,7 @@ export type ManualLinkGmailResult = {
 };
 
 export type CreateGmailPlayRequest = {
+  allowDuplicateThread?: boolean;
   attachment: GmailAttachment;
   input: PlayInput;
   playerResourceName: string | null;

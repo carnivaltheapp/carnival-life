@@ -4,6 +4,7 @@ import type { PlayListItem } from "./play";
 import {
   claimGmailRowCreate,
   gmailLinkSafetyDecision,
+  gmailRowDropOperation,
   gmailRowCreateInput,
   isManualGmailRowDropTarget,
   mergeCreatedGmailPlay,
@@ -41,6 +42,18 @@ function target(overrides: Partial<PlayListItem> = {}): PlayListItem {
 }
 
 describe("Gmail row-create input", () => {
+  it("keeps normal drops on the existing-link path and routes Shift intent to creation", () => {
+    const normal = parseGmailRowCreateRequest({ ...base, intent: "link_existing" });
+    const shifted = parseGmailRowCreateRequest({ ...base, intent: "create_new" });
+    const legacy = parseGmailRowCreateRequest(base);
+
+    expect(normal?.intent).toBe("link_existing");
+    expect(gmailRowDropOperation(normal!.intent)).toBe("link");
+    expect(shifted?.intent).toBe("create_new");
+    expect(gmailRowDropOperation(shifted!.intent)).toBe("create");
+    expect(legacy?.intent).toBe("link_existing");
+  });
+
   it("classifies unlinked, same-thread, and different-thread manual drops safely", () => {
     expect(gmailLinkSafetyDecision(
       { apiThreadId: null, webThreadRef: null },
@@ -109,10 +122,31 @@ describe("Gmail row-create input", () => {
     expect(parsed?.attachment.apiThreadId).toBeUndefined();
   });
 
-  it("rejects an Appointment or malformed target placement", () => {
+  it("creates nothing for an Appointment or malformed drop target", () => {
     const parsed = parseGmailRowCreateRequest(base)!;
     expect(gmailRowCreateInput(parsed, target({ legacyTaskType: "A" }))).toBeNull();
     expect(gmailRowCreateInput(parsed, target({ scheduledDate: null }))).toBeNull();
+  });
+
+  it("uses the valid row's destination and rank without modifying the target", () => {
+    const parsed = parseGmailRowCreateRequest({ ...base, intent: "create_new" })!;
+    const droppedOn = target({
+      basketId: "11111111-1111-4111-8111-111111111111",
+      playType: "reminder",
+      scheduledDate: null,
+      sortOrder: 250,
+    });
+
+    expect(gmailRowCreateInput(parsed, droppedOn)).toMatchObject({
+      placement: { basketId: droppedOn.basketId, kind: "basket" },
+      playType: "reminder",
+    });
+    expect(droppedOn).toEqual(target({
+      basketId: "11111111-1111-4111-8111-111111111111",
+      playType: "reminder",
+      scheduledDate: null,
+      sortOrder: 250,
+    }));
   });
 
   it("claims one correlation ID only once", () => {

@@ -609,6 +609,30 @@ describe("MongoPlayRepository mutations", () => {
     expect(updateOne.mock.calls[0][1].$set.contact_id).toBe("");
   });
 
+  it("allows an explicit Shift-create to intentionally reuse a Gmail thread", async () => {
+    const insertedId = new ObjectId();
+    const findOne = vi.fn().mockResolvedValue({ priority_index: "10-00000128" });
+    const insertOne = vi.fn().mockResolvedValue({ acknowledged: true, insertedId });
+
+    await expect(repository({
+      findOne: findOne as never,
+      insertOne: insertOne as never,
+    }).createGmail({
+      allowDuplicateThread: true,
+      attachment: {
+        accountIndex: 0,
+        apiThreadId: "api-thread-123",
+        canonicalUrl: "https://mail.google.com/mail/u/0/#all/FMnew",
+        threadRef: "FMnew",
+      },
+      input: playInput(),
+      playerResourceName: null,
+    })).resolves.toEqual({ decision: "created", playId: insertedId.toHexString() });
+    expect(findOne).toHaveBeenCalledOnce();
+    expect(findOne.mock.calls[0][0]).toMatchObject({ task_date: new Date("2026-08-27T00:00:00.000Z") });
+    expect(insertOne).toHaveBeenCalledOnce();
+  });
+
   it("persists multiple contact and group references without copying group members", async () => {
     const id = new ObjectId();
     const findOne = vi.fn().mockResolvedValue({ _id: id, task_type: "H", user_id: 43 });

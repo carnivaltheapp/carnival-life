@@ -1132,6 +1132,7 @@ export async function createGmailPlayFromRow(
     }
 
     const creation = await repository.createGmail({
+      allowDuplicateThread: parsed.intent === "create_new",
       attachment: parsed.attachment,
       input: { ...input, playerContactId },
       playerResourceName,

@@ -19,6 +19,7 @@ import {
   bulkSetPlayStatus,
   bulkUpdatePlays,
   cancelManualGmailReplacement,
+  createGmailPlayFromRow,
   flipPlayRank,
   manualLinkGmailToPlay,
   repositionPlays,
@@ -49,7 +50,9 @@ import {
 } from "../domain/gmail-attachment";
 import {
   claimGmailRowCreate,
+  gmailRowDropOperation,
   isManualGmailRowDropTarget,
+  mergeCreatedGmailPlay,
   parseGmailRowCreateRequest,
   type GmailRowCreateRequest,
 } from "../domain/gmail-row-create";
@@ -666,6 +669,7 @@ function PlayhouseShellView({
       console.info("GMAIL_ROW_CREATE_INPUT", {
         gmailAccountIndex: attachment?.accountIndex ?? null,
         gmailThreadRef: attachment?.threadRef ?? null,
+        intent: rawRequest.intent === "create_new" ? "create_new" : "link_existing",
         participantsPresent: Boolean(rawRequest.gmailParticipants),
         subject: typeof rawRequest.subject === "string" ? rawRequest.subject : null,
         subjectPresent: Boolean(
@@ -698,6 +702,53 @@ function PlayhouseShellView({
       ) return;
       clearDragState();
       startGmailCreate(async () => {
+        if (gmailRowDropOperation(parsed.intent) === "create") {
+          const result = await createGmailPlayFromRow(request as Parameters<
+            typeof createGmailPlayFromRow
+          >[0]);
+          if (result.status !== "success" || !result.playId) {
+            clearDragState();
+            setMoveError(result.message);
+            return;
+          }
+          clearDragState();
+          setMoveError(null);
+          if (result.play) {
+            const nextPlays = mergeCreatedGmailPlay({
+              baskets,
+              createdPlay: result.play,
+              plays: localPlays,
+              searchQuery,
+              selectedView,
+            });
+            setOptimisticPlays({ source: plays, value: nextPlays });
+          } else {
+            router.refresh();
+          }
+          void recordGmailOutgoingSync({
+            apiThreadIdPresent: Boolean(parsed.attachment.apiThreadId),
+            operation: "star",
+            playId: result.playId,
+            stage: "GMAIL_OUTGOING_SYNC_REQUESTED",
+            webThreadRefPresent: true,
+          });
+          gmailStarContextRef.current.set(parsed.correlationId, {
+            apiThreadIdPresent: Boolean(parsed.attachment.apiThreadId),
+            playId: result.playId,
+            webThreadRefPresent: true,
+          });
+          window.dispatchEvent(new CustomEvent("carnival:gmail-star-thread", {
+            detail: JSON.stringify({
+              accountIndex: parsed.attachment.accountIndex,
+              apiThreadIdPresent: Boolean(parsed.attachment.apiThreadId),
+              correlationId: parsed.correlationId,
+              playId: result.playId,
+              threadRef: parsed.attachment.threadRef,
+              webThreadRefPresent: true,
+            }),
+          }));
+          return;
+        }
         const result = await manualLinkGmailToPlay(request as Parameters<
           typeof manualLinkGmailToPlay
         >[0]);
