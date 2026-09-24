@@ -74,6 +74,45 @@
   gap: 3px;
 }
 
+.componentNavRow {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 27px;
+  gap: 2px;
+  align-items: center;
+}
+
+.componentCopyButton {
+  display: grid;
+  width: 27px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  color: #a99eb7;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: .72rem;
+}
+
+.componentCopyButton:hover { color: #fff; background: rgba(255,255,255,.09); }
+
+.componentCopyStatus {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% - 2px);
+  right: 0;
+  padding: 4px 7px;
+  color: #fff;
+  border-radius: 5px;
+  background: #4f376c;
+  font-size: .6rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .editComponentsButton {
   display: flex;
   min-height: 36px;

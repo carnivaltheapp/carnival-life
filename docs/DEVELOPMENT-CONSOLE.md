@@ -24,6 +24,15 @@ declares `noindex, nofollow`. The Console's copy control copies the current-orig
 URL (for example `https://carnival-playhouse.vercel.app/development/CF-010`) rather than only
 the feature reference.
 
+Components have equivalent current-name sharing URLs such as `/development/gmail`,
+`/development/playhouse`, and `/development/roller`. A component page is server-rendered
+from the same MongoDB records and contains only that component's feature cards, including
+full Notes and public dependency references. Component slugs are derived from the current
+persisted name rather than stored as identity, so renaming updates the URL while the stable
+component UUID and feature relationships remain unchanged. Unknown or ambiguous slugs return
+404. These pages are also public read-only and `noindex, nofollow`; they expose no owner data,
+internal IDs, navigation, or editing controls.
+
 The Development Console is modular and does not depend on PlayHouse grid state. Its UI,
 domain model, repository, and API are contained under the Development feature boundary.
 
@@ -241,6 +250,12 @@ Marker `P3-FEATURE-SHARE-144` adds the deliberately separate known-ID sharing su
 above. It does not weaken the authenticated Console CRUD APIs, bearer-protected roadmap API, or
 OAuth-protected MCP tools. Public pages perform a direct feature lookup and resolve only that
 feature's dependencies; they never call Console seeding/backfill code or mutate roadmap data.
+
+Marker `P3-COMPONENT-SHARE-145` extends the same sharing surface to component-name slugs.
+Selecting a component in the authenticated Console updates browser history without reloading or
+changing edit behavior, while the adjacent copy control provides its full current-origin public
+URL. Back/forward history restores the in-place component filter. Public component requests use
+the read-only server route and do not expose Console controls or other components' cards.
 
 ### One-time ChatGPT connection procedure
 

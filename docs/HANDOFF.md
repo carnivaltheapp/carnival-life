@@ -4,6 +4,11 @@ Architecture-only exploration handoff • September 2026
 
 ## September 24, 2026 — ChatGPT Roadmap MCP
 
+- Marker `P3-COMPONENT-SHARE-145` adds current-name component URLs such as
+  `/development/gmail`. Authenticated left-navigation selections update browser history and offer
+  isolated copy-link controls; direct public requests server-render only that component's complete
+  feature cards with `noindex, nofollow`. Slugs follow renames while stable component IDs remain
+  unchanged.
 - Marker `P3-FEATURE-SHARE-144` adds public, server-rendered, read-only feature pages at
   `/development/CF-###`. The Development Console copy icon now copies the current-origin page URL
   and confirms `Link copied`; the reference itself opens the page in a new tab. Each page reads the

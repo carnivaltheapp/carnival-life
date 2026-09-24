@@ -1,5 +1,7 @@
 import "server-only";
 
+import { developmentComponentSlug } from "../../domain/development-component-slug";
+import type { DevelopmentFeature } from "../../domain/development-feature";
 import { MongoDevelopmentFeatureRepository } from "./repository";
 import { buildRoadmap } from "./roadmap";
 
@@ -16,10 +18,34 @@ export type PublicDevelopmentFeature = {
   updatedAt: string;
 };
 
+export type PublicDevelopmentComponent = {
+  features: PublicDevelopmentFeature[];
+  name: string;
+  slug: string;
+};
+
 type PublicFeatureRepository = Pick<
   MongoDevelopmentFeatureRepository,
-  "get" | "getByHumanFeatureId" | "machineRoadmapOwner"
+  "get" | "getByHumanFeatureId" | "list" | "listComponents" | "machineRoadmapOwner"
 >;
+
+function publicFeature(
+  feature: DevelopmentFeature,
+  dependencies: PublicDevelopmentFeature["dependencies"],
+): PublicDevelopmentFeature {
+  return {
+    component: feature.component,
+    dependencies,
+    description: feature.description,
+    featureId: feature.featureId,
+    notes: feature.notes,
+    priority: feature.priority,
+    sequence: feature.sequence,
+    status: feature.status,
+    title: feature.title,
+    updatedAt: feature.updatedAt,
+  };
+}
 
 export async function loadOwnerRoadmap(ownerUserId: string) {
   const repository = new MongoDevelopmentFeatureRepository();
@@ -49,18 +75,33 @@ export async function loadPublicDevelopmentFeature(
   const dependencyRecords = await Promise.all(
     feature.dependencies.map((dependencyId) => repository.get(ownerUserId, dependencyId)),
   );
-  return {
-    component: feature.component,
-    dependencies: dependencyRecords.flatMap((dependency) => dependency
+  return publicFeature(feature, dependencyRecords.flatMap((dependency) => dependency
       ? [{ featureId: dependency.featureId, title: dependency.title }]
-      : []),
-    description: feature.description,
-    featureId: feature.featureId,
-    notes: feature.notes,
-    priority: feature.priority,
-    sequence: feature.sequence,
-    status: feature.status,
-    title: feature.title,
-    updatedAt: feature.updatedAt,
+      : []));
+}
+
+export async function loadPublicDevelopmentComponent(
+  requestedSlug: string,
+  repository: PublicFeatureRepository = new MongoDevelopmentFeatureRepository(),
+): Promise<PublicDevelopmentComponent | null> {
+  const ownerUserId = await repository.machineRoadmapOwner();
+  if (!ownerUserId) return null;
+  const components = await repository.listComponents(ownerUserId);
+  const matches = components.filter(
+    (component) => developmentComponentSlug(component.name) === requestedSlug,
+  );
+  if (matches.length !== 1) return null;
+  const component = matches[0];
+  const allFeatures = await repository.list(ownerUserId);
+  const byId = new Map(allFeatures.map((feature) => [feature.id, feature]));
+  return {
+    features: allFeatures
+      .filter((feature) => feature.componentId === component.id)
+      .map((feature) => publicFeature(feature, feature.dependencies.flatMap((dependencyId) => {
+        const dependency = byId.get(dependencyId);
+        return dependency ? [{ featureId: dependency.featureId, title: dependency.title }] : [];
+      }))),
+    name: component.name,
+    slug: requestedSlug,
   };
 }

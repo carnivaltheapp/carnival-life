@@ -15,6 +15,14 @@ describe("public Development feature page contract", () => {
     expect(source).not.toContain("ownerUserId");
   });
 
+  it("resolves non-CF slugs as read-only component pages with only component feature cards", () => {
+    expect(source).toContain("loadPublicDevelopmentComponent(requestedFeatureId)");
+    expect(source).toContain("component.features.map");
+    expect(source).toContain("<FeaturePlanningDetails feature={feature} />");
+    expect(source).toContain("if (!component) notFound()");
+    expect(source).not.toContain("DevelopmentConsole");
+  });
+
   it("renders the complete public feature fields and full wrapping text", () => {
     for (const field of [
       "feature.featureId", "feature.title", "feature.description", "feature.component",
@@ -23,7 +31,7 @@ describe("public Development feature page contract", () => {
     ]) expect(source).toContain(field);
     expect(css).toContain("white-space: pre-wrap");
     expect(source).not.toContain("slice(");
-    expect(source).not.toMatch(/button|input|textarea|select/);
+    expect(source).not.toMatch(/<button|<input|<textarea|<select/);
   });
 
   it("opts out of search indexing and exposes no roadmap navigation", () => {

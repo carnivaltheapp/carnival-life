@@ -15,6 +15,7 @@ import {
   type DevelopmentPriority,
   type DevelopmentStatus,
 } from "../../domain/development-feature";
+import { developmentComponentSlug } from "../../domain/development-component-slug";
 import {
   moveDevelopmentComponent,
 } from "../../domain/development-component";
@@ -145,13 +146,17 @@ export function DevelopmentConsole({
   const [componentDropTarget, setComponentDropTarget] = useState<string | null>(null);
   const [dragSaving, setDragSaving] = useState(false);
   const [copiedFeatureId, setCopiedFeatureId] = useState<string | null>(null);
+  const [copiedComponentId, setCopiedComponentId] = useState<string | null>(null);
   const [draggedComponentId, setDraggedComponentId] = useState<string | null>(null);
   const [componentRowDropTarget, setComponentRowDropTarget] = useState<{
     edge: "after" | "before";
     id: string;
   } | null>(null);
 
-  const visibleComponents = components.filter((item) => !item.hidden);
+  const visibleComponents = useMemo(
+    () => components.filter((item) => !item.hidden),
+    [components],
+  );
   const selectedComponent = components.find((item) => item.id === componentId);
   const sequenceReorderEnabled = !query.trim() &&
     status === "All Statuses" &&
@@ -163,6 +168,22 @@ export function DevelopmentConsole({
     query,
     status,
   }), [componentId, features, priority, query, status]);
+
+  useEffect(() => {
+    const syncComponentFromHistory = () => {
+      const match = window.location.pathname.match(/^\/development\/([^/]+)\/?$/);
+      if (!match) {
+        if (/^\/development\/?$/.test(window.location.pathname)) setComponentId("all");
+        return;
+      }
+      const component = visibleComponents.find(
+        (item) => developmentComponentSlug(item.name) === decodeURIComponent(match[1]),
+      );
+      if (component) setComponentId(component.id);
+    };
+    window.addEventListener("popstate", syncComponentFromHistory);
+    return () => window.removeEventListener("popstate", syncComponentFromHistory);
+  }, [visibleComponents]);
 
   useEffect(() => {
     if (!menuFeatureId) return;
@@ -347,7 +368,10 @@ export function DevelopmentConsole({
       setFeatures((current) => current.map((feature) => feature.componentId === updated.id
         ? { ...feature, component: updated.name }
         : feature));
-      if (updated.hidden && componentId === updated.id) setComponentId("all");
+      if (updated.hidden && componentId === updated.id) showAllFeatures(true);
+      else if (componentId === updated.id) {
+        window.history.replaceState(null, "", `/development/${developmentComponentSlug(updated.name)}`);
+      }
     } catch {
       setComponentMessage("Component could not be saved. Check your connection and try again.");
     } finally {
@@ -447,7 +471,7 @@ export function DevelopmentConsole({
           ? { ...feature, component: destination.name, componentId: destination.id }
           : feature));
       }
-      if (componentId === target.id) setComponentId("all");
+      if (componentId === target.id) showAllFeatures(true);
       setDeleteComponentTarget(null);
     } catch {
       setComponentMessage("Component could not be deleted. Check your connection and try again.");
@@ -549,6 +573,39 @@ export function DevelopmentConsole({
     }
   }
 
+  function showAllFeatures(replace = false) {
+    setComponentId("all");
+    window.history[replace ? "replaceState" : "pushState"](null, "", "/development");
+  }
+
+  function showComponent(component: DevelopmentComponentRecord) {
+    setComponentId(component.id);
+    window.history.pushState(
+      null,
+      "",
+      `/development/${developmentComponentSlug(component.name)}`,
+    );
+  }
+
+  async function copyComponentLink(
+    event: React.MouseEvent<HTMLButtonElement>,
+    component: DevelopmentComponentRecord,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      const slug = developmentComponentSlug(component.name);
+      const componentUrl = new URL(`/development/${slug}`, window.location.origin).toString();
+      await navigator.clipboard.writeText(componentUrl);
+      setCopiedComponentId(component.id);
+      window.setTimeout(() => {
+        setCopiedComponentId((current) => current === component.id ? null : current);
+      }, 1_500);
+    } catch {
+      setMessage("Component link could not be copied.");
+    }
+  }
+
   return (
     <main className={styles.console}>
       <aside className={styles.sidebar}>
@@ -559,37 +616,53 @@ export function DevelopmentConsole({
         <nav className={styles.navigation} aria-label="Development components">
           <button
             className={componentId === "all" ? styles.navActive : styles.navItem}
-            onClick={() => setComponentId("all")}
+            onClick={() => showAllFeatures()}
             type="button"
           >
             <Icon icon="grid" />
             <span>All Features</span>
           </button>
           {visibleComponents.map((item) => (
-            <button
-              className={`${componentId === item.id ? styles.navActive : styles.navItem} ${componentDropTarget === item.id ? styles.navDropTarget : ""}`}
-              key={item.id}
-              onClick={() => setComponentId(item.id)}
-              onDragEnter={(event) => {
-                if (!draggedFeatureId) return;
-                event.preventDefault();
-                setComponentDropTarget(item.id);
-              }}
-              onDragOver={(event) => {
-                if (!draggedFeatureId) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "move";
-                setComponentDropTarget(item.id);
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                void moveFeatureToComponent(item.id);
-              }}
-              type="button"
-            >
-              <Icon icon={item.icon} />
-              <span>{item.name}</span>
-            </button>
+            <div className={styles.componentNavRow} key={item.id}>
+              <button
+                className={`${componentId === item.id ? styles.navActive : styles.navItem} ${componentDropTarget === item.id ? styles.navDropTarget : ""}`}
+                onClick={() => showComponent(item)}
+                onDragEnter={(event) => {
+                  if (!draggedFeatureId) return;
+                  event.preventDefault();
+                  setComponentDropTarget(item.id);
+                }}
+                onDragOver={(event) => {
+                  if (!draggedFeatureId) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setComponentDropTarget(item.id);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  void moveFeatureToComponent(item.id);
+                }}
+                type="button"
+              >
+                <Icon icon={item.icon} />
+                <span>{item.name}</span>
+              </button>
+              <button
+                aria-label={`Copy link to ${item.name} component`}
+                className={styles.componentCopyButton}
+                draggable={false}
+                onClick={(event) => void copyComponentLink(event, item)}
+                onDragStart={(event) => event.preventDefault()}
+                onMouseDown={(event) => event.stopPropagation()}
+                title="Copy component link"
+                type="button"
+              >
+                <span aria-hidden="true">{copiedComponentId === item.id ? "✓" : "⧉"}</span>
+              </button>
+              {copiedComponentId === item.id ? (
+                <span className={styles.componentCopyStatus} role="status">Link copied</span>
+              ) : null}
+            </div>
           ))}
           <button className={styles.editComponentsButton} onClick={openComponentManager} type="button">
             <span aria-hidden="true">✎</span>

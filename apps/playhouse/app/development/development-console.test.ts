@@ -82,6 +82,18 @@ describe("Carnival Development Console contract", () => {
     expect(css).toContain(".featureReference");
   });
 
+  it("updates component URLs and copies isolated public component links", () => {
+    expect(consoleSource).toContain("developmentComponentSlug(component.name)");
+    expect(consoleSource).toContain("window.history.pushState");
+    expect(consoleSource).toContain("window.history.replaceState");
+    expect(consoleSource).toContain("window.addEventListener(\"popstate\"");
+    expect(consoleSource).toContain("navigator.clipboard.writeText(componentUrl)");
+    expect(consoleSource).toContain('aria-label={`Copy link to ${item.name} component`}');
+    expect(consoleSource).toContain("copyComponentLink(event, item)");
+    expect(consoleSource).toContain('<span className={styles.componentCopyStatus} role="status">Link copied</span>');
+    expect(css).toContain(".componentCopyButton");
+  });
+
   it("uses an unrestricted auto-growing Notes editor without expanding roadmap rows", () => {
     expect(consoleSource).toContain("sizeNotesTextarea");
     expect(consoleSource).toContain("className={styles.notesTextarea}");
