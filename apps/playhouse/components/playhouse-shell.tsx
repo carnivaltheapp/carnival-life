@@ -33,7 +33,6 @@ import type {
 import {
   ALL_BRANCHES,
   filterPlaysByBranch,
-  validSelectedBranch,
 } from "../domain/play-branch-filter";
 import type { CalendarSettingsAccount } from "../domain/calendar-settings";
 import {
@@ -50,7 +49,12 @@ import {
   isManualGmailRowDropTarget,
   parseGmailRowCreateRequest,
 } from "../domain/gmail-row-create";
-import type { SelectedView } from "../lib/playhouse/data";
+import {
+  lifecycleViewHref,
+  retainLifecycleInHref,
+  type PlayLifecycle,
+  type SelectedView,
+} from "../lib/playhouse/data";
 import {
   destinationNavigationModeForView,
   toggleDestinationNavigationMode,
@@ -140,6 +144,7 @@ type PlayhouseShellProps = {
   dataError: boolean;
   identity: UserIdentity;
   nextPlayOptions: NextPlayOption[];
+  lifecycle: PlayLifecycle;
   plays: PlayListItem[];
   profileTimeZone: string;
   selectedView: SelectedView;
@@ -149,7 +154,6 @@ type PlayhouseShellProps = {
 };
 
 type BullseyeCategory = "calendar" | "baskets" | "rank" | "push";
-type BranchFilterState = { optionsKey: string; selected: string };
 
 function inspectGmailDropDataTransfer(
   event: DragEvent<HTMLElement>,
@@ -257,6 +261,7 @@ function PlayhouseShellView({
   dataError,
   identity,
   nextPlayOptions,
+  lifecycle,
   plays,
   profileTimeZone,
   selectedView,
@@ -322,20 +327,11 @@ function PlayhouseShellView({
     y: number;
   } | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
-  const branchOptionsKey = branchOptions.join("\u0000");
-  const [branchFilter, setBranchFilter] = useState<BranchFilterState>({
-    optionsKey: branchOptionsKey,
-    selected: ALL_BRANCHES,
-  });
-  if (branchFilter.optionsKey !== branchOptionsKey) {
-    setBranchFilter({
-      optionsKey: branchOptionsKey,
-      selected: validSelectedBranch(branchFilter.selected, branchOptions),
-    });
-  }
-  const selectedBranch = branchFilter.optionsKey === branchOptionsKey
-    ? branchFilter.selected
-    : validSelectedBranch(branchFilter.selected, branchOptions);
+  const [selectedBranch, setSelectedBranch] = useState(ALL_BRANCHES);
+  const displayedBranchOptions = selectedBranch !== ALL_BRANCHES &&
+      !branchOptions.includes(selectedBranch)
+    ? [selectedBranch, ...branchOptions]
+    : branchOptions;
   const [gridSort, setGridSort] = useState<PlayGridSort | null>(null);
   const [flippingPlayId, setFlippingPlayId] = useState<string | null>(null);
   const [optimisticPlays, setOptimisticPlays] = useState<{
@@ -1147,7 +1143,11 @@ function PlayhouseShellView({
       <div aria-hidden="true" className="playDragPreviewHost" ref={dragPreviewHostRef} />
       <header className="appHeader">
         <div className="headerBrandArea">
-          <Link className="brand" href="/?view=today" aria-label="Carnival PlayHouse home">
+          <Link
+            aria-label="Carnival PlayHouse home"
+            className="brand"
+            href={retainLifecycleInHref("/?view=today", lifecycle)}
+          >
             <PlayHouseIcon />
             <span>
               <strong>Carnival</strong>
@@ -1170,14 +1170,11 @@ function PlayhouseShellView({
             <span>Show Branch</span>
             <select
               aria-label="Show Branch"
-              onChange={(event) => setBranchFilter({
-                optionsKey: branchOptionsKey,
-                selected: event.target.value,
-              })}
+              onChange={(event) => setSelectedBranch(event.target.value)}
               value={selectedBranch}
             >
               <option value={ALL_BRANCHES}>All Branches</option>
-              {branchOptions.map((branch) => (
+              {displayedBranchOptions.map((branch) => (
                 <option key={branch} value={branch}>{branch}</option>
               ))}
             </select>
@@ -1321,7 +1318,7 @@ function PlayhouseShellView({
                       aria-current={isActive ? "page" : undefined}
                       className="destinationLink"
                       data-active={isActive || undefined}
-                      href={calendarDateHref(item.date, todayDate)}
+                      href={retainLifecycleInHref(calendarDateHref(item.date, todayDate), lifecycle)}
                       key={item.date}
                       {...destinationDropProps(placement, `calendar:${item.date}`)}
                     >
@@ -1383,7 +1380,10 @@ function PlayhouseShellView({
                           onChange={(event) => {
                             if (isSelectableCalendarDate(event.target.value, todayDate)) {
                               setDatePickerOpen(false);
-                              router.push(calendarDateHref(event.target.value, todayDate));
+                              router.push(retainLifecycleInHref(
+                                calendarDateHref(event.target.value, todayDate),
+                                lifecycle,
+                              ));
                             } else {
                               event.target.value = selectedDate;
                             }
@@ -1402,7 +1402,7 @@ function PlayhouseShellView({
                       aria-current={isActive ? "page" : undefined}
                       className="destinationLink"
                       data-active={isActive || undefined}
-                      href={`/?view=${item.key}`}
+                      href={retainLifecycleInHref(`/?view=${item.key}`, lifecycle)}
                       key={item.key}
                     >
                       <span className="destinationIcon" aria-hidden="true">
@@ -1429,7 +1429,10 @@ function PlayhouseShellView({
                       aria-current={isActive ? "page" : undefined}
                       className="destinationLink"
                       data-active={isActive || undefined}
-                      href={`/?basket=${encodeURIComponent(basket.slug)}`}
+                      href={retainLifecycleInHref(
+                        `/?basket=${encodeURIComponent(basket.slug)}`,
+                        lifecycle,
+                      )}
                       key={basket.id}
                       {...destinationDropProps(
                         { basketId: basket.id, kind: "basket" },
@@ -1553,8 +1556,32 @@ function PlayhouseShellView({
                   sort={gridSort}
                 />
                 <div className="statusActions playGridActionHeaders">
-                  <span aria-label="Done" role="columnheader" title="Done"><DoneIcon /></span>
-                  <span aria-label="Trash" role="columnheader" title="Trash"><TrashIcon /></span>
+                  <Link
+                    aria-current={lifecycle === "done" ? "page" : undefined}
+                    aria-label="Done"
+                    className="playGridLifecycleLink"
+                    data-active={lifecycle === "done" || undefined}
+                    href={lifecycleViewHref({
+                      lifecycle: lifecycle === "done" ? "active" : "done",
+                      searchQuery,
+                      selectedView,
+                    })}
+                    role="columnheader"
+                    title={lifecycle === "done" ? "Return to active Plays" : "Show Done Plays"}
+                  ><DoneIcon /></Link>
+                  <Link
+                    aria-current={lifecycle === "trash" ? "page" : undefined}
+                    aria-label="Trash"
+                    className="playGridLifecycleLink"
+                    data-active={lifecycle === "trash" || undefined}
+                    href={lifecycleViewHref({
+                      lifecycle: lifecycle === "trash" ? "active" : "trash",
+                      searchQuery,
+                      selectedView,
+                    })}
+                    role="columnheader"
+                    title={lifecycle === "trash" ? "Return to active Plays" : "Show Trashed Plays"}
+                  ><TrashIcon /></Link>
                   <span aria-label="Slack" role="columnheader" title="Slack"><SlackIcon /></span>
                   <span aria-label="Incoming Gmail" role="columnheader" title="Incoming Gmail">
                     <IncomingGmailIcon />

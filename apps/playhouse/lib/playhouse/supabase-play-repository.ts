@@ -17,7 +17,7 @@ import { searchableMetadataText } from "../../domain/play-search";
 import { promotionOrderUpdates } from "../../domain/reminder";
 import { legacyTaskTypeFromMetadata } from "../../domain/play-visual";
 import type { Database } from "../supabase/database.types";
-import type { SelectedView } from "./data";
+import type { PlayLifecycle, SelectedView } from "./data";
 import type {
   AssignPlayerRequest,
   CreateGmailPlayResult,
@@ -287,14 +287,17 @@ export class SupabasePlayRepository implements PlayRepository {
         };
   }
 
-  async list(selectedView?: SelectedView): Promise<RepositoryPlayList> {
+  async list(
+    selectedView?: SelectedView,
+    lifecycle: PlayLifecycle = "active",
+  ): Promise<RepositoryPlayList> {
     let playQuery = this.supabase
       .from("plays")
       .select(
         "id, title, play_type, source_type, scheduled_date, basket_id, duration_minutes, player_contact_id, branch, note, url, push_rule, place, sort_order, created_at, source_metadata",
       )
       .eq("owner_user_id", this.ownerUserId)
-      .eq("status", "open");
+      .eq("status", lifecycle === "active" ? "open" : lifecycle);
 
     if (selectedView?.kind === "basket") {
       playQuery = playQuery.eq("basket_id", selectedView.basket.id);

@@ -10,7 +10,7 @@ import type { PlayInput } from "../../domain/play-input";
 import type { BulkPlayChange } from "../../domain/play-bulk-change";
 import type { GmailAttachment } from "../../domain/gmail-attachment";
 import type { Database } from "../supabase/database.types";
-import type { SelectedView } from "./data";
+import type { PlayLifecycle, SelectedView } from "./data";
 import type { PlayhouseDataSource } from "./data-source";
 
 export type RepositoryPlayList = {
@@ -87,7 +87,7 @@ export interface PlayRepository {
   get(playId: string): Promise<PlayListItem | null>;
   getLifecycleIdentity(playId: string): Promise<Pick<PlayListItem, "gmailThreadId" | "sourceType"> | null>;
   manualLinkGmail(request: AttachGmailRequest): Promise<ManualLinkGmailResult | null>;
-  list(selectedView?: SelectedView): Promise<RepositoryPlayList>;
+  list(selectedView?: SelectedView, lifecycle?: PlayLifecycle): Promise<RepositoryPlayList>;
   reconcileDueReminders(todayDate: string): Promise<boolean>;
   flipRank(request: FlipPlayRankRequest): Promise<boolean>;
   bulkUpdate(playIds: string[], change: BulkPlayChange): Promise<boolean>;

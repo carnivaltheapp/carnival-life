@@ -8,10 +8,12 @@ import {
   legacyTaskTypeForSave,
   mapMongoPlay,
   mongoActiveFilter,
+  mongoAllScheduledFilter,
   mongoBasketFilter,
   mongoCreateDocument,
   mongoDateFilter,
   mongoEditableSet,
+  mongoLifecycleFilter,
   mongoMutationFilter,
   mongoPlayType,
   MONGO_LEGACY_USER_ID,
@@ -98,6 +100,47 @@ describe("Mongo Play mapping", () => {
         $lt: new Date("2400-01-12T00:00:00.000Z"),
       },
       user_id: 43,
+    });
+  });
+
+  it("applies lifecycle independently over Date, Basket, 7-day, and Today-forward scopes", () => {
+    expect(mongoLifecycleFilter("done")).toMatchObject({
+      is_active: false,
+      is_deleted: false,
+      user_id: 43,
+    });
+    expect(mongoDateFilter("2026-09-25", "2026-09-25", "trash")).toMatchObject({
+      is_active: false,
+      is_deleted: true,
+      $or: [expect.objectContaining({
+        task_date: {
+          $gte: new Date("2026-09-25T00:00:00.000Z"),
+          $lt: new Date("2026-09-26T00:00:00.000Z"),
+        },
+      }), expect.anything()],
+    });
+    expect(mongoDateFilter("2026-09-23", "2026-09-29", "done")).toMatchObject({
+      is_active: false,
+      is_deleted: false,
+      $or: [expect.objectContaining({
+        task_date: {
+          $gte: new Date("2026-09-23T00:00:00.000Z"),
+          $lt: new Date("2026-09-30T00:00:00.000Z"),
+        },
+      }), expect.anything()],
+    });
+    expect(mongoBasketFilter("soon", "trash")).toMatchObject({
+      is_active: false,
+      is_deleted: true,
+      user_id: 43,
+    });
+    expect(mongoAllScheduledFilter("2026-09-23", "done")).toMatchObject({
+      is_active: false,
+      is_deleted: false,
+      task_date: {
+        $gte: new Date("2026-09-23T00:00:00.000Z"),
+        $lt: new Date("2200-01-01T00:00:00.000Z"),
+      },
     });
   });
 

@@ -11,6 +11,7 @@ import type {
 import type { PlayInput } from "../../domain/play-input";
 import { isGmailApiThreadId } from "../../domain/play-display";
 import { LEGACY_BASKETS } from "../../migration/legacy/mapping";
+import type { PlayLifecycle } from "./data";
 
 export const MONGO_CARNIVAL_USER_ID =
   "096a5ba0-f3ac-469e-bb20-34c75cff2803";
@@ -89,10 +90,21 @@ export function legacyTaskTypeForSave(existingTaskType: unknown, playType: PlayT
 }
 
 export function mongoActiveFilter(): Filter<LegacyTaskDocument> {
+  return mongoLifecycleFilter("active");
+}
+
+function mongoLifecycleState(lifecycle: PlayLifecycle) {
+  return lifecycle === "active"
+    ? { is_active: true, is_deleted: false }
+    : lifecycle === "done"
+      ? { is_active: false, is_deleted: false }
+      : { is_active: false, is_deleted: true };
+}
+
+export function mongoLifecycleFilter(lifecycle: PlayLifecycle): Filter<LegacyTaskDocument> {
   return {
     "carnival_google.semantic_role": { $ne: "place" },
-    is_active: true,
-    is_deleted: false,
+    ...mongoLifecycleState(lifecycle),
     user_id: MONGO_LEGACY_USER_ID,
   };
 }
@@ -106,10 +118,13 @@ function utcDayRange(startDate: string, endDate = startDate) {
   };
 }
 
-export function mongoDateFilter(startDate: string, endDate = startDate) {
+export function mongoDateFilter(
+  startDate: string,
+  endDate = startDate,
+  lifecycle: PlayLifecycle = "active",
+) {
   return {
-    is_active: true,
-    is_deleted: false,
+    ...mongoLifecycleState(lifecycle),
     user_id: MONGO_LEGACY_USER_ID,
     $or: [
       {
@@ -126,9 +141,9 @@ export function mongoDateFilter(startDate: string, endDate = startDate) {
   } satisfies Filter<LegacyTaskDocument>;
 }
 
-export function mongoAllScheduledFilter(today: string) {
+export function mongoAllScheduledFilter(today: string, lifecycle: PlayLifecycle = "active") {
   return {
-    ...mongoActiveFilter(),
+    ...mongoLifecycleFilter(lifecycle),
     task_date: {
       $gte: new Date(`${today}T00:00:00.000Z`),
       $lt: new Date("2200-01-01T00:00:00.000Z"),
@@ -143,13 +158,13 @@ export function isRealScheduledDateOnOrAfter(value: unknown, today: string) {
     value < new Date("2200-01-01T00:00:00.000Z");
 }
 
-export function mongoBasketFilter(basketSlug: string) {
+export function mongoBasketFilter(basketSlug: string, lifecycle: PlayLifecycle = "active") {
   const day = basketDayBySlug.get(basketSlug);
   if (!day) {
     throw new Error("That Basket does not have a documented Mongo mapping.");
   }
   return {
-    ...mongoActiveFilter(),
+    ...mongoLifecycleFilter(lifecycle),
     task_date: utcDayRange(day),
   } satisfies Filter<LegacyTaskDocument>;
 }

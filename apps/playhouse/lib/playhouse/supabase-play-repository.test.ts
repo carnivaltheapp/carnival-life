@@ -7,7 +7,7 @@ function query(result: { count?: number | null; data: unknown; error: unknown })
     then?: PromiseLike<unknown>["then"];
   } = {};
   for (const method of [
-    "eq", "in", "insert", "is", "lt", "maybeSingle", "order", "select", "update",
+    "eq", "gte", "in", "insert", "is", "limit", "lt", "lte", "maybeSingle", "order", "select", "update",
   ]) {
     builder[method] = vi.fn(() => method === "maybeSingle"
       ? Promise.resolve(result)
@@ -311,6 +311,42 @@ describe("Supabase Gmail attachment", () => {
     expect(update.eq).toHaveBeenCalledWith("id", "play-1");
     expect(update.eq).toHaveBeenCalledWith("owner_user_id", "owner-user");
     expect(update.eq).toHaveBeenCalledWith("status", "open");
+  });
+});
+
+describe("Supabase scoped lifecycle views", () => {
+  it("queries Done Plays in the same exact date scope", async () => {
+    const plays = query({ data: [], error: null });
+    const options = query({ data: [], error: null });
+    const from = vi.fn().mockReturnValueOnce(plays).mockReturnValueOnce(options);
+
+    await new SupabasePlayRepository({ from } as never, "owner-user").list({
+      endDate: "2026-09-25",
+      key: "date",
+      kind: "calendar",
+      label: "Friday, September 25",
+      startDate: "2026-09-25",
+    }, "done");
+
+    expect(plays.eq).toHaveBeenCalledWith("owner_user_id", "owner-user");
+    expect(plays.eq).toHaveBeenCalledWith("status", "done");
+    expect(plays.gte).toHaveBeenCalledWith("scheduled_date", "2026-09-25");
+    expect(plays.lte).toHaveBeenCalledWith("scheduled_date", "2026-09-25");
+  });
+
+  it("queries Trashed Plays in the same Basket scope", async () => {
+    const plays = query({ data: [], error: null });
+    const options = query({ data: [], error: null });
+    const from = vi.fn().mockReturnValueOnce(plays).mockReturnValueOnce(options);
+
+    await new SupabasePlayRepository({ from } as never, "owner-user").list({
+      basket: { id: "basket-1", name: "Soon", slug: "soon", sortOrder: 20 },
+      kind: "basket",
+      label: "Soon",
+    }, "trash");
+
+    expect(plays.eq).toHaveBeenCalledWith("status", "trash");
+    expect(plays.eq).toHaveBeenCalledWith("basket_id", "basket-1");
   });
 });
 

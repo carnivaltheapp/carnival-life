@@ -1,7 +1,7 @@
 import { PlayhouseShell } from "../components/playhouse-shell";
 import { SignedOutScreen } from "../components/signed-out-screen";
 import { loadGoogleCalendarSettings } from "../lib/google/calendar-settings";
-import { loadPlayhouseData } from "../lib/playhouse/data";
+import { loadPlayhouseData, resolvePlayLifecycle } from "../lib/playhouse/data";
 import {
   BROWSER_TIME_ZONE_COOKIE,
   resolveTimeZone,
@@ -50,6 +50,7 @@ export default async function Home({
         displayName: string;
         email: string | null;
         nextPlayOptions: Awaited<ReturnType<typeof loadPlayhouseData>>["nextPlayOptions"];
+        lifecycle: Awaited<ReturnType<typeof loadPlayhouseData>>["lifecycle"];
         plays: Awaited<ReturnType<typeof loadPlayhouseData>>["plays"];
         profileTimeZone: string;
         selectedView: Awaited<ReturnType<typeof loadPlayhouseData>>["selectedView"];
@@ -92,6 +93,7 @@ export default async function Home({
         supabase,
         timeZone,
         view: firstValue(params.view),
+        lifecycle: resolvePlayLifecycle(firstValue(params.lifecycle)),
         searchQuery: firstValue(params.q)?.trim().slice(0, 200),
       });
 
@@ -105,6 +107,7 @@ export default async function Home({
         email,
         kind: "signed-in",
         nextPlayOptions: playhouseData.nextPlayOptions,
+        lifecycle: playhouseData.lifecycle,
         plays: playhouseData.plays,
         profileTimeZone: profile?.timezone ?? "UTC",
         selectedView: playhouseData.selectedView,
@@ -138,6 +141,7 @@ export default async function Home({
         email: pageState.email,
       }}
       nextPlayOptions={pageState.nextPlayOptions}
+      lifecycle={pageState.lifecycle}
       plays={pageState.plays}
       profileTimeZone={pageState.profileTimeZone}
       selectedView={pageState.selectedView}

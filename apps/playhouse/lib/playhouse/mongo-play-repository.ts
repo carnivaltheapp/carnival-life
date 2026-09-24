@@ -11,7 +11,7 @@ import type { BulkPlayChange } from "../../domain/play-bulk-change";
 import { orderUpdatesForInsertion } from "../../domain/play-order";
 import { promotionOrderUpdates } from "../../domain/reminder";
 import type { Database } from "../supabase/database.types";
-import type { SelectedView } from "./data";
+import type { PlayLifecycle, SelectedView } from "./data";
 import {
   assertMongoUserMapping,
   expandMongoPlaceRows,
@@ -29,6 +29,7 @@ import {
   mongoContactResourceName,
   mongoCreateDocument,
   mongoDateFilter,
+  mongoLifecycleFilter,
   mongoEditableSet,
   mongoMutationFilter,
   mongoPlacementDateFilter,
@@ -393,14 +394,17 @@ export class MongoPlayRepository implements PlayRepository {
     };
   }
 
-  async list(selectedView?: SelectedView): Promise<RepositoryPlayList> {
+  async list(
+    selectedView?: SelectedView,
+    lifecycle: PlayLifecycle = "active",
+  ): Promise<RepositoryPlayList> {
     const filter = !selectedView
-      ? mongoActiveFilter()
+      ? mongoLifecycleFilter(lifecycle)
       : selectedView.kind === "all"
-      ? mongoAllScheduledFilter(selectedView.defaultDate)
+      ? mongoAllScheduledFilter(selectedView.defaultDate, lifecycle)
       : selectedView.kind === "basket"
-      ? mongoBasketFilter(selectedView.basket.slug)
-      : mongoDateFilter(selectedView.startDate, selectedView.endDate);
+      ? mongoBasketFilter(selectedView.basket.slug, lifecycle)
+      : mongoDateFilter(selectedView.startDate, selectedView.endDate, lifecycle);
     const isToday = selectedView?.kind === "calendar" && selectedView.key === "today";
     const startedAt = Date.now();
     if (isToday) {

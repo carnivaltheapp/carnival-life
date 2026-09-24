@@ -4,6 +4,9 @@ import type { BasketSummary, PlayListItem } from "../../domain/play";
 import {
   addDays,
   dateInTimeZone,
+  lifecycleViewHref,
+  retainLifecycleInHref,
+  resolvePlayLifecycle,
   resolveSelectedView,
   sortPlaysForDisplay,
   sortPlaysForSelectedView,
@@ -82,6 +85,67 @@ describe("PlayHouse destination resolution", () => {
       label: "Monday, September 14",
       startDate: "2026-09-14",
     });
+  });
+});
+
+describe("PlayHouse lifecycle views", () => {
+  const dateScope = {
+    endDate: "2026-09-25",
+    key: "date" as const,
+    kind: "calendar" as const,
+    label: "Friday, September 25",
+    startDate: "2026-09-25",
+  };
+
+  it("keeps Date scope while toggling Done, Trash, and Active", () => {
+    expect(lifecycleViewHref({ lifecycle: "done", searchQuery: "", selectedView: dateScope }))
+      .toBe("/?date=2026-09-25&lifecycle=done");
+    expect(lifecycleViewHref({ lifecycle: "trash", searchQuery: "", selectedView: dateScope }))
+      .toBe("/?date=2026-09-25&lifecycle=trash");
+    expect(lifecycleViewHref({ lifecycle: "active", searchQuery: "", selectedView: dateScope }))
+      .toBe("/?date=2026-09-25");
+  });
+
+  it("keeps Basket, exact seven-day, and All Plays scopes", () => {
+    expect(lifecycleViewHref({
+      lifecycle: "done",
+      searchQuery: "",
+      selectedView: { basket: baskets[0], kind: "basket", label: "Backlog" },
+    })).toBe("/?basket=backlog&lifecycle=done");
+    expect(lifecycleViewHref({
+      lifecycle: "trash",
+      searchQuery: "",
+      selectedView: {
+        endDate: "2026-08-31",
+        key: "week",
+        kind: "calendar",
+        label: "Next 7 days",
+        startDate: "2026-08-25",
+      },
+    })).toBe("/?view=week&lifecycle=trash");
+    expect(lifecycleViewHref({
+      lifecycle: "done",
+      searchQuery: "",
+      selectedView: {
+        defaultDate: "2026-08-25",
+        key: "all",
+        kind: "all",
+        label: "All Plays",
+      },
+    })).toBe("/?view=all&lifecycle=done");
+  });
+
+  it("preserves search and safely resolves lifecycle input", () => {
+    expect(lifecycleViewHref({ lifecycle: "trash", searchQuery: "quarterly plan", selectedView: dateScope }))
+      .toContain("q=quarterly+plan");
+    expect(resolvePlayLifecycle("done")).toBe("done");
+    expect(resolvePlayLifecycle("trash")).toBe("trash");
+    expect(resolvePlayLifecycle("unknown")).toBe("active");
+    expect(retainLifecycleInHref("/?view=week", "done"))
+      .toBe("/?view=week&lifecycle=done");
+    expect(retainLifecycleInHref("/?basket=soon", "trash"))
+      .toBe("/?basket=soon&lifecycle=trash");
+    expect(retainLifecycleInHref("/?view=all", "active")).toBe("/?view=all");
   });
 });
 

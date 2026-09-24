@@ -35,7 +35,7 @@ describe("PlayHouse crown and Branch filter", () => {
     expect(dataLoader).toMatch(
       /branchOptions: playBranchOptions\(result\.plays\)[\s\S]*?plays: searchQuery[\s\S]*?searchPlays\(result\.plays/,
     );
-    expect(shell).toContain("validSelectedBranch(branchFilter.selected, branchOptions)");
+    expect(shell).toContain("!branchOptions.includes(selectedBranch)");
   });
 
   it("uses the supplied PlayHouse theater artwork across header, sign-in, manifest, and favicon branding", () => {

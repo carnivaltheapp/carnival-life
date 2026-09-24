@@ -15,6 +15,7 @@ import { resolvePlayhouseDataSource } from "./data-source";
 import { createPlayRepository } from "./play-repository";
 
 export type CalendarViewKey = "date" | "today" | "tomorrow" | "week";
+export type PlayLifecycle = "active" | "done" | "trash";
 
 export type SelectedView =
   | {
@@ -41,12 +42,45 @@ export type PlayhouseData = {
   branchOptions: string[];
   error: boolean;
   nextPlayOptions: NextPlayOption[];
+  lifecycle: PlayLifecycle;
   plays: PlayListItem[];
   selectedView: SelectedView;
   supportsWorkflows: boolean;
   searchQuery: string;
   todayDate: string;
 };
+
+export function resolvePlayLifecycle(value?: string): PlayLifecycle {
+  return value === "done" || value === "trash" ? value : "active";
+}
+
+/** Done and Trash filter lifecycle without changing the current PlayHouse scope. */
+export function lifecycleViewHref({
+  lifecycle,
+  searchQuery,
+  selectedView,
+}: {
+  lifecycle: PlayLifecycle;
+  searchQuery: string;
+  selectedView: SelectedView;
+}) {
+  const params = new URLSearchParams();
+  if (selectedView.kind === "basket") params.set("basket", selectedView.basket.slug);
+  else if (selectedView.kind === "all") params.set("view", "all");
+  else if (selectedView.key === "date") params.set("date", selectedView.startDate);
+  else params.set("view", selectedView.key);
+  if (searchQuery) params.set("q", searchQuery);
+  if (lifecycle !== "active") params.set("lifecycle", lifecycle);
+  return `/?${params.toString()}`;
+}
+
+export function retainLifecycleInHref(href: string, lifecycle: PlayLifecycle) {
+  if (lifecycle === "active") return href;
+  const [path, query = ""] = href.split("?", 2);
+  const params = new URLSearchParams(query);
+  params.set("lifecycle", lifecycle);
+  return `${path}?${params.toString()}`;
+}
 
 export function dateInTimeZone(date: Date, timeZone: string) {
   let parts: Intl.DateTimeFormatPart[];
@@ -172,6 +206,7 @@ export async function loadPlayhouseData({
   supabase,
   timeZone,
   view,
+  lifecycle = "active",
   searchQuery = "",
 }: {
   basketSlug?: string;
@@ -180,6 +215,7 @@ export async function loadPlayhouseData({
   supabase: SupabaseClient<Database>;
   timeZone: string;
   view?: string;
+  lifecycle?: PlayLifecycle;
   searchQuery?: string;
 }): Promise<PlayhouseData> {
   const { data: basketRows, error: basketError } = await supabase
@@ -203,6 +239,7 @@ export async function loadPlayhouseData({
       branchOptions: [],
       error: true,
       nextPlayOptions: [],
+      lifecycle,
       plays: [],
       selectedView,
       supportsWorkflows: false,
@@ -221,12 +258,13 @@ export async function loadPlayhouseData({
     if (!(await repository.reconcileDueReminders(todayDate))) {
       throw new Error("Due Reminders could not be reconciled.");
     }
-    const result = await repository.list(searchQuery ? undefined : selectedView);
+    const result = await repository.list(searchQuery ? undefined : selectedView, lifecycle);
     return {
       baskets,
       branchOptions: playBranchOptions(result.plays),
       error: result.error,
       nextPlayOptions: result.nextPlayOptions,
+      lifecycle,
       plays: searchQuery
         ? searchPlays(result.plays, searchQuery, baskets)
         : sortPlaysForSelectedView(result.plays, selectedView),
@@ -241,6 +279,7 @@ export async function loadPlayhouseData({
       branchOptions: [],
       error: true,
       nextPlayOptions: [],
+      lifecycle,
       plays: [],
       selectedView,
       supportsWorkflows: false,
