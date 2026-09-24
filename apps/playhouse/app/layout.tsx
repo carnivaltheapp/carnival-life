@@ -27,7 +27,7 @@ export default function RootLayout({
       <body>
         {children}
         <small className="versionStamp" data-testid="version-stamp">
-          P3-RIGHT-SLOT-128
+          P3-RIGHT-SLOT-INCOMING-129
         </small>
       </body>
     </html>

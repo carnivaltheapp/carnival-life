@@ -505,20 +505,42 @@ test("an extra Slack tab moves to Misc while the canonical Slack Hot Tab routes"
 
 test("an arbitrary Aux tab moves to persistent Misc without changing the five Hot Tabs", async () => {
   const chrome = fakeChrome();
+  const animations = [];
+  const workspace = new CarnivalWorkspaceController(chrome, {
+    logger: { warn() {} },
+    nativeAnimate: async (animation) => {
+      animations.push(animation);
+      return true;
+    },
+  });
   const workArea = { height: 900, left: 0, top: 0, width: 1600 };
-  const first = await controller(chrome).summon(workArea, "display-1");
+  const first = await workspace.summon(workArea, "display-1");
+  const playhouseBefore = { ...chrome.getWindow(first.playhouseWindowId) };
+  const animationCount = animations.length;
   const userTab = chrome.addTab(first.contextWindowId, "https://docs.google.com/document/d/example", {
     active: true,
   });
   await chrome.tabs.update(userTab.id, { pinned: true });
-  await controller(chrome).reconcileAuxTabs(first.contextWindowId, { revealMisc: true });
-  const handedOff = await controller(chrome).state();
+  chrome.calls.updateWindow.length = 0;
+  await workspace.reconcileAuxTabs(first.contextWindowId, { revealMisc: true });
+  const handedOff = await workspace.state();
   assert.equal(handedOff.rightSurface, "misc");
   assert.equal(chrome.getTab(userTab.id).active, true);
+  assert.equal(chrome.getWindow(handedOff.miscWindowId).state, "normal");
   assert.equal(chrome.getWindow(first.contextWindowId).state, "minimized");
-  await controller(chrome).rememberWorkspaceTabs(handedOff.miscWindowId);
+  const miscActivateIndex = chrome.calls.updateWindow.findIndex(({ id, options }) => (
+    id === handedOff.miscWindowId && options.focused === true
+  ));
+  const auxHideIndex = chrome.calls.updateWindow.findIndex(({ id, options }) => (
+    id === first.contextWindowId && options.state === "minimized"
+  ));
+  assert.ok(miscActivateIndex >= 0 && miscActivateIndex < auxHideIndex);
+  assert.deepEqual(chrome.getWindow(first.playhouseWindowId), playhouseBefore);
+  assert.equal(chrome.calls.updateWindow.some(({ id }) => id === first.playhouseWindowId), false);
+  assert.equal(animations.length, animationCount);
+  await workspace.rememberWorkspaceTabs(handedOff.miscWindowId);
   chrome.closeWindow(handedOff.miscWindowId);
-  await controller(chrome).handleWindowClosed(handedOff.miscWindowId);
+  await workspace.handleWindowClosed(handedOff.miscWindowId);
 
   const restarted = controller(chrome);
   await restarted.switchRightSurface("misc", workArea);
@@ -567,7 +589,7 @@ test("Aux and Misc swap in one right slot without moving PlayHouse or animating"
   const auxHideIndex = chrome.calls.updateWindow.findIndex(({ id, options }) => (
     id === opened.auxWindowId && options.state === "minimized"
   ));
-  assert.ok(auxHideIndex >= 0 && auxHideIndex < miscPlaceIndex && miscPlaceIndex < miscActivateIndex);
+  assert.ok(miscPlaceIndex >= 0 && miscPlaceIndex < miscActivateIndex && miscActivateIndex < auxHideIndex);
   assert.equal(chrome.calls.updateWindow.some(({ id }) => id === opened.phWindowId), false);
 
   chrome.calls.updateWindow.length = 0;
@@ -589,11 +611,88 @@ test("Aux and Misc swap in one right slot without moving PlayHouse or animating"
   const miscHideIndex = chrome.calls.updateWindow.findIndex(({ id, options }) => (
     id === miscWindowId && options.state === "minimized"
   ));
-  assert.ok(miscHideIndex >= 0 && miscHideIndex < auxPlaceIndex && auxPlaceIndex < auxActivateIndex);
+  assert.ok(auxPlaceIndex >= 0 && auxPlaceIndex < auxActivateIndex && auxActivateIndex < miscHideIndex);
   assert.equal(chrome.calls.updateWindow.some(({ id }) => id === opened.phWindowId), false);
   assert.equal(animations.length, animationCount);
   assert.equal(chrome.calls.createWindow.length, 3);
   assert.equal((await controller(chrome).state()).rightSurface, "aux");
+});
+
+test("right-surface requests serialize and a queued request is never dropped", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  const updateWindow = chrome.windows.update.bind(chrome.windows);
+  let releasePlacement;
+  let placementStarted;
+  const placementGate = new Promise((resolve) => { releasePlacement = resolve; });
+  const placementReady = new Promise((resolve) => { placementStarted = resolve; });
+  let held = false;
+  chrome.windows.update = async (id, options) => {
+    if (!held && id !== opened.phWindowId && id !== opened.auxWindowId &&
+      options.state === "normal" && Number.isFinite(options.left)) {
+      held = true;
+      placementStarted();
+      await placementGate;
+    }
+    return updateWindow(id, options);
+  };
+
+  const showMisc = workspace.switchRightSurface("misc", workArea);
+  await placementReady;
+  const showAux = workspace.switchRightSurface("aux", workArea);
+  releasePlacement();
+  await Promise.all([showMisc, showAux]);
+  const final = await workspace.state();
+
+  assert.equal(final.rightSurface, "aux");
+  assert.equal(chrome.getWindow(final.auxWindowId).state, "normal");
+  assert.equal(chrome.getWindow(final.miscWindowId).state, "minimized");
+});
+
+test("a failed right-surface request does not poison the next request", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  const updateWindow = chrome.windows.update.bind(chrome.windows);
+  let failPlacement = true;
+  chrome.windows.update = async (id, options) => {
+    if (failPlacement && id !== opened.phWindowId && id !== opened.auxWindowId &&
+      options.state === "normal" && Number.isFinite(options.left)) {
+      failPlacement = false;
+      throw new Error("simulated incoming placement failure");
+    }
+    return updateWindow(id, options);
+  };
+
+  await assert.rejects(
+    workspace.switchRightSurface("misc", workArea),
+    /simulated incoming placement failure/,
+  );
+  assert.equal(chrome.getWindow(opened.auxWindowId).state, "normal");
+
+  const recovered = await workspace.switchRightSurface("misc", workArea);
+  assert.equal(recovered.rightSurface, "misc");
+  assert.equal(chrome.getWindow(recovered.miscWindowId).state, "normal");
+  assert.equal(chrome.getWindow(opened.auxWindowId).state, "minimized");
+});
+
+test("requesting the already-visible right surface is physically idempotent", async () => {
+  const chrome = fakeChrome();
+  const workspace = controller(chrome);
+  const workArea = { height: 900, left: 0, top: 0, width: 1600 };
+  const opened = await workspace.summon(workArea, "display-1");
+  chrome.calls.updateWindow.length = 0;
+
+  const unchanged = await workspace.switchRightSurface("aux", workArea);
+
+  assert.equal(unchanged.rightSurface, "aux");
+  assert.equal(chrome.calls.updateWindow.some(({ id, options }) => (
+    id === opened.auxWindowId && (options.state === "minimized" || Number.isFinite(options.left))
+  )), false);
+  assert.equal(chrome.calls.updateWindow.some(({ id }) => id === opened.phWindowId), false);
 });
 
 test("persisted or manually moved Misc geometry cannot override the Aux right rectangle", async () => {
@@ -692,6 +791,7 @@ test("a PlayHouse route swaps Misc for Aux without drawer animation", async () =
   const playhouseBefore = { ...chrome.getWindow(opened.phWindowId) };
   const misc = await workspace.switchRightSurface("misc", workArea);
   const animationCount = animations.length;
+  chrome.calls.updateWindow.length = 0;
 
   await workspace.openCarnivalContext("https://mail.google.com/mail/u/0/#all/thread", workArea, "display-1");
   const routed = await workspace.state();
@@ -703,6 +803,14 @@ test("a PlayHouse route swaps Misc for Aux without drawer animation", async () =
     "https://mail.google.com/mail/u/0/#all/thread");
   assert.deepEqual(chrome.getWindow(opened.phWindowId), playhouseBefore);
   assert.equal(animations.length, animationCount);
+  const auxActivateIndex = chrome.calls.updateWindow.findIndex(({ id, options }) => (
+    id === routed.auxWindowId && options.focused === true
+  ));
+  const miscHideIndex = chrome.calls.updateWindow.findIndex(({ id, options }) => (
+    id === misc.miscWindowId && options.state === "minimized"
+  ));
+  assert.ok(auxActivateIndex >= 0 && auxActivateIndex < miscHideIndex);
+  assert.equal(chrome.calls.updateWindow.some(({ id }) => id === opened.phWindowId), false);
 });
 
 test("routing while Aux is already visible performs no right-slot bounds update", async () => {

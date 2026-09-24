@@ -134,6 +134,13 @@ Aux and Misc share one canonical physical right-hand slot based on the existing
 Aux resting rectangle. Right-surface switching changes only the occupant of that
 slot; PH and drawer behavior remain untouched.
 
+Right-slot transitions are incoming-first: the extension positions, shows, and
+activates the incoming Aux or Misc window before hiding the outgoing right
+window. Right-slot swaps never invoke drawer operations or manipulate
+PlayHouse. A small controller-local promise queue serializes manual toggles,
+automatic Aux tab handoffs, and PH-to-Aux swaps; failures release the queue so a
+later request cannot be silently dropped or left behind a stuck transition.
+
 After updating the checked-out extension or native-host source, reload the
 extension at `chrome://extensions` and rerun the platform installer before
 manual verification. The extension service-worker console confirms the current

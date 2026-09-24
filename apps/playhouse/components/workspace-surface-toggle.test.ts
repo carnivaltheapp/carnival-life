@@ -10,6 +10,7 @@ describe("WorkspaceSurfaceToggle", () => {
     expect(component).toContain("Aux ⇄ Misc");
     expect(component).toContain('type="button"');
     expect(component).toContain("toggleRightSurface()");
+    expect(component).toMatch(/try\s*\{[\s\S]*await toggleRightSurface\(\);[\s\S]*\}\s*finally\s*\{[\s\S]*setPending\(false\)/);
     expect(shell).toContain("<WorkspaceSurfaceToggle />");
     expect(stylesheet).toMatch(/\.workspaceSurfaceToggle\s*\{[\s\S]*min-height:\s*32px/);
     expect(stylesheet).toMatch(/\.workspaceSurfaceToggle\s*\{[\s\S]*white-space:\s*nowrap/);

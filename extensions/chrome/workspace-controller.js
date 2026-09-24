@@ -395,6 +395,7 @@ export class CarnivalWorkspaceController {
     this.geometrySettleMs = options.geometrySettleMs ?? POST_RESTORE_GEOMETRY_SETTLE_MS;
     this.creatingRestoreRole = null;
     this.stateUpdates = Promise.resolve();
+    this.rightSurfaceTransitions = Promise.resolve();
     this.transitioning = false;
   }
 
@@ -1160,8 +1161,20 @@ export class CarnivalWorkspaceController {
     }
   }
 
-  async switchRightSurface(surface, workArea = null) {
+  enqueueRightSurfaceTransition(operation) {
+    const transition = this.rightSurfaceTransitions.catch(() => {}).then(operation);
+    this.rightSurfaceTransitions = transition.catch(() => {});
+    return transition;
+  }
+
+  switchRightSurface(surface, workArea = null) {
     const requestedSurface = normalizedRightSurface(surface);
+    return this.enqueueRightSurfaceTransition(
+      () => this.performRightSurfaceSwitch(requestedSurface, workArea),
+    );
+  }
+
+  async performRightSurfaceSwitch(requestedSurface, workArea = null) {
     let prior = await this.state();
     const activeWorkArea = validWorkArea(workArea) ? workArea : prior.workArea;
     if (!validWorkArea(activeWorkArea)) {
@@ -1180,12 +1193,6 @@ export class CarnivalWorkspaceController {
     if (outgoingWindow) {
       await this.rememberWorkspaceTabs(outgoingWindow.id, "right-surface-switch");
       prior = await this.state();
-      if (outgoingWindow.id !== (requestedSurface === "aux" ? prior.auxWindowId : prior.miscWindowId)) {
-        await this.updateWindow(outgoingWindow.id, {
-          focused: false,
-          state: "minimized",
-        }, `hide-${prior.rightSurface}-for-${requestedSurface}`);
-      }
     }
 
     const target = requestedSurface === "aux"
@@ -1198,6 +1205,12 @@ export class CarnivalWorkspaceController {
         state: "normal",
       }, `place-${requestedSurface}-in-right-slot`);
       await this.updateWindow(target.window.id, { focused: true }, `activate-${requestedSurface}-surface`);
+    }
+    if (outgoingWindow && outgoingWindow.id !== target.window.id) {
+      await this.updateWindow(outgoingWindow.id, {
+        focused: false,
+        state: "minimized",
+      }, `hide-${prior.rightSurface}-for-${requestedSurface}`);
     }
 
     const saved = await this.save({
@@ -1239,9 +1252,12 @@ export class CarnivalWorkspaceController {
     return saved;
   }
 
-  async toggleRightSurface(workArea = null) {
-    const state = await this.state();
-    return this.switchRightSurface(state.rightSurface === "misc" ? "aux" : "misc", workArea);
+  toggleRightSurface(workArea = null) {
+    return this.enqueueRightSurfaceTransition(async () => {
+      const state = await this.state();
+      const target = state.rightSurface === "misc" ? "aux" : "misc";
+      return this.performRightSurfaceSwitch(target, workArea);
+    });
   }
 
   async reconcileAuxTabs(windowId, { revealMisc = false } = {}) {
